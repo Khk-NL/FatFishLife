@@ -94,6 +94,15 @@ class IntentTests(unittest.TestCase):
         self.assertEqual(detect_intent("今天天气不错", addressed=True), "default")
         self.assertEqual(detect_intent("随便说说", follow_up=True), "follow_up")
 
+    def test_identity_intents(self):
+        self.assertEqual(detect_intent("你是谁"), "who_are_you")
+        self.assertEqual(detect_intent("你从哪里来"), "where_from")
+        self.assertEqual(detect_intent("你和能天使什么关系"), "relationship")
+        self.assertEqual(detect_intent("你怎么在QQ上"), "how_online")
+        self.assertEqual(detect_intent("你是AI吗"), "are_you_ai")
+        self.assertEqual(detect_intent("你会什么"), "abilities")
+        self.assertEqual(detect_intent("你为什么是苹果"), "why_apple")
+
 
 class ThrottleTests(unittest.TestCase):
     def test_group_and_user_cooldown(self):

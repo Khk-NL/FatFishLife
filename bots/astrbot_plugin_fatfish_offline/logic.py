@@ -145,6 +145,13 @@ def format_resume(resume: datetime, now: datetime | None = None) -> str:
 
 INTENT_PATTERNS: list[tuple[str, str]] = [
     ("urgent", r"(救命|急事|出事了|自杀|自残|不想活|难受得快|报警|急救)"),
+    ("who_are_you", r"(你是谁|你叫什么|你是什么|介绍一下自己|自我介绍)"),
+    ("where_from", r"(你从哪|你从哪里|哪里来的|哪里人|泰拉|拉特兰)"),
+    ("relationship", r"(能天使|蕾缪乐|什么关系|同一个人|是不是同)"),
+    ("how_online", r"(怎么在QQ|怎么上网|怎么连上|跨世界|互联网|前文明)"),
+    ("are_you_ai", r"(你是AI|你是ai|机器人|人工智能|真人吗|是不是人)"),
+    ("abilities", r"(你会什么|你能干嘛|能做什么|会做什么|有什么功能)"),
+    ("why_apple", r"(为什么是苹果|怎么变成苹果|苹果形态|变成苹果)"),
     ("when_resume", r"(几点|什么时候|啥时候|多久|恢复|回来|上线|营业|复活)"),
     ("why_silent", r"(怎么不回|怎么不说话|为什么不说话|为什么不理|没反应|装死|死机|掉线|卡了|怎么不理)"),
     ("greeting", r"^(你好|您好|在吗|在不在|嗨|hi|hello|哈喽|喂)[!！?？。~～]*$"),

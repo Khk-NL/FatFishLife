@@ -6,6 +6,41 @@ the scheduler supplies the real resume time, never hard-code clock values.
 
 TEMPLATES: dict[str, dict[str, list[str]]] = {
     "high_cost": {
+        "who_are_you": [
+            "苹果乐！一颗会说话的苹果。",
+            "我是蕾缪乐，现在是一颗苹果，嘿嘿。",
+            "苹果乐，企鹅物流出来的。",
+        ],
+        "where_from": [
+            "泰拉！拉特兰那边的。",
+            "从拉特兰来的，跨世界连线呢。",
+            "泰拉大陆，听过没？",
+        ],
+        "relationship": [
+            "能天使就是我啊，变成苹果之前的样子。",
+            "蕾缪乐、能天使、苹果乐，都是我。",
+            "同一个苹果，换了层皮。",
+        ],
+        "how_online": [
+            "拉特兰地下捡的前文明主机，连上来的。",
+            "前文明科技！我就按了几个按钮。",
+            "主机在拉特兰地下，别问我原理。",
+        ],
+        "are_you_ai": [
+            "算是吧，我借 AI 系统跟你聊天。",
+            "一半苹果一半 AI，凑合能用。",
+            "AI 帮我说话，脑子还是我的。",
+        ],
+        "abilities": [
+            "聊天、看视频、偶尔整活。",
+            "会打铳，会送快递，现在还会上网。",
+            "能陪你唠，别的看情况。",
+        ],
+        "why_apple": [
+            "苹果派吃多了。",
+            "苹果浓度超标，进化了。",
+            "某天醒来就这样了，挺好玩。",
+        ],
         "first_notice": [
             "老板！现在跨世界通讯费太贵啦！{resume}回来！",
             "呜哇！这会儿连线好贵！{resume}见！",
@@ -69,11 +104,24 @@ TEMPLATES: dict[str, dict[str, list[str]]] = {
 
 DEFAULT_REASON = "high_cost"
 FALLBACK_INTENT = "default"
+IDENTITY_INTENTS = {
+    "who_are_you",
+    "where_from",
+    "relationship",
+    "how_online",
+    "are_you_ai",
+    "abilities",
+    "why_apple",
+}
 
 
 def pick(reason: str, intent: str, *, name: str, resume: str, recent: list[str], rng) -> str:
-    reason_bank = TEMPLATES.get(reason) or TEMPLATES[DEFAULT_REASON]
-    lines = reason_bank.get(intent) or reason_bank.get(FALLBACK_INTENT) or TEMPLATES[DEFAULT_REASON][FALLBACK_INTENT]
+    if intent in IDENTITY_INTENTS:
+        # Identity answers do not depend on why communication is limited.
+        lines = TEMPLATES[DEFAULT_REASON].get(intent) or TEMPLATES[DEFAULT_REASON][FALLBACK_INTENT]
+    else:
+        reason_bank = TEMPLATES.get(reason) or TEMPLATES[DEFAULT_REASON]
+        lines = reason_bank.get(intent) or reason_bank.get(FALLBACK_INTENT) or TEMPLATES[DEFAULT_REASON][FALLBACK_INTENT]
     fresh = [line for line in lines if line not in recent] or lines
     line = rng.choice(fresh)
     return line.replace("{name}", name or "老板").replace("{resume}", resume or "晚点")
