@@ -113,6 +113,7 @@ class ThrottleTests(unittest.TestCase):
         self.assertFalse(throttle.allow("g1", "u2", now + timedelta(seconds=10)))
         self.assertFalse(throttle.allow("g1", "u1", now + timedelta(seconds=60)))
         self.assertTrue(throttle.allow("g1", "u1", now + timedelta(seconds=301)))
+        self.assertTrue(throttle.allow("g1", "u1", now + timedelta(seconds=60), bypass_user=True))
 
     def test_hourly_cap(self):
         throttle = Throttle(group_cooldown=0, user_cooldown=0, max_per_hour=2)

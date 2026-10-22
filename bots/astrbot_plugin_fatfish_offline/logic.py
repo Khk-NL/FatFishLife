@@ -189,14 +189,15 @@ class Throttle:
         self._user_last: dict[tuple[str, str], datetime] = {}
         self._hour: dict[str, list[datetime]] = {}
 
-    def allow(self, group: str, user: str, now: datetime | None = None) -> bool:
+    def allow(self, group: str, user: str, now: datetime | None = None, *, bypass_user: bool = False) -> bool:
         moment = now or datetime.now(SHANGHAI)
         last_group = self._group_last.get(group)
         if last_group and (moment - last_group).total_seconds() < self.group_cooldown:
             return False
-        last_user = self._user_last.get((group, user))
-        if last_user and (moment - last_user).total_seconds() < self.user_cooldown:
-            return False
+        if not bypass_user:
+            last_user = self._user_last.get((group, user))
+            if last_user and (moment - last_user).total_seconds() < self.user_cooldown:
+                return False
         recent = [item for item in self._hour.get(group, []) if (moment - item).total_seconds() < 3600]
         if len(recent) >= self.max_per_hour:
             return False

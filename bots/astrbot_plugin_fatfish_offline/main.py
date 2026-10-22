@@ -15,7 +15,7 @@ from astrbot.core.star.filter.command import GreedyStr
 
 from .logic import Scheduler, ShortContext, Throttle, detect_intent, format_resume
 from .state import StateStore
-from .templates import pick
+from .templates import IDENTITY_INTENTS, pick
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
 LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/sid", "/离线")
@@ -121,7 +121,7 @@ class Main(Star):
         if use_notice:
             intent = "first_notice"
 
-        if not self.throttle.allow(group, user, now):
+        if not self.throttle.allow(group, user, now, bypass_user=intent in ("why_silent", "when_resume", "follow_up") or intent in IDENTITY_INTENTS):
             event.stop_event()
             return
 
