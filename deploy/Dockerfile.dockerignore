@@ -1,0 +1,11 @@
+*
+!pyproject.toml
+!fatfish_video/
+!fatfish_video/**
+!fatfish_story/
+!fatfish_story/**
+!fatfish_bili/
+!fatfish_bili/**
+**/__pycache__/
+**/*.pyc
+**/.env

@@ -1,0 +1,51 @@
+name: fatfishlife
+
+services:
+  astrbot:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: fatfishlife-astrbot:local
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+      PYTHONDONTWRITEBYTECODE: "1"
+      FATFISH_FFMPEG: /usr/bin/ffmpeg
+      FATFISH_FFPROBE: /usr/bin/ffprobe
+    ports:
+      - "127.0.0.1:6185:6185"
+    expose:
+      - "6199"
+    volumes:
+      - ./state/astrbot:/AstrBot/data
+      - ../bots:/AstrBot/data/plugins:ro
+      - ../assets:/opt/fatfish/assets:ro
+      - ../examples:/opt/fatfish/examples:ro
+      - ../docs/persona:/opt/fatfish/docs/persona:ro
+      - ../scripts:/opt/fatfish/scripts:ro
+      - ./state/outputs:/opt/fatfish/outputs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6185/', timeout=5).close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  napcat:
+    image: mlikiowa/napcat-docker@sha256:b101b8968cc31ae428ec0f8e117386e4ced7773b2d8226ed9f7ddfcec55f1b7e
+    restart: unless-stopped
+    depends_on:
+      - astrbot
+    environment:
+      TZ: Asia/Shanghai
+      MODE: reverse_ws
+      ONEBOT_URL: ws://astrbot:6199/ws
+      WEBUI_TOKEN: ${NAPCAT_WEBUI_TOKEN:?Set NAPCAT_WEBUI_TOKEN in deploy/.env before starting}
+      NAPCAT_UID: ${NAPCAT_UID:-1000}
+      NAPCAT_GID: ${NAPCAT_GID:-1000}
+    ports:
+      - "127.0.0.1:6099:6099"
+    volumes:
+      - ./state/qq:/app/.config/QQ
+      - ./state/napcat:/app/napcat/config
+      - ./state/napcat-plugins:/app/napcat/plugins
+      - ./state/astrbot:/AstrBot/data

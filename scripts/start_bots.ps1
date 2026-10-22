@@ -21,6 +21,7 @@ $env:NAPCAT_LOAD_PATH = Join-Path $NapCat "loadNapCat.js"
 $env:NAPCAT_INJECT_PATH = Join-Path $NapCat "NapCatWinBootHook.dll"
 $env:NAPCAT_LAUNCHER_PATH = Join-Path $NapCat "NapCatWinBootMain.exe"
 $env:NAPCAT_MAIN_PATH = Join-Path $NapCat "napcat.mjs"
+$env:PYTHONIOENCODING = "utf-8"
 
 Write-Host "Starting AstrBot on http://127.0.0.1:6185 ..."
 Start-Process -FilePath "$AstrBot\.venv\Scripts\python.exe" `

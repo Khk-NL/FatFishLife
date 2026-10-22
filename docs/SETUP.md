@@ -84,13 +84,15 @@ D:\Code\Apps\bili-venv\Scripts\bili.exe auth status --wait 120
 powershell -ExecutionPolicy Bypass -File scripts\start_bots.ps1
 ```
 
+脚本在启动 AstrBot 前设置 `PYTHONIOENCODING=utf-8`，避免 Windows 把重定向日志按默认代码页编码而报 `UnicodeEncodeError`。单独启动或重定向日志时，也应先在同一 PowerShell 中设置 `$env:PYTHONIOENCODING = "utf-8"`。
+
 ## 配置
 
 AstrBot WebUI → 插件 → `astrbot_plugin_fatfish_memory`：
 
-- `owner_ids`：`qq:<小号QQ>,bilibili:<你的UID>`
+- `owner_ids`：`qq:<主人QQ>,bilibili:<主人UID>`；填写主人的身份，不是 bot 小号
 - `record_all_messages`：默认开
-- `retention_days`：默认 90
+- `retention_days`：保留配置项，自动清理尚未接入；当前不会因该值自动删除事件
 
 `astrbot_plugin_fatfish_bili`：
 

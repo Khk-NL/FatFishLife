@@ -1,0 +1,13 @@
+{
+  "bili_exe": "/opt/bili-venv/bin/bili",
+  "bili_home": "/AstrBot/data/plugin_data/astrbot_plugin_fatfish_bili/cli",
+  "memory_db": "",
+  "owner_uid": "",
+  "owner_qq": "",
+  "notify_umo": "",
+  "enable_inbox_poll": false,
+  "poll_interval_seconds": 180,
+  "auto_reply": false,
+  "auto_reply_owner_only": true,
+  "dry_run_writes": true
+}

@@ -1,0 +1,9 @@
+{
+  "owner_ids": "",
+  "record_all_messages": true,
+  "max_content_chars": 500,
+  "retention_days": 90,
+  "db_path": "",
+  "inject_context": true,
+  "max_context_chars": 1800
+}
