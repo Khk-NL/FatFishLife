@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -52,6 +53,15 @@ CREATE TABLE IF NOT EXISTS summaries (
     created_at TEXT NOT NULL,
     source TEXT
 );
+
+CREATE TABLE IF NOT EXISTS journals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    day TEXT NOT NULL,
+    content TEXT NOT NULL,
+    source TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_journals_day ON journals(day);
 """
 
 
@@ -67,10 +77,15 @@ class MemoryStore:
         with self._connect() as conn:
             conn.executescript(SCHEMA)
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self):
         conn = sqlite3.connect(self.path, timeout=15, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
     def remember(
         self,
@@ -167,6 +182,28 @@ class MemoryStore:
                 dict(row)
                 for row in conn.execute(
                     "SELECT id, period, content, created_at, source FROM summaries ORDER BY id DESC LIMIT ?",
+                    (max(1, min(100, int(limit))),),
+                ).fetchall()
+            ]
+
+    def add_journal(self, content: str, *, day: str = "", source: str = "") -> int:
+        text = " ".join(str(content).split())
+        if not text:
+            raise ValueError("札记不能为空")
+        day = day or datetime.now().astimezone().date().isoformat()
+        with self._lock, self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO journals(day, content, source, created_at) VALUES (?,?,?,?)",
+                (day, text[:2000], source, now()),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def journals(self, limit: int = 10) -> list[dict]:
+        with self._connect() as conn:
+            return [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT id, day, content, source, created_at FROM journals ORDER BY id DESC LIMIT ?",
                     (max(1, min(100, int(limit))),),
                 ).fetchall()
             ]

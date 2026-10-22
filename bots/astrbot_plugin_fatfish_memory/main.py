@@ -103,6 +103,8 @@ class Main(Star):
                 "/记忆 人设 [内容]    仅主人可改\n"
                 "/记忆 导入 <总结>    仅主人\n"
                 "/记忆 总结           仅主人\n"
+                "/记忆 札记 [内容]    查看或写成长札记\n"
+                "/记忆 提炼           从最近记录提炼札记，仅主人\n"
                 "/记忆 绑定 <B站UID>  仅主人"
             )
             return
@@ -185,6 +187,51 @@ class Main(Star):
                 return
             lines = [f"[{row['created_at'][:16]}] {row['content'][:200]}" for row in rows]
             yield event.plain_result("最近的总结：\n" + "\n".join(lines))
+            return
+        if command == "札记":
+            if not body:
+                rows = self.store.journals(limit=8)
+                if not rows:
+                    yield event.plain_result("还没有成长札记。主人可以写一条，或用 /记忆 提炼。")
+                    return
+                lines = [f"[{row['day']}] {row['content']}" for row in rows]
+                yield event.plain_result("成长札记：\n" + "\n".join(lines))
+                return
+            if not owner:
+                yield event.plain_result("只有主人可以写札记。")
+                return
+            self.store.add_journal(body, source=f"{_platform(event)}:{event.get_sender_id()}")
+            yield event.plain_result("札记已保存。")
+            return
+        if command == "提炼":
+            if not owner:
+                yield event.plain_result("只有主人可以提炼札记。")
+                return
+            rows = self.store.recent(scopes=("private", "public"), limit=40)
+            if not rows:
+                yield event.plain_result("最近没有可提炼的记忆。")
+                return
+            material = "\n".join(f"- [{row['created_at'][:16]}] {row['content'][:160]}" for row in reversed(rows))
+            prompt = (
+                "下面是大肥鱼最近和主人、观众的相处记录。请从中提炼 1 到 3 条「认识」或「下次怎么回应」，"
+                "每条一行，不要编号，不要复述原文，不要编造没有出现的事实。"
+                "如果没有值得沉淀的内容，只输出一行：无。\n\n" + material
+            )
+            try:
+                provider_id = await self.context.get_current_chat_provider_id(umo=event.unified_msg_origin)
+                response = await self.context.llm_generate(chat_provider_id=provider_id, prompt=prompt)
+                text = str(getattr(response, "completion_text", "") or "").strip()
+            except Exception as exc:  # provider errors must not crash the command
+                yield event.plain_result(f"提炼失败：{exc}")
+                return
+            lines = [line.strip(" -•\t") for line in text.splitlines() if line.strip()]
+            lines = [line for line in lines if line and line != "无"][:3]
+            if not lines:
+                yield event.plain_result("这轮没有值得沉淀的内容。")
+                return
+            for line in lines:
+                self.store.add_journal(line, source="auto")
+            yield event.plain_result("已写入札记：\n" + "\n".join(lines))
             return
         if command == "绑定":
             if not owner:
