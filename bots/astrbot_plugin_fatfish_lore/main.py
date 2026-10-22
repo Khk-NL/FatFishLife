@@ -83,7 +83,10 @@ class Main(Star):
             remaining -= len(block)
             if remaining <= 0:
                 break
-        return "\n\n".join(blocks)
+        return (
+            "（以下是设定库资料，只用来帮你理解。回答时用苹果乐的语气简短说自己的话，"
+            "不要原文粘贴、不要复述章节标题。）\n\n" + "\n\n".join(blocks)
+        )
 
     @filter.command("设定")
     async def lore(self, event: AstrMessageEvent, text: GreedyStr = GreedyStr("")):
@@ -98,7 +101,7 @@ class Main(Star):
 
     @filter.llm_tool(name="lore_lookup")
     async def lore_lookup(self, event: AstrMessageEvent, topic: str):
-        """查询苹果乐的设定库：世界观、人物关系、过往经历、对话示例。
+        """查询苹果乐的设定库：世界观、人物关系、过往经历、对话示例。返回的是背景资料，回答时必须用自己的话简短转述，不要原文粘贴。
 
         Args:
             topic(string): 想了解的主题或关键词
