@@ -1,0 +1,12 @@
+{
+  "lore_path": {
+    "type": "string",
+    "description": "完整角色卡 Markdown 路径",
+    "default": "D:/Code/Projects/FatFishLife/docs/persona/apple-le-full.md"
+  },
+  "max_chars": {
+    "type": "int",
+    "description": "单次返回的最大字符数",
+    "default": 1800
+  }
+}
