@@ -1,0 +1,17 @@
+{
+  "owner_qq": {
+    "type": "string",
+    "description": "主人 QQ 号，可直接收藏入库并审核别人的投稿",
+    "default": ""
+  },
+  "auto_collect_owner_images": {
+    "type": "bool",
+    "description": "主人发图时自动收进待审核（默认关闭，避免存无关图片）",
+    "default": false
+  },
+  "max_pending": {
+    "type": "int",
+    "description": "待审核队列上限，超过后不再自动收集",
+    "default": 50
+  }
+}

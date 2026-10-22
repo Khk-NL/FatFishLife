@@ -18,6 +18,15 @@ from .templates import OfflineConfig, OfflineReplyEngine
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
 LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/sid", "/离线")
+HELP_TEXT = """苹果乐命令：
+/记忆 状态 | 搜索 <词> | 最近 | 记住 <内容> | 公开 <内容> | 人设 | 导入 <总结> | 札记 | 提炼 | 绑定 <B站UID>
+/bili 状态 | 收件箱 | 看 <BV号> | 搜 <词> | 回复 <BV号> <评论ID> <内容> | 私信 <UID> <内容> | 处理
+/设定 <关键词>   查角色设定，/设定 目录 看章节
+/离线 状态 | 开 | 关 | 自动
+/reset           清空当前会话
+/reset 群:<群号>  清空指定群聊上下文
+/reset qq:<QQ号>  清空指定私聊上下文
+/help 或 /帮助    本菜单"""
 
 
 class Main(Star):
@@ -105,6 +114,38 @@ class Main(Star):
         ignored = {item.strip() for item in str(self.config.get("ignore_uids") or "").split(",") if item.strip()}
         return bool(uid) and uid in ignored
 
+    async def _send_help(self, event: AstrMessageEvent) -> None:
+        await event.send(MessageChain([Plain(HELP_TEXT)]))
+
+    async def _reset_target(self, event: AstrMessageEvent, argument: str) -> None:
+        if not self._is_owner(event):
+            await event.send(MessageChain([Plain("只有主人可以清空指定会话。")]))
+            return
+        target = argument.strip().replace("：", ":")
+        platform = str(event.get_platform_name() or "napcat")
+        if target.startswith(("群:", "group:")):
+            target_id = target.split(":", 1)[1].strip()
+            umo = f"{platform}:GroupMessage:{target_id}"
+            label = f"群 {target_id}"
+        elif target.lower().startswith(("qq:", "user:", "私聊:")):
+            target_id = target.split(":", 1)[1].strip()
+            umo = f"{platform}:FriendMessage:{target_id}"
+            label = f"私聊 {target_id}"
+        else:
+            await event.send(MessageChain([Plain("格式：/reset 群:123456 或 /reset qq:123456")]))
+            return
+        if not target_id:
+            await event.send(MessageChain([Plain("目标不能为空。")]))
+            return
+        try:
+            await self.context.conversation_manager.delete_conversations_by_user_id(umo)
+        except Exception as exc:
+            logger.warning(f"清空会话失败：{exc}")
+            await event.send(MessageChain([Plain(f"清空失败：{exc}")]))
+            return
+        await event.send(MessageChain([Plain(f"已清空{label}的上下文。")]))
+        logger.info(f"清空会话 {umo}")
+
     # ---------- message guard ----------
 
     @filter.event_message_type(filter.EventMessageType.ALL)
@@ -129,6 +170,15 @@ class Main(Star):
 
         text = str(event.message_str or "").strip()
         if text.startswith("/"):
+            if text.startswith(("/help", "/帮助")):
+                await self._send_help(event)
+                event.stop_event()
+                return
+            parts = text.split(maxsplit=1)
+            if parts[0] in ("/reset", "/重置") and len(parts) > 1:
+                await self._reset_target(event, parts[1])
+                event.stop_event()
+                return
             # Let AstrBot's own command handlers run, including /离线 itself.
             if any(text.startswith(command) for command in LOCAL_COMMANDS):
                 return
