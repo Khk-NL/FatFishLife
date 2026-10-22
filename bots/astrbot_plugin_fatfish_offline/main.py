@@ -178,7 +178,11 @@ class Main(Star):
                 return
         self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
 
-        text = str(event.message_str or "").strip()
+        text = str(
+            getattr(getattr(event, "message_obj", None), "message_str", "")
+            or event.message_str
+            or ""
+        ).strip()
         if text.startswith("/"):
             if text.startswith(("/help", "/帮助")):
                 await self._send_help(event)
