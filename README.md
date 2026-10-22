@@ -145,6 +145,58 @@ python -m unittest discover -s tests -v
 
 Web 测试另外覆盖 HTTP 角色库及本地素材完整性、媒体分段读取、路径边界、错误请求，以及实际导出 WAV 的时长与频率、1080p MP4 的帧率与音轨。
 
+## 双 bot（B 站 + QQ）共享记忆
+
+当前主线。视频引擎保留，AI 分镜暂停扩展。
+
+```
+AstrBot (127.0.0.1:6185, OneBot 6199)
+├── astrbot_plugin_fatfish_memory   共享 SQLite：人设、主人、事件、总结、札记
+└── astrbot_plugin_fatfish_bili     封装 bili-cli：收件箱、看视频、搜索、回复、私信
+NapCat (6099)  ── OneBot v11 ──>  AstrBot
+```
+
+插件源码在 `bots/`，AstrBot 通过 junction 加载同一份文件：
+
+```
+D:\Code\Apps\AstrBot\data\plugins\astrbot_plugin_fatfish_memory -> D:\Code\Projects\FatFishLife\bots\...
+D:\Code\Apps\AstrBot\data\plugins\astrbot_plugin_fatfish_bili   -> D:\Code\Projects\FatFishLife\bots\...
+```
+
+启动：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start_bots.ps1
+```
+
+首次登录：
+
+```
+/bili 登录        生成二维码，B 站 App 扫码
+/bili 确认        检查扫码结果
+```
+
+QQ 侧用 NapCat 的小号扫码；不要用主号，NapCat 会接管该 QQ 实例。
+
+共享记忆命令：
+
+```
+/记忆 搜索 <关键词>     主人可搜私人层
+/记忆 最近
+/记忆 状态
+/记忆 记住 <内容>       仅主人，写入私人层
+/记忆 公开 <内容>       仅主人，写入公开层
+/记忆 人设 [内容]
+/记忆 导入 <总结>       仅主人，每日总结
+/记忆 札记 [内容]       成长札记
+/记忆 提炼              LLM 从最近记录提炼 1～3 条札记
+/记忆 绑定 <B站UID>
+```
+
+成长四层：L1 人设与主人资料常驻；L2 事件按需检索；L3 札记是每天沉淀的认识；L4 技能留给稳定流程。私人层只对主人开放。
+
+B 站插件默认 `dry_run_writes: true`，评论和私信只预览。确认后再关。
+
 ## 后续阶段
 
 依次加入 AI 文案与分镜、B 站视频理解及运营、QQ 人格与私人记忆、Updream 游戏二创，最后由 AstrBot 插件统一管理并部署服务器。后续 AI 直接生成同一种项目配置，插件调用现有渲染入口。私人每日总结不进入公开文案和视频素材。
