@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.message_components import At, Plain
+from astrbot.api.message_components import At, Plain, Reply
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.star.filter.command import GreedyStr
@@ -88,15 +88,25 @@ class Main(Star):
             decision.reason = self.reason
         return decision
 
-    def _addressed(self, event: AstrMessageEvent) -> bool:
+    async def _addressed(self, event: AstrMessageEvent) -> bool:
         if event.is_private_chat():
             return True
         self_id = str(event.get_self_id() or "")
-        for component in getattr(getattr(event, "message_obj", None), "message", []) or []:
+        message = getattr(getattr(event, "message_obj", None), "message", []) or []
+        for component in message:
             if isinstance(component, At) and str(getattr(component, "qq", "")) == self_id:
                 return True
-        text = str(event.message_str or "")
-        return "苹果乐" in text or "蕾缪乐" in text or "能天使" in text
+        for component in message:
+            if not isinstance(component, Reply):
+                continue
+            try:
+                data = await event.bot.call_action("get_msg", message_id=component.id)
+            except Exception:
+                continue
+            sender = (data or {}).get("sender") or {}
+            if str(sender.get("user_id") or "") == self_id:
+                return True
+        return False
 
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         if event.is_admin():
@@ -187,7 +197,11 @@ class Main(Star):
 
         group = str(event.get_group_id() or f"private:{event.get_sender_id()}")
         user = str(event.get_sender_id() or "unknown")
-        addressed = self._addressed(event)
+        addressed = await self._addressed(event)
+        if not addressed:
+            # Silence in groups unless directly @-ed or replied to.
+            event.stop_event()
+            return
         resume_text = format_resume(decision.resume_at, now) if decision.resume_at else "晚点"
         reply = self.engine.handle(
             group_id=group,
