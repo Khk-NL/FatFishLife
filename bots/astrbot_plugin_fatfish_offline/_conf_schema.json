@@ -7,7 +7,7 @@
   "windows": {
     "type": "list",
     "description": "离线时段，格式 HH:MM-HH:MM，可写多个",
-    "default": ["08:00-12:00", "14:00-18:00"]
+    "default": ["09:00-12:00", "14:00-18:00"]
   },
   "weekdays": {
     "type": "list",

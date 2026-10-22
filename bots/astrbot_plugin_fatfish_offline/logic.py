@@ -101,6 +101,26 @@ class Scheduler:
                 return Decision(True, window.reason, resume, window)
         return Decision(False)
 
+    def next_resume(self, now: datetime | None = None) -> datetime | None:
+        """Return the next moment normal AI resumes: always a window end."""
+        moment = (now or datetime.now(self.tz)).astimezone(self.tz)
+        clock = moment.time()
+        if self.is_workday(moment):
+            for window in self.windows:
+                start, end = parse_clock(window.start), parse_clock(window.end)
+                if start <= clock < end:
+                    return datetime.combine(moment.date(), end, tzinfo=moment.tzinfo)
+        for offset in range(0, 8):
+            day = moment.date() + timedelta(days=offset)
+            probe = datetime.combine(day, time(0, 0), tzinfo=moment.tzinfo)
+            if not self.is_workday(probe):
+                continue
+            for window in sorted(self.windows, key=lambda item: item.start):
+                end_dt = datetime.combine(day, parse_clock(window.end), tzinfo=moment.tzinfo)
+                if end_dt > moment:
+                    return end_dt
+        return None
+
     def next_window(self, now: datetime | None = None) -> datetime | None:
         moment = (now or datetime.now(self.tz)).astimezone(self.tz)
         for offset in range(0, 8):

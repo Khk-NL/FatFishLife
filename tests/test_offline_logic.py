@@ -27,7 +27,7 @@ def moment(day: int, hour: int, minute: int = 0, month: int = 10):
 
 class SchedulerTests(unittest.TestCase):
     def setUp(self):
-        self.scheduler = Scheduler(["08:00-12:00", "14:00-18:00"])
+        self.scheduler = Scheduler(["09:00-12:00", "14:00-18:00"])
 
     def test_weekday_morning_window(self):
         decision = self.scheduler.check(moment(23, 10))
@@ -44,7 +44,17 @@ class SchedulerTests(unittest.TestCase):
         self.assertFalse(self.scheduler.check(moment(23, 12)).offline)
         self.assertFalse(self.scheduler.check(moment(23, 18)).offline)
         self.assertFalse(self.scheduler.check(moment(23, 7, 59)).offline)
+        self.assertFalse(self.scheduler.check(moment(23, 8, 59)).offline)
+        self.assertTrue(self.scheduler.check(moment(23, 9, 0)).offline)
         self.assertTrue(self.scheduler.check(moment(23, 13, 59)).offline is False)
+
+    def test_next_resume_always_window_end(self):
+        scheduler = Scheduler(["09:00-12:00", "14:00-18:00"])
+        self.assertEqual(scheduler.next_resume(moment(23, 10)).hour, 12)
+        self.assertEqual(scheduler.next_resume(moment(23, 13)).hour, 18)
+        self.assertEqual(scheduler.next_resume(moment(23, 8)).hour, 12)
+        self.assertEqual(scheduler.next_resume(moment(23, 19)).hour, 12)
+        self.assertEqual(scheduler.next_resume(moment(23, 19)).day, 26)
 
     def test_weekend_is_online(self):
         self.assertFalse(self.scheduler.check(moment(24, 10)).offline)
@@ -65,7 +75,7 @@ class SchedulerTests(unittest.TestCase):
 
     def test_next_window(self):
         self.assertEqual(self.scheduler.next_window(moment(23, 12, 30)).hour, 14)
-        self.assertEqual(self.scheduler.next_window(moment(23, 19)).hour, 8)
+        self.assertEqual(self.scheduler.next_window(moment(23, 19)).hour, 9)
         self.assertEqual(self.scheduler.next_window(moment(23, 19)).day, 26)
 
     def test_resume_text(self):

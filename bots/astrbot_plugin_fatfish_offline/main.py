@@ -66,7 +66,7 @@ class Main(Star):
         now = datetime.now(self.scheduler.tz)
         manual = self.state.manual
         if manual == "on":
-            return Decision(True, "manual", self.scheduler.next_window(now), None)
+            return Decision(True, "manual", self.scheduler.next_resume(now), None)
         if manual == "off":
             return Decision(False)
         if self.hourly_model_limit > 0:
