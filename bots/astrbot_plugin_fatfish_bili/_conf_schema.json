@@ -19,6 +19,11 @@
     "description": "主人 B 站 UID，用于 bili owner set 和私信白名单",
     "default": ""
   },
+  "owner_qq": {
+    "type": "string",
+    "description": "主人 QQ 号，允许在 QQ 里触发 B 站写操作",
+    "default": ""
+  },
   "notify_umo": {
     "type": "string",
     "description": "收件箱通知推送到哪个 AstrBot 会话（UMO），留空不推送",
@@ -33,6 +38,21 @@
     "type": "int",
     "description": "收件箱轮询间隔，默认 180 秒，最低 60",
     "default": 180
+  },
+  "auto_reply": {
+    "type": "bool",
+    "description": "自动回复主人的 @、评论回复和私信",
+    "default": true
+  },
+  "auto_reply_owner_only": {
+    "type": "bool",
+    "description": "只回复主人；关闭后陌生人每个视频每人也回复一次",
+    "default": false
+  },
+  "reply_persona": {
+    "type": "string",
+    "description": "自动回复时使用的人设提示",
+    "default": "你是 B 站 UP 主「大肥鱼」，说话短、爱吐槽、有点小聪明，但不刻薄。回复像真人随手打的，不解释自己是 AI，不端着，不用列表和标题。"
   },
   "dry_run_writes": {
     "type": "bool",
