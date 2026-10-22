@@ -81,6 +81,23 @@ class GroupEngagement:
         self.last_bot_turn: dict[str, BotTurn] = {}
         self.random_times = defaultdict(deque)
         self.last_random_at: dict[str, float] = {}
+        self.decay: dict[str, dict] = {}
+
+    def _current_probability(self, group_id: str, now: float) -> float:
+        """Base chance, reduced by recent random remarks and restored each hour."""
+        hour_key = int(now // 3600)
+        state = self.decay.get(group_id)
+        if not state or state.get("hour") != hour_key:
+            return self.config.random_probability
+        return self.config.random_probability * float(state.get("factor", 1.0))
+
+    def _apply_decay(self, group_id: str, now: float) -> None:
+        hour_key = int(now // 3600)
+        state = self.decay.get(group_id)
+        if not state or state.get("hour") != hour_key:
+            state = {"hour": hour_key, "factor": 1.0}
+        state["factor"] = max(0.1, float(state.get("factor", 1.0)) * self.config.decay_factor)
+        self.decay[group_id] = state
 
     def _time(self, msg: GroupMessage) -> float:
         return msg.timestamp or time.time()
@@ -153,6 +170,8 @@ class GroupEngagement:
         text = msg.text.strip()
         if not text or len(text) < 3:
             return False
+        if msg.has_media:
+            return False
         if text.startswith(("/", "#", ".")):
             return False
         if re.search(
@@ -222,7 +241,8 @@ class GroupEngagement:
         if self._is_continuation(msg, now):
             return Trigger("continuation", msg.user_id)
         if self._random_eligible(msg, now):
-            if self.rng.random() < self.config.random_probability:
+            if self.rng.random() < self._current_probability(msg.group_id, now):
+                self._apply_decay(msg.group_id, now)
                 return Trigger("random", None)
         return None
 

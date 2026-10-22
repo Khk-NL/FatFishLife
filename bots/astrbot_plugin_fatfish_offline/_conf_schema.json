@@ -34,6 +34,21 @@
     "description": "auto=按中国法定节假日与调休自动判断；manual=只用 weekdays/holidays/workdays",
     "default": "auto"
   },
+  "ambient_chance": {
+    "type": "float",
+    "description": "群聊主动插话基础概率，每次插话后下降，跨小时恢复",
+    "default": 0.025
+  },
+  "ambient_cooldown": {
+    "type": "int",
+    "description": "每群两次主动插话的最小间隔秒数",
+    "default": 300
+  },
+  "ambient_hourly_limit": {
+    "type": "int",
+    "description": "每群每小时主动插话上限",
+    "default": 3
+  },
   "group_cooldown": {
     "type": "int",
     "description": "同一群两次自动回复的最小间隔（秒）",

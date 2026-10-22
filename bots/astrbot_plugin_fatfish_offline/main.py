@@ -49,7 +49,7 @@ class Main(Star):
         self.state = StateStore(StarTools.get_data_dir(PLUGIN_NAME))
         self.engagement = GroupEngagement(
             GroupConfig(
-                random_probability=float(self.config.get("ambient_chance") or 0.05),
+                random_probability=float(self.config.get("ambient_chance") or 0.025),
                 random_cooldown=float(self.config.get("ambient_cooldown") or 300),
                 random_hourly_limit=int(self.config.get("ambient_hourly_limit") or 3),
             )
@@ -228,6 +228,10 @@ class Main(Star):
                             text=incoming,
                             nickname=str(event.get_sender_name() or ""),
                             at_bot=self._has_at_bot(event),
+                            has_media=any(
+                                type(component).__name__ in ("Image", "Record", "Video", "File")
+                                for component in (getattr(event.message_obj, "message", None) or [])
+                            ),
                             timestamp=now.timestamp(),
                         ),
                         wake_matched=bool(event.is_at_or_wake_command),

@@ -76,6 +76,30 @@ class EngagementTest(unittest.TestCase):
         self.assertIsNotNone(trigger)
         self.assertEqual(trigger.kind, "continuation")
 
+    def test_media_never_triggers(self):
+        engine = GroupEngagement(GroupConfig(random_probability=1.0, random_cooldown=0))
+        for index in range(3):
+            engine.handle_message(msg(f"聊天{index}", timestamp=1000 + index))
+        media = msg("看图", timestamp=1004)
+        media.has_media = True
+        self.assertIsNone(engine.handle_message(media))
+
+    def test_probability_decays_and_resets_hourly(self):
+        engine = GroupEngagement(
+            GroupConfig(
+                random_probability=1.0,
+                random_cooldown=0,
+                random_hourly_limit=99,
+                decay_factor=0.5,
+            )
+        )
+        for index in range(3):
+            engine.handle_message(msg(f"聊{index}", timestamp=1000 + index))
+        trigger = engine.handle_message(msg("继续聊", timestamp=1004))
+        self.assertEqual(trigger.kind, "random")
+        self.assertAlmostEqual(engine._current_probability("g1", 1005), 0.5)
+        self.assertAlmostEqual(engine._current_probability("g1", 1005 + 3600), 1.0)
+
     def test_recent_context_format(self):
         self.engine.handle_message(msg("今天好累", timestamp=1000))
         context = self.engine.recent_context("g1", now=1001)
