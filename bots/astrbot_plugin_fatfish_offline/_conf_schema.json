@@ -63,5 +63,10 @@
     "type": "string",
     "description": "主人 QQ 号，允许用 /离线 开|关 手动切换",
     "default": ""
+  },
+  "ignore_uids": {
+    "type": "string",
+    "description": "额外忽略的机器人 QQ 号，逗号分隔；优先使用消息里的 is_robot 标识",
+    "default": ""
   }
 }

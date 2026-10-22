@@ -95,11 +95,25 @@ class Main(Star):
         owner_qq = str(self.config.get("owner_qq") or "").strip()
         return bool(owner_qq) and str(event.get_sender_id() or "") == owner_qq
 
+    def _is_bot(self, event: AstrMessageEvent) -> bool:
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        if isinstance(raw, dict):
+            sender = raw.get("sender") or {}
+            if sender.get("is_robot") or sender.get("isRobot"):
+                return True
+        uid = str(event.get_sender_id() or "")
+        ignored = {item.strip() for item in str(self.config.get("ignore_uids") or "").split(",") if item.strip()}
+        return bool(uid) and uid in ignored
+
     # ---------- message guard ----------
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def guard(self, event: AstrMessageEvent):
         if not self.enabled:
+            return
+        if self._is_bot(event):
+            # Never answer another bot's @ or reply, and never spend a model call on it.
+            event.stop_event()
             return
         now = datetime.now(self.scheduler.tz)
         decision = self._decision()
