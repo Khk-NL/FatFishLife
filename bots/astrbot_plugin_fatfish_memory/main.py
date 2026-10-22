@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 from astrbot.api import logger
@@ -43,6 +44,7 @@ class Main(Star):
         else:
             path = StarTools.get_data_dir(PLUGIN_NAME) / "memory.db"
         self.store = MemoryStore(path)
+        self._last_pruned_day: date | None = None
         self._sync_configured_owners()
         logger.info(f"fatfish shared memory ready: {path}")
 
@@ -92,6 +94,20 @@ class Main(Star):
         if context:
             req.system_prompt = (req.system_prompt or "") + marker + context
 
+    def _prune_if_due(self) -> None:
+        today = date.today()
+        if self._last_pruned_day == today:
+            return
+        try:
+            days = int(self.config.get("retention_days", 90))
+            if days <= 0:
+                return
+            self.store.prune(days)
+        except (sqlite3.Error, OSError, ValueError, TypeError) as exc:
+            logger.warning(f"清理过期记忆失败，后续消息会重试：{exc}")
+            return
+        self._last_pruned_day = today
+
     async def _record(self, event: AstrMessageEvent) -> None:
         if not bool(self.config.get("record_all_messages", True)):
             return
@@ -109,8 +125,10 @@ class Main(Star):
                 actor=str(event.get_sender_id() or ""),
                 limit=int(self.config.get("max_content_chars", 500)),
             )
-        except (ValueError, OSError) as exc:
+        except (sqlite3.Error, ValueError, OSError) as exc:
             logger.warning(f"记录消息失败：{exc}")
+            return
+        self._prune_if_due()
 
     @filter.event_message_type(filter.EventMessageType.ALL)
     async def on_message(self, event: AstrMessageEvent):

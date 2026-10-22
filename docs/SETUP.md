@@ -92,7 +92,7 @@ AstrBot WebUI → 插件 → `astrbot_plugin_fatfish_memory`：
 
 - `owner_ids`：`qq:<主人QQ>,bilibili:<主人UID>`；填写主人的身份，不是 bot 小号
 - `record_all_messages`：默认开
-- `retention_days`：保留配置项，自动清理尚未接入；当前不会因该值自动删除事件
+- `retention_days`：默认 90；每天首次成功记录消息时清理过期事件，0 或负数关闭。总结和札记表不清理；失败保留当日重试机会
 
 `astrbot_plugin_fatfish_bili`：
 

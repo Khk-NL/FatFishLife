@@ -3,8 +3,10 @@ from __future__ import annotations
 import tempfile
 import types
 import unittest
+import sqlite3
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from plugin_support import load_plugin
 
@@ -45,6 +47,7 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.directory.cleanup)
         self.plugin = PLUGIN.Main.__new__(PLUGIN.Main)
         self.plugin.config = {}
+        self.plugin._last_pruned_day = None
         self.plugin.store = PLUGIN.MemoryStore(Path(self.directory.name) / "memory.db")
         self.plugin.store.add_owner("qq", "owner")
         self.plugin.store.remember("PRIVATE_EVENT_TOKEN", scope="private", kind="note")
@@ -61,6 +64,59 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
                 await self.plugin._record(Event(uid, private, text))
                 row = self.plugin.store.recall(text, scopes=("private", "public"))[0]
                 self.assertEqual(row["scope"], "private" if private else "public")
+
+    async def test_daily_retention_removes_old_events_but_keeps_summaries_and_journals(self):
+        old_id = self.plugin.store.remember("到期事件", scope="private")
+        self.plugin.store.add_summary("历史总结")
+        self.plugin.store.add_journal("历史札记")
+        old = (datetime.now().astimezone() - timedelta(days=120)).isoformat(timespec="seconds")
+        with self.plugin.store._connect() as connection:
+            connection.execute("UPDATE events SET created_at=? WHERE id=?", (old, old_id))
+            connection.execute("UPDATE summaries SET created_at=?", (old,))
+            connection.execute("UPDATE journals SET created_at=?", (old,))
+        await self.plugin._record(Event("owner", True, "今天的新消息"))
+        rows = self.plugin.store.recent(scopes=("public", "private"))
+        self.assertNotIn(old_id, [row["id"] for row in rows])
+        self.assertIn("今天的新消息", [row["content"] for row in rows])
+        self.assertEqual(self.plugin.store.summaries()[0]["content"], "历史总结")
+        self.assertEqual(self.plugin.store.journals()[0]["content"], "历史札记")
+
+    async def test_successful_retention_runs_once_per_day(self):
+        with patch.object(PLUGIN, "date") as clock, patch.object(self.plugin.store, "prune", return_value=0) as prune:
+            clock.today.side_effect = [date(2026, 10, 23), date(2026, 10, 23), date(2026, 10, 24)]
+            for text in ("首条", "同日第二条", "次日首条"):
+                await self.plugin._record(Event("owner", True, text))
+            self.assertEqual(prune.call_count, 2)
+            prune.assert_called_with(90)
+
+    async def test_nonpositive_retention_disables_cleanup_without_marking_day_done(self):
+        with patch.object(self.plugin.store, "prune", return_value=0) as prune:
+            for days in (0, -1):
+                self.plugin.config["retention_days"] = days
+                await self.plugin._record(Event("owner", True, "不清理"))
+                self.assertIsNone(self.plugin._last_pruned_day)
+            prune.assert_not_called()
+            self.plugin.config["retention_days"] = 30
+            await self.plugin._record(Event("owner", True, "开启保留策略"))
+            prune.assert_called_once_with(30)
+
+    async def test_retention_failure_is_logged_and_retried_on_next_message(self):
+        with patch.object(self.plugin.store, "prune", side_effect=[sqlite3.OperationalError("database busy"), 0]) as prune, patch.object(PLUGIN.logger, "warning") as warning:
+            await self.plugin._record(Event("owner", True, "首次清理失败但消息已保存"))
+            self.assertIsNone(self.plugin._last_pruned_day)
+            warning.assert_called_once()
+            await self.plugin._record(Event("owner", True, "下一条重试"))
+            await self.plugin._record(Event("owner", True, "成功后不重复"))
+            self.assertEqual(prune.call_count, 2)
+            self.assertIsNotNone(self.plugin._last_pruned_day)
+            self.assertEqual(len(self.plugin.store.recall("首次清理失败", scopes=("private",))), 1)
+
+    async def test_skipped_recording_does_not_trigger_retention(self):
+        with patch.object(self.plugin.store, "prune") as prune:
+            await self.plugin._record(Event("owner", True, "   "))
+            self.plugin.config["record_all_messages"] = False
+            await self.plugin._record(Event("owner", True, "关闭自动记录"))
+            prune.assert_not_called()
 
     async def test_commands_only_return_private_content_in_owner_direct_messages(self):
         for uid in ("owner", "visitor"):
