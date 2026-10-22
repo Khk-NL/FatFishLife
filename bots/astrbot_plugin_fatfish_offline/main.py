@@ -20,6 +20,7 @@ from .templates import OfflineConfig, OfflineReplyEngine
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
 POKE_REPLIES = ["嘿嘿！别戳啦！", "在的在的！", "呜哇！痒！", "戳一下就想跑？"]
+EMPTY_MENTION_REPLIES = ["在！", "嗯？", "诶？", "来啦来啦！", "叫我？", "在这在这！"]
 LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/帮助", "/表情", "/sid", "/离线")
 HELP_TEXT = """苹果乐命令：
 /记忆 状态 | 搜索 <词> | 最近 | 记住 <内容> | 公开 <内容> | 人设 | 导入 <总结> | 札记 | 提炼 | 绑定 <B站UID>
@@ -142,12 +143,29 @@ class Main(Star):
                 return True
         return False
 
-    def _is_poke(self, event: AstrMessageEvent) -> bool:
-        self_id = str(event.get_self_id() or "")
+    def _poke_target(self, event: AstrMessageEvent) -> str | None:
+        raw = getattr(event.message_obj, "raw_message", None)
+        if isinstance(raw, dict) and raw.get("post_type") == "notice" and raw.get("sub_type") == "poke":
+            target = raw.get("target_id")
+            if target is not None:
+                return str(target).strip()
         for component in getattr(event.message_obj, "message", None) or []:
-            if type(component).__name__ == "Poke":
-                return str(getattr(component, "id", "") or "") == self_id
-        return False
+            if type(component).__name__ != "Poke":
+                continue
+            getter = getattr(component, "target_id", None)
+            target = getter() if callable(getter) else getattr(component, "id", "")
+            return str(target or "").strip()
+        return "" if isinstance(raw, dict) and raw.get("post_type") == "notice" and raw.get("sub_type") == "poke" else None
+
+    def _is_empty_mention(self, event: AstrMessageEvent) -> bool:
+        if not self._has_at_bot(event):
+            return False
+        self_id = str(event.get_self_id() or "")
+        return all(
+            (isinstance(component, At) and str(component.qq) == self_id)
+            or (isinstance(component, Plain) and not component.text.strip())
+            for component in (getattr(event.message_obj, "message", None) or [])
+        )
 
     @filter.after_message_sent()
     async def remember_bot_turn(self, event: AstrMessageEvent):
@@ -213,8 +231,18 @@ class Main(Star):
             # Never answer another bot's @ or reply, and never spend a model call on it.
             event.stop_event()
             return
+        poke_target = self._poke_target(event)
+        if poke_target is not None and (not event.get_self_id() or poke_target != str(event.get_self_id())):
+            # A notice about two other users is not a message addressed to this bot.
+            event.stop_event()
+            return
         now = datetime.now(self.scheduler.tz)
         decision = self._decision()
+        if self._is_empty_mention(event):
+            self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
+            await event.send(MessageChain([Plain(random.choice(EMPTY_MENTION_REPLIES))]))
+            event.stop_event()
+            return
         if not decision.offline:
             hour_key = now.strftime("%Y-%m-%dT%H")
             count = self.state.bump_usage(hour_key)
@@ -223,6 +251,13 @@ class Main(Star):
             else:
                 self.state.publish_offline(False)
                 group_key = str(event.get_group_id() or "")
+                if poke_target is not None:
+                    if group_key:
+                        self._pending_trigger[group_key] = (str(event.get_sender_id() or ""), "poke")
+                    event.message_str = "（戳了戳你）"
+                    event.message_obj.message_str = event.message_str
+                    event.is_at_or_wake_command = True
+                    return
                 if group_key:
                     incoming = str(
                         getattr(getattr(event, "message_obj", None), "message_str", "")
@@ -242,7 +277,7 @@ class Main(Star):
                             ),
                             timestamp=now.timestamp(),
                         ),
-                        wake_matched=bool(event.is_at_or_wake_command),
+                        wake_matched=bool(event.is_at_or_wake_command) and not self._has_at_bot(event),
                     )
                     if trigger:
                         self._pending_trigger[group_key] = (trigger.target_user, trigger.kind)
@@ -252,17 +287,9 @@ class Main(Star):
                 return
         self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
 
-        if self._is_poke(event):
-            group_key = str(event.get_group_id() or "")
-            user = str(event.get_sender_id() or "")
-            if decision.offline:
-                await event.send(MessageChain([Plain(random.choice(POKE_REPLIES))]))
-                event.stop_event()
-            else:
-                if group_key:
-                    self._pending_trigger[group_key] = (user, "mention")
-                event.message_str = "（戳了戳你）"
-                event.is_at_or_wake_command = True
+        if poke_target is not None:
+            await event.send(MessageChain([Plain(random.choice(POKE_REPLIES))]))
+            event.stop_event()
             return
 
         text = str(
@@ -270,6 +297,7 @@ class Main(Star):
             or event.message_str
             or ""
         ).strip()
+
         if text.startswith("/"):
             if text.startswith(("/help", "/帮助")):
                 await self._send_help(event)

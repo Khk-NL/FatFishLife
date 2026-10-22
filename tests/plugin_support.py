@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-def load_plugin(plugin_name: str):
+def load_plugin(plugin_name: str, *, module_overrides: dict | None = None):
     plugins = Path(__file__).resolve().parent.parent / "bots"
     root = plugins / plugin_name
     modules = {
@@ -29,6 +29,7 @@ def load_plugin(plugin_name: str):
     modules["astrbot.api.event"].filter = types.SimpleNamespace(
         EventMessageType=types.SimpleNamespace(ALL="all"),
         event_message_type=decorator, command=decorator, llm_tool=decorator, on_llm_request=decorator,
+        after_message_sent=decorator,
     )
     modules["astrbot.api.star"].Context = object
     modules["astrbot.api.star"].Star = type("Star", (), {})
@@ -46,6 +47,7 @@ def load_plugin(plugin_name: str):
     name = package.__name__ + ".main"
     spec = importlib.util.spec_from_file_location(name, root / "main.py")
     module = importlib.util.module_from_spec(spec)
+    modules.update(module_overrides or {})
     with patch.dict(sys.modules, modules):
         sys.modules[name] = module
         spec.loader.exec_module(module)
