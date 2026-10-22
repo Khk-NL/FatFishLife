@@ -7,7 +7,7 @@ import json
 import os
 import re
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from astrbot.api import logger
@@ -40,7 +40,7 @@ class Main(Star):
         self.home.mkdir(parents=True, exist_ok=True)
         memory = str(self.config.get("memory_db") or "").strip()
         self.memory_db = Path(memory) if memory else StarTools.get_data_dir(MEMORY_PLUGIN) / "memory.db"
-        self.seen_path = self.home / "seen.json"
+        self.seen_path = StarTools.get_data_dir(PLUGIN_NAME) / "seen.json"
         self.seen: set[str] = self._load_seen()
         self._started = datetime.now().astimezone()
         self._poll_task: asyncio.Task | None = None
@@ -157,6 +157,7 @@ class Main(Star):
         try:
             provider = self.context.get_using_provider()
             if provider is None:
+                logger.warning("没有可用的聊天模型，跳过 B 站回复")
                 return ""
             response = await provider.text_chat(prompt=prompt, system_prompt=persona)
             answer = str(getattr(response, "completion_text", "") or "").strip()
@@ -229,6 +230,17 @@ class Main(Star):
         self._remember(f"回复私信 {item.get('name') or uid}：{reply}", scope="private", kind="dm_reply")
         return reply if not dry else f"[预览] {reply}"
 
+    def _recent(self, value, minutes: int = 30) -> bool:
+        if not value:
+            return False
+        try:
+            moment = datetime.fromisoformat(str(value))
+        except ValueError:
+            return False
+        if moment.tzinfo is None:
+            moment = moment.astimezone()
+        return moment >= datetime.now().astimezone() - timedelta(minutes=minutes)
+
     async def _poll_once(self, force: bool = False) -> list[str]:
         owner = str(self.config.get("owner_uid") or "").strip()
         if not owner:
@@ -238,11 +250,12 @@ class Main(Star):
             payload = await self._run(*command, timeout=60)
             if not payload.get("ok"):
                 if payload.get("error", {}).get("code") in ("not_logged_in", "auth_expired", "risk_control", "captcha_required"):
+                    logger.warning(f"B 站轮询中断：{self._error(payload)}")
                     await self._notify(self._error(payload) + "\n自动回复已暂停。")
                     return handled
                 continue
             for item in ((payload.get("data") or {}).get("items") or []):
-                if not force and not item.get("is_new", False):
+                if not force and not self._recent(item.get("time")):
                     continue
                 reply = await self._reply_comment(item)
                 if reply:
@@ -250,6 +263,9 @@ class Main(Star):
         dms = await self._run("dm", "list", "--unread", "--limit", "5", timeout=60)
         if dms.get("ok"):
             for item in ((dms.get("data") or {}).get("items") or []):
+                message = item.get("last_message") or {}
+                if not force and not self._recent(message.get("time")):
+                    continue
                 reply = await self._reply_dm(item)
                 if reply:
                     handled.append(reply)
@@ -259,9 +275,13 @@ class Main(Star):
 
     async def _poll_loop(self) -> None:
         interval = max(60, int(self.config.get("poll_interval_seconds", 180)))
+        logger.info(f"B 站自动回复轮询启动，间隔 {interval} 秒")
         while True:
             try:
-                await self._poll_once()
+                if bool(self.config.get("auto_reply", True)):
+                    handled = await self._poll_once()
+                    if handled:
+                        logger.info(f"B 站自动回复 {len(handled)} 条")
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # keep the loop alive
