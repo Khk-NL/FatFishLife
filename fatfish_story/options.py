@@ -22,6 +22,7 @@ class StoryOptions:
     provider: str | None = None
     model: str = "deepseek-chat"
     max_attempts: int = 2
+    overwrite: bool = False
 
 
 @dataclass(frozen=True)

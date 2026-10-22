@@ -33,7 +33,7 @@
   },
   "scenes": [
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "red",
         "blue"
@@ -41,7 +41,7 @@
       "caption": "红衣：孩子们，这次谁负责整活？"
     },
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "red_expression",
         "blue"
@@ -50,7 +50,7 @@
       "zoom": 0.02
     },
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "blue",
         "silver"

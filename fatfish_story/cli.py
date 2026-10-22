@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--model", default="deepseek-chat")
     create.add_argument("--tone", default="牢大式吐槽")
     create.add_argument("--no-render", action="store_true", help="只生成配置，不合成视频")
-    create.add_argument("--overwrite", action="store_true", help="允许替换已有成片")
+    create.add_argument("--overwrite", action="store_true", help="允许替换已有配置、分镜元数据和成片")
     return parser
 
 
@@ -52,10 +52,12 @@ def main(argv: list[str] | None = None) -> int:
             output=Path(args.output).resolve() if args.output else None,
             provider=args.provider,
             model=args.model,
+            overwrite=args.overwrite,
         )
         generated = generate_project(options)
         result = {
             "status": "completed",
+            "stage": "storyboard" if args.no_render else "video",
             "config": str(generated.config_path),
             "title": generated.project.title,
             "duration": generated.project.duration,

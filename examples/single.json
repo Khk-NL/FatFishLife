@@ -33,21 +33,21 @@
   },
   "scenes": [
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "red"
       ],
       "caption": "孩子们，先别急，主包的流水线开工了。"
     },
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "red_expression"
       ],
       "caption": "同一套衣服，换个表情，节目效果就来了。"
     },
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "silver"
       ],

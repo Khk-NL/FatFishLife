@@ -1,6 +1,14 @@
 # FatFishLife
 
-第一阶段：Windows 本地模板视频工具。复用角色合成图、手写字幕和本地音乐，输出 MP4、封面、SRT 及可供后续程序读取的结果报告。
+本地视频制作与 QQ／B 站 bot 工具。模板视频、AI 分镜、共享记忆和平台操作分别验证，账号写操作与服务器部署保留明确的确认入口。
+
+## 话题生成视频
+
+```powershell
+python -m fatfish_story create --topic "新角色上线" --provider mock --template single --character 1006 --out outputs/my-topic.json
+```
+
+该入口先生成并校验分镜，再输出成片、封面、SRT 和结果报告，默认 30 秒。去掉 `--provider mock` 使用 DeepSeek，需要本机配置 `DEEPSEEK_API_KEY`；不会静默降级。当前自动贴脸仅支持已校准的银狼、卡芙卡、刃和仙舟三月七，使用原版牢大图片的既定取脸范围。已有配置与视频默认拒绝覆盖，明确加 `--overwrite` 才替换。详细约定及三模板验收见 `docs/VIDEO_WORKFLOW.md`。
 
 ## Web 拼贴测试版
 
@@ -147,7 +155,7 @@ Web 测试另外覆盖 HTTP 角色库及本地素材完整性、媒体分段读�
 
 ## 双 bot（B 站 + QQ）共享记忆
 
-当前主线。视频引擎保留，AI 分镜暂停扩展。
+QQ 与 B 站接入、共享记忆及本地视频制作分别维护，避免平台操作改动影响视频引擎。
 
 ```
 AstrBot (127.0.0.1:6185, OneBot 6199)

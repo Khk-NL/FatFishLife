@@ -53,22 +53,22 @@ def main() -> None:
     }
     projects = {
         "single": [
-            {"duration": 4, "roles": ["red"], "caption": "孩子们，先别急，主包的流水线开工了。"},
-            {"duration": 4, "roles": ["red_expression"], "caption": "同一套衣服，换个表情，节目效果就来了。"},
-            {"duration": 4, "roles": ["silver"], "caption": "这条不用抽卡，角色、字幕和小曲直接合成。"},
+            {"duration": 10, "roles": ["red"], "caption": "孩子们，先别急，主包的流水线开工了。"},
+            {"duration": 10, "roles": ["red_expression"], "caption": "同一套衣服，换个表情，节目效果就来了。"},
+            {"duration": 10, "roles": ["silver"], "caption": "这条不用抽卡，角色、字幕和小曲直接合成。"},
         ],
         "dialogue": [
-            {"duration": 4, "roles": ["red", "blue"], "caption": "红衣：孩子们，这次谁负责整活？"},
-            {"duration": 4, "roles": ["red_expression", "blue"], "caption": "蓝衣：你负责文案，我负责把小曲加速。", "zoom": 0.02},
-            {"duration": 4, "roles": ["blue", "silver"], "caption": "孩子们，分工明确，今天又是稳定产出的一天。"},
+            {"duration": 10, "roles": ["red", "blue"], "caption": "红衣：孩子们，这次谁负责整活？"},
+            {"duration": 10, "roles": ["red_expression", "blue"], "caption": "蓝衣：你负责文案，我负责把小曲加速。", "zoom": 0.02},
+            {"duration": 10, "roles": ["blue", "silver"], "caption": "孩子们，分工明确，今天又是稳定产出的一天。"},
         ],
         "news": [
-            {"duration": 4, "roles": ["blue"], "panel": "notice", "caption": "孩子们，资讯截图也能直接放进模板。"},
-            {"duration": 4, "roles": ["red"], "panel": "notice", "captions": [
-                {"start": 0, "end": 2, "text": "图归图，角色归角色。"},
-                {"start": 2, "end": 4, "text": "分层摆放，换一期也不费劲。"},
+            {"duration": 10, "roles": ["blue"], "panel": "notice", "caption": "孩子们，资讯截图也能直接放进模板。"},
+            {"duration": 10, "roles": ["red"], "panel": "notice", "captions": [
+                {"start": 0, "end": 5, "text": "图归图，角色归角色。"},
+                {"start": 5, "end": 10, "text": "分层摆放，换一期也不费劲。"},
             ]},
-            {"duration": 4, "roles": ["silver"], "panel": "notice", "caption": "换上你的新话题，下一条就能继续开工。", "zoom": 0},
+            {"duration": 10, "roles": ["silver"], "panel": "notice", "caption": "换上你的新话题，下一条就能继续开工。", "zoom": 0},
         ],
     }
     for template, scenes in projects.items():

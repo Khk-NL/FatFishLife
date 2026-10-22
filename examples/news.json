@@ -33,7 +33,7 @@
   },
   "scenes": [
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "blue"
       ],
@@ -41,26 +41,26 @@
       "caption": "孩子们，资讯截图也能直接放进模板。"
     },
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "red"
       ],
       "panel": "notice",
       "captions": [
         {
-          "start": 0,
-          "end": 2,
+          "start": 0.0,
+          "end": 5.0,
           "text": "图归图，角色归角色。"
         },
         {
-          "start": 2,
-          "end": 4,
+          "start": 5.0,
+          "end": 10.0,
           "text": "分层摆放，换一期也不费劲。"
         }
       ]
     },
     {
-      "duration": 4,
+      "duration": 10,
       "roles": [
         "silver"
       ],

@@ -17,6 +17,10 @@ class ProviderError(RuntimeError):
     pass
 
 
+class ProviderOutputError(ProviderError):
+    """A model answer that can be corrected with one storyboard retry."""
+
+
 class Provider(Protocol):
     name: str
 
@@ -99,6 +103,8 @@ class DeepSeekProvider:
 
 
 def _loads_json_object(content: str) -> dict:
+    if not isinstance(content, str):
+        raise ProviderOutputError("模型返回的内容必须是文本")
     text = content.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else text
@@ -110,9 +116,9 @@ def _loads_json_object(content: str) -> dict:
     try:
         value = json.loads(text)
     except ValueError as exc:
-        raise ProviderError("模型返回的不是合法 JSON") from exc
+        raise ProviderOutputError("模型返回的不是合法 JSON") from exc
     if not isinstance(value, dict):
-        raise ProviderError("模型返回的 JSON 必须是对象")
+        raise ProviderOutputError("模型返回的 JSON 必须是对象")
     return value
 
 
@@ -148,7 +154,7 @@ class MockProvider:
             "scenes": [
                 {
                     "duration": round(each, 2),
-                    "characters": ["1001", "1002"] if template == "dialogue" and index % 2 else ["1001"],
+                    "characters": ["1006", "1005"] if template == "dialogue" and index % 2 else ["1006"],
                     "caption": captions[index],
                     "zoom": 0.015,
                 }

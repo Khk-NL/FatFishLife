@@ -1,22 +1,27 @@
 """Turn a topic into a validated video project config.
 
-The pipeline never edits media and never publishes anything. It only asks a
-model for a storyboard, normalizes it against the engine's constraints, writes
-``schema_version: 1`` JSON, and lets ``load_project`` reject anything invalid.
+The pipeline never changes source media or publishes anything. It prepares
+calibrated role collages, asks a model for a storyboard, normalizes it against
+the engine's constraints, and writes ``schema_version: 1`` JSON only after
+``load_project`` accepts it.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
+import tempfile
 import time
 import unicodedata
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
 from fatfish_video.project import TEMPLATES, ProjectError, load_project
 
-from .client import Provider, ProviderError, build_provider
+from .client import Provider, ProviderError, ProviderOutputError, build_provider
+from .collage import FACE_SOURCE, CollageError, prepare_character
 from .options import GeneratedProject, StoryOptions
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -67,7 +72,7 @@ def _catalog() -> list[dict]:
 
 
 def _character_table(entries: list[dict]) -> str:
-    return "、".join(f'{item["id"]} {item["name"]}' for item in entries)
+    return "、".join(f'{item["id"]} {item["name"]}' for item in entries if item.get("front"))
 
 
 def _match_character(value: str, entries: list[dict]) -> dict | None:
@@ -138,7 +143,7 @@ def _fit_durations(durations: list[float], target: float, fps: int) -> list[floa
 
 
 def _scene_duration(value, label: str) -> float:
-    if isinstance(value, bool) or not isinstance(value, (int, float)) or not (value > 0):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not (value > 0):
         raise StoryError(f"{label}.duration 必须是正数")
     return float(value)
 
@@ -150,6 +155,8 @@ def _build_config(raw: dict, options: StoryOptions, entries: list[dict], config_
     scenes_raw = raw.get("scenes")
     if not isinstance(scenes_raw, list) or not 1 <= len(scenes_raw) <= MAX_SCENES:
         raise StoryError(f"scenes 必须是 1～{MAX_SCENES} 个场景的数组")
+    if any(not isinstance(scene, dict) for scene in scenes_raw):
+        raise StoryError("scenes 中的每个场景必须是对象")
 
     template = raw.get("template") or options.template or "single"
     if template not in TEMPLATES:
@@ -166,9 +173,9 @@ def _build_config(raw: dict, options: StoryOptions, entries: list[dict], config_
     for index, (scene_raw, duration) in enumerate(zip(scenes_raw, durations)):
         if not isinstance(scene_raw, dict):
             raise StoryError(f"scenes[{index}] 必须是对象")
-        names = scene_raw.get("characters")
+        names = preferred or scene_raw.get("characters")
         if names is None:
-            names = preferred or ["1001"]
+            names = ["1006"]
         if isinstance(names, str):
             names = [names]
         if not isinstance(names, list) or not names:
@@ -187,13 +194,8 @@ def _build_config(raw: dict, options: StoryOptions, entries: list[dict], config_
         for entry in resolved:
             key = f"char{entry['id']}"
             if key not in assets:
-                preview = ROOT / str(entry.get("preview") or entry.get("icon")).lstrip("/")
-                if not preview.is_file():
-                    icon = ROOT / str(entry.get("icon", "")).lstrip("/")
-                    if not icon.is_file():
-                        raise StoryError(f"角色 {entry['name']} 缺少本地图片，请同步角色库")
-                    preview = icon
-                assets[key] = {"path": _relative(preview, config_path.parent)}
+                collage = prepare_character(entry, config_path)
+                assets[key] = {"path": _relative(collage, config_path.parent)}
 
         caption = scene_raw.get("caption")
         if not isinstance(caption, str) or not caption.strip():
@@ -285,14 +287,23 @@ def _slug(text: str) -> str:
 def generate_project(options: StoryOptions, provider: Provider | None = None) -> GeneratedProject:
     if not options.topic.strip():
         raise StoryError("topic 不能为空")
-    if options.duration < MIN_SCENE or options.duration > MAX_SCENE * MAX_SCENES:
+    if not math.isfinite(options.duration) or options.duration < MIN_SCENE or options.duration > MAX_SCENE * MAX_SCENES:
         raise StoryError(f"目标时长应在 {MIN_SCENE:g}～{MAX_SCENE * MAX_SCENES:g} 秒")
     entries = _catalog()
-    provider = provider or build_provider(options.provider, options.model, ROOT)
     config_dir = Path(options.config_dir or ROOT / "outputs/generated").resolve()
     config_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     config_path = Path(options.config_path).resolve() if options.config_path else config_dir / f"{stamp}-{_slug(options.topic)}.json"
+    meta_path = config_path.with_suffix(".meta.json")
+    if not options.overwrite:
+        for path in (config_path, meta_path):
+            if path.exists():
+                raise StoryError(f"文件已存在：{path}；需要替换时使用 --overwrite")
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        provider = provider or build_provider(options.provider, options.model, ROOT)
+    except ProviderError as exc:
+        raise StoryError(str(exc)) from exc
 
     user_prompt = (
         f"话题：{options.topic}\n"
@@ -309,15 +320,22 @@ def generate_project(options: StoryOptions, provider: Provider | None = None) ->
         try:
             raw = provider.complete_json(SYSTEM_PROMPT, user_prompt + feedback)
             config, warnings = _build_config(raw, options, entries, config_path)
-            config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            config_text = json.dumps(config, ensure_ascii=False, indent=2) + "\n"
+            temporary_path = None
             try:
-                project = load_project(config_path)
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".json", prefix=".story-", dir=config_path.parent, encoding="utf-8", delete=False) as stream:
+                    temporary_path = Path(stream.name)
+                    stream.write(config_text)
+                project = replace(load_project(temporary_path), source=config_path)
             except ProjectError as exc:
-                config_path.unlink(missing_ok=True)
                 raise StoryError(f"生成的配置未通过引擎校验：{exc}") from exc
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
             metadata = {
                 "schema_version": 1,
                 "status": "completed",
+                "stage": "storyboard",
                 "provider": getattr(provider, "name", "unknown"),
                 "model": options.model,
                 "prompt_version": PROMPT_VERSION,
@@ -325,14 +343,21 @@ def generate_project(options: StoryOptions, provider: Provider | None = None) ->
                 "elapsed_seconds": round(time.monotonic() - started, 2),
                 "topic": options.topic,
                 "target_duration": options.duration,
+                "face_source": str(FACE_SOURCE),
+                "character_mode": "calibrated_front_collage",
                 "warnings": warnings,
             }
-            meta_path = config_path.with_suffix(".meta.json")
-            meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            mode = "w" if options.overwrite else "x"
+            with config_path.open(mode, encoding="utf-8") as stream:
+                stream.write(config_text)
+            with meta_path.open(mode, encoding="utf-8") as stream:
+                stream.write(json.dumps(metadata, ensure_ascii=False, indent=2) + "\n")
             return GeneratedProject(project, config, config_path, metadata)
-        except (StoryError, ProjectError) as exc:
+        except (StoryError, ProjectError, ProviderOutputError) as exc:
             last_error = exc
             feedback = f"\n\n上一次输出未通过校验：{exc}。请修正后重新输出完整 JSON。"
         except ProviderError as exc:
+            raise StoryError(str(exc)) from exc
+        except CollageError as exc:
             raise StoryError(str(exc)) from exc
     raise StoryError(f"生成失败（{options.max_attempts} 次）：{last_error}")
