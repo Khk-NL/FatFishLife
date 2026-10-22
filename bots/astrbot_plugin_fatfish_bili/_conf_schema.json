@@ -1,0 +1,42 @@
+{
+  "bili_exe": {
+    "type": "string",
+    "description": "bili-cli 可执行文件路径",
+    "default": "D:/Code/Apps/bili-venv/Scripts/bili.exe"
+  },
+  "bili_home": {
+    "type": "string",
+    "description": "bili-cli 独立配置目录（登录凭据、限流、审计日志）",
+    "default": ""
+  },
+  "memory_db": {
+    "type": "string",
+    "description": "共享记忆 SQLite 路径；留空使用 astrbot_plugin_fatfish_memory 的默认库",
+    "default": ""
+  },
+  "owner_uid": {
+    "type": "string",
+    "description": "主人 B 站 UID，用于 bili owner set 和私信白名单",
+    "default": ""
+  },
+  "notify_umo": {
+    "type": "string",
+    "description": "收件箱通知推送到哪个 AstrBot 会话（UMO），留空不推送",
+    "default": ""
+  },
+  "enable_inbox_poll": {
+    "type": "bool",
+    "description": "后台轮询 B 站收件箱（读取后 B 站会标记已读）",
+    "default": false
+  },
+  "poll_interval_seconds": {
+    "type": "int",
+    "description": "收件箱轮询间隔，默认 180 秒，最低 60",
+    "default": 180
+  },
+  "dry_run_writes": {
+    "type": "bool",
+    "description": "评论、私信等写操作只预览不发送",
+    "default": true
+  }
+}

@@ -1,0 +1,5 @@
+name: astrbot_plugin_fatfish_bili
+desc: 大肥鱼的 B 站运营：收件箱、看视频、搜索、评论回复与私信，复用 bili-cli
+author: Kongb
+version: 0.1.0
+repo: https://github.com/Khk-NL/FatFishLife

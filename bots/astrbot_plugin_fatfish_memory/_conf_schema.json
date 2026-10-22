@@ -1,0 +1,27 @@
+{
+  "owner_ids": {
+    "type": "string",
+    "description": "主人身份，逗号分隔，例如 qq:123456,bilibili:654321",
+    "default": ""
+  },
+  "record_all_messages": {
+    "type": "bool",
+    "description": "记录收到的消息摘要（关闭后只记录命令写入的内容）",
+    "default": true
+  },
+  "max_content_chars": {
+    "type": "int",
+    "description": "单条记忆最多保存的字符数",
+    "default": 500
+  },
+  "retention_days": {
+    "type": "int",
+    "description": "事件保留天数，0 表示不自动清理",
+    "default": 90
+  },
+  "db_path": {
+    "type": "string",
+    "description": "SQLite 路径；留空使用插件数据目录",
+    "default": ""
+  }
+}
