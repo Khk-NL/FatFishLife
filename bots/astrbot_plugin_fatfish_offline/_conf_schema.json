@@ -29,15 +29,15 @@
     "description": "离线原因：high_cost / maintenance / connection_issue / budget_limit / manual",
     "default": "high_cost"
   },
-    "group_cooldown": {
+  "group_cooldown": {
     "type": "int",
     "description": "同一群两次自动回复的最小间隔（秒）",
-    "default": 15
+    "default": 5
   },
   "user_cooldown": {
     "type": "int",
     "description": "同一用户两次自动回复的最小间隔（秒）",
-    "default": 60
+    "default": 5
   },
   "max_per_hour": {
     "type": "int",
