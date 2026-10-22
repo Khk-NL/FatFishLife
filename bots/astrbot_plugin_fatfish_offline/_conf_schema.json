@@ -29,6 +29,11 @@
     "description": "离线原因：high_cost / maintenance / connection_issue / budget_limit / manual",
     "default": "high_cost"
   },
+  "holiday_source": {
+    "type": "string",
+    "description": "auto=按中国法定节假日与调休自动判断；manual=只用 weekdays/holidays/workdays",
+    "default": "auto"
+  },
   "group_cooldown": {
     "type": "int",
     "description": "同一群两次自动回复的最小间隔（秒）",

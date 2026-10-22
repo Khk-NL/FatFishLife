@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
 
 try:
+    from chinese_calendar import is_workday as _cn_is_workday
+except ImportError:  # optional dependency; fall back to weekday rules
+    _cn_is_workday = None
+
+try:
     from zoneinfo import ZoneInfo
 
     SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -73,20 +78,29 @@ class Scheduler:
         weekdays=(0, 1, 2, 3, 4),
         holidays=(),
         workdays=(),
+        holiday_source="auto",
         tz=SHANGHAI,
     ):
         self.windows = parse_windows(windows)
         self.weekdays = {int(day) for day in weekdays}
         self.holidays = set(holidays or ())
         self.workdays = set(workdays or ())
+        self.holiday_source = holiday_source
         self.tz = tz
 
     def is_workday(self, moment: datetime) -> bool:
-        day = moment.date().isoformat()
-        if day in self.holidays:
+        day = moment.date()
+        day_text = day.isoformat()
+        # Explicit overrides win over both the automatic calendar and weekdays.
+        if day_text in self.holidays:
             return False
-        if day in self.workdays:
+        if day_text in self.workdays:
             return True
+        if self.holiday_source == "auto" and _cn_is_workday is not None:
+            try:
+                return bool(_cn_is_workday(day))
+            except (ValueError, KeyError, NotImplementedError):
+                pass
         return moment.weekday() in self.weekdays
 
     def check(self, now: datetime | None = None) -> Decision:

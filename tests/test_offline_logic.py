@@ -56,6 +56,15 @@ class SchedulerTests(unittest.TestCase):
         self.assertEqual(scheduler.next_resume(moment(23, 19)).hour, 12)
         self.assertEqual(scheduler.next_resume(moment(23, 19)).day, 26)
 
+    def test_auto_calendar_if_available(self):
+        try:
+            import chinese_calendar  # noqa: F401
+        except ImportError:
+            self.skipTest("chinese-calendar not installed")
+        scheduler = Scheduler(["09:00-12:00"], holiday_source="auto")
+        self.assertFalse(scheduler.check(moment(1, 10, month=10)).offline)  # 国庆
+        self.assertFalse(scheduler.check(moment(17, 10, month=2)).offline)  # 春节
+
     def test_weekend_is_online(self):
         self.assertFalse(self.scheduler.check(moment(24, 10)).offline)
 

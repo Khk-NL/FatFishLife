@@ -31,6 +31,7 @@ class Main(Star):
             weekdays=self.config.get("weekdays") or [0, 1, 2, 3, 4],
             holidays=self.config.get("holidays") or [],
             workdays=self.config.get("workdays") or [],
+            holiday_source=str(self.config.get("holiday_source") or "auto"),
         )
         self.reason = str(self.config.get("reason") or "high_cost")
         self.hourly_model_limit = int(self.config.get("hourly_model_limit", 350) or 0)
@@ -149,6 +150,9 @@ class Main(Star):
     @filter.command("离线")
     async def offline(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
         command = (action or "").strip()
+        if command in ("帮助", "help"):
+            yield event.plain_result("用法：\n/离线 状态\n/离线 开    强制离线\n/离线 关    强制在线\n/离线 自动  按时段判断")
+            return
         if command in ("", "状态", "status"):
             decision = self._decision()
             now = datetime.now(self.scheduler.tz)
@@ -157,12 +161,15 @@ class Main(Star):
             next_window = self.scheduler.next_window(now)
             lines = [
                 f"模块：{'开启' if self.enabled else '关闭'}",
-                f"当前：{'离线（' + str(decision.reason) + '）' if decision.offline else '正常 AI'}",
+                f"当前：{'高峰（离线）' if decision.offline else '空闲（正常 AI）'}",
+                f"原因：{decision.reason or '不在高峰时段'}",
+                f"今日工作日：{'是' if self.scheduler.is_workday(now) else '否'}（节假日源：{self.scheduler.holiday_source}）",
                 f"恢复：{format_resume(decision.resume_at, now) if decision.resume_at else '不在离线时段'}",
                 f"下一时段：{next_window.strftime('%m-%d %H:%M') if next_window else '无'}",
                 f"本小时用量：{count}/{self.hourly_model_limit or '不限'}",
                 f"手动覆盖：{self.state.manual or '无'}",
                 "时段：" + "、".join(f"{w.start}-{w.end}" for w in self.scheduler.windows),
+                "用法：/离线 开 | 关 | 自动",
             ]
             yield event.plain_result("\n".join(lines))
             return
@@ -171,7 +178,7 @@ class Main(Star):
                 yield event.plain_result("只有主人可以切换离线模式。")
                 return
             self.state.set_manual("on")
-            yield event.plain_result("已强制进入离线模式。发送 /离线 自动 恢复按时段判断。")
+            yield event.plain_result("已强制进入离线模式。发送 /离线 关 强制在线，或 /离线 自动 按时段判断。")
             return
         if command in ("关", "关闭", "off"):
             if not self._is_owner(event):
