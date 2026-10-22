@@ -128,7 +128,8 @@ class Main(Star):
         self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
 
         text = str(event.message_str or "").strip()
-        if text.startswith("/") and not text.startswith("/离线"):
+        if text.startswith("/"):
+            # Let AstrBot's own command handlers run, including /离线 itself.
             if any(text.startswith(command) for command in LOCAL_COMMANDS):
                 return
             event.stop_event()
