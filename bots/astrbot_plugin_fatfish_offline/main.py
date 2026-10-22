@@ -3,8 +3,7 @@ keep a small local voice in chat. The persona itself stays untouched."""
 
 from __future__ import annotations
 
-import random
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
@@ -13,9 +12,9 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.star.filter.command import GreedyStr
 
-from .logic import Scheduler, ShortContext, Throttle, detect_intent, format_resume
+from .logic import Decision, Scheduler, format_resume
 from .state import StateStore
-from .templates import IDENTITY_INTENTS, pick
+from .templates import OfflineConfig, OfflineReplyEngine
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
 LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/sid", "/离线")
@@ -34,16 +33,22 @@ class Main(Star):
             workdays=self.config.get("workdays") or [],
         )
         self.reason = str(self.config.get("reason") or "high_cost")
-        self.throttle = Throttle(
-            group_cooldown=self.config.get("group_cooldown", 30),
-            user_cooldown=self.config.get("user_cooldown", 300),
-            max_per_hour=self.config.get("max_per_hour", 8),
-        )
-        self.contexts = ShortContext(ttl_seconds=self.config.get("context_ttl", 600))
+        self.hourly_model_limit = int(self.config.get("hourly_model_limit", 350) or 0)
         self.state = StateStore(StarTools.get_data_dir(PLUGIN_NAME))
-        self.rng = random.Random()
+        self.engine = OfflineReplyEngine(
+            OfflineConfig(
+                timezone=str(self.config.get("timezone") or "Asia/Shanghai"),
+                notice_once_per_day=bool(self.config.get("notify_once_per_day", True)),
+                group_cooldown=float(self.config.get("group_cooldown", 2)),
+                user_cooldown=float(self.config.get("user_cooldown", 2)),
+                context_ttl=float(self.config.get("context_ttl", 600)),
+            ),
+            state_file=StarTools.get_data_dir(PLUGIN_NAME) / "engine.json",
+        )
         logger.info(
-            f"fatfish offline ready: enabled={self.enabled} windows={[f'{w.start}-{w.end}' for w in self.scheduler.windows]}"
+            f"fatfish offline ready: enabled={self.enabled} "
+            f"windows={[f'{w.start}-{w.end}' for w in self.scheduler.windows]} "
+            f"hourly_model_limit={self.hourly_model_limit}"
         )
         try:
             decision = self._decision()
@@ -53,18 +58,21 @@ class Main(Star):
 
     # ---------- decision ----------
 
-    def _decision(self):
-        manual = self.state.manual
+    @staticmethod
+    def _next_hour(now: datetime) -> datetime:
+        return now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+
+    def _decision(self) -> Decision:
         now = datetime.now(self.scheduler.tz)
+        manual = self.state.manual
         if manual == "on":
-            from .logic import Decision
-
-            resume = self.scheduler.next_window(now)
-            return Decision(True, "manual", resume, None)
+            return Decision(True, "manual", self.scheduler.next_window(now), None)
         if manual == "off":
-            from .logic import Decision
-
             return Decision(False)
+        if self.hourly_model_limit > 0:
+            hour_key = now.strftime("%Y-%m-%dT%H")
+            if self.state.usage_count(hour_key) >= self.hourly_model_limit:
+                return Decision(True, "usage_limit", self._next_hour(now), None)
         decision = self.scheduler.check(now)
         if decision.offline and decision.reason is None:
             decision.reason = self.reason
@@ -78,7 +86,7 @@ class Main(Star):
             if isinstance(component, At) and str(getattr(component, "qq", "")) == self_id:
                 return True
         text = str(event.message_str or "")
-        return "苹果乐" in text or "苹果" in text
+        return "苹果乐" in text or "蕾缪乐" in text or "能天使" in text
 
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         if event.is_admin():
@@ -92,10 +100,17 @@ class Main(Star):
     async def guard(self, event: AstrMessageEvent):
         if not self.enabled:
             return
+        now = datetime.now(self.scheduler.tz)
         decision = self._decision()
-        self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
         if not decision.offline:
-            return
+            hour_key = now.strftime("%Y-%m-%dT%H")
+            count = self.state.bump_usage(hour_key)
+            if self.hourly_model_limit > 0 and count > self.hourly_model_limit:
+                decision = Decision(True, "usage_limit", self._next_hour(now), None)
+            else:
+                self.state.publish_offline(False)
+                return
+        self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
 
         text = str(event.message_str or "").strip()
         if text.startswith("/") and not text.startswith("/离线"):
@@ -107,44 +122,26 @@ class Main(Star):
         group = str(event.get_group_id() or f"private:{event.get_sender_id()}")
         user = str(event.get_sender_id() or "unknown")
         addressed = self._addressed(event)
-        now = datetime.now(self.scheduler.tz)
-        follow_up = self.contexts.is_follow_up(group, user, now)
-        intent = detect_intent(text, addressed=addressed, follow_up=follow_up)
-        if intent == "none" and not addressed and not follow_up:
-            event.stop_event()
-            return
-
         resume_text = format_resume(decision.resume_at, now) if decision.resume_at else "晚点"
-        day = now.date().isoformat()
-        is_question = intent in ("when_resume", "why_silent")
-        use_notice = is_question and not self.state.notified_today(group, day)
-        if use_notice:
-            intent = "first_notice"
-
-        if not self.throttle.allow(group, user, now, bypass_user=intent in ("why_silent", "when_resume", "follow_up") or intent in IDENTITY_INTENTS):
+        reply = self.engine.handle(
+            group_id=group,
+            user_id=user,
+            message=text,
+            reason=decision.reason or self.reason,
+            resume=resume_text,
+            nickname=str(event.get_sender_name() or ""),
+            at_bot=addressed,
+        )
+        if reply is None:
             event.stop_event()
             return
-
-        line = pick(
-            decision.reason or self.reason,
-            intent,
-            name=str(event.get_sender_name() or "老板"),
-            resume=resume_text,
-            recent=self.state.recent_lines(group),
-            rng=self.rng,
-        )
         try:
-            await event.send(MessageChain([Plain(line)]))
+            await event.send(MessageChain([Plain(reply)]))
         except Exception as exc:  # sending must not crash the pipeline
             logger.warning(f"离线回复发送失败：{exc}")
             event.stop_event()
             return
-        if use_notice:
-            self.state.mark_notified(group, day)
-        self.state.add_recent(group, line)
-        self.throttle.mark(group, user, now)
-        self.contexts.set(group, user=user, intent=intent, reply=line, now=now)
-        logger.info(f"离线回复 group={group} user={user} intent={intent} reason={decision.reason}")
+        logger.info(f"离线回复 group={group} user={user} reason={decision.reason} chars={len(reply)}")
         event.stop_event()
 
     # ---------- commands ----------
@@ -154,12 +151,16 @@ class Main(Star):
         command = (action or "").strip()
         if command in ("", "状态", "status"):
             decision = self._decision()
-            next_window = self.scheduler.next_window()
+            now = datetime.now(self.scheduler.tz)
+            hour_key = now.strftime("%Y-%m-%dT%H")
+            count = self.state.usage_count(hour_key)
+            next_window = self.scheduler.next_window(now)
             lines = [
                 f"模块：{'开启' if self.enabled else '关闭'}",
                 f"当前：{'离线（' + str(decision.reason) + '）' if decision.offline else '正常 AI'}",
-                f"恢复：{format_resume(decision.resume_at) if decision.resume_at else '不在离线时段'}",
+                f"恢复：{format_resume(decision.resume_at, now) if decision.resume_at else '不在离线时段'}",
                 f"下一时段：{next_window.strftime('%m-%d %H:%M') if next_window else '无'}",
+                f"本小时用量：{count}/{self.hourly_model_limit or '不限'}",
                 f"手动覆盖：{self.state.manual or '无'}",
                 "时段：" + "、".join(f"{w.start}-{w.end}" for w in self.scheduler.windows),
             ]
@@ -170,7 +171,7 @@ class Main(Star):
                 yield event.plain_result("只有主人可以切换离线模式。")
                 return
             self.state.set_manual("on")
-            yield event.plain_result("已强制进入离线模式。发送 /离线 关 恢复。")
+            yield event.plain_result("已强制进入离线模式。发送 /离线 自动 恢复按时段判断。")
             return
         if command in ("关", "关闭", "off"):
             if not self._is_owner(event):

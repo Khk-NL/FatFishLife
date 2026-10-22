@@ -41,8 +41,13 @@
   },
   "max_per_hour": {
     "type": "int",
-    "description": "同一群每小时最多自动回复条数",
-    "default": 10
+    "description": "离线自动回复每小时最多条数",
+    "default": 350
+  },
+  "hourly_model_limit": {
+    "type": "int",
+    "description": "正常模式每小时最多处理多少条消息，超过后自动进入离线模式；0 表示不限，跨小时重置",
+    "default": 350
   },
   "context_ttl": {
     "type": "int",

@@ -242,7 +242,11 @@ class Main(Star):
         return moment >= datetime.now().astimezone() - timedelta(minutes=minutes)
 
     def _offline(self) -> bool:
-        path = StarTools.get_data_dir("astrbot_plugin_fatfish_offline") / "offline.json"
+        try:
+            base = StarTools.get_data_dir("astrbot_plugin_fatfish_offline")
+        except (AttributeError, RuntimeError):
+            return False
+        path = base / "offline.json"
         try:
             return bool(json.loads(path.read_text(encoding="utf-8")).get("offline"))
         except (OSError, ValueError):

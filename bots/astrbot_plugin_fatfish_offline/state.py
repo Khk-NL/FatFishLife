@@ -68,6 +68,19 @@ class StateStore:
         self.data["recent"][group] = recent[-6:]
         self._save()
 
+    def usage_count(self, hour_key: str) -> int:
+        usage = self.data.get("usage") or {}
+        return int(usage.get("count", 0)) if usage.get("hour") == hour_key else 0
+
+    def bump_usage(self, hour_key: str) -> int:
+        usage = self.data.get("usage") or {}
+        if usage.get("hour") != hour_key:
+            usage = {"hour": hour_key, "count": 0}
+        usage["count"] = int(usage.get("count", 0)) + 1
+        self.data["usage"] = usage
+        self._save()
+        return usage["count"]
+
     def publish_offline(self, offline: bool, *, reason: str | None = None, resume_at: datetime | None = None) -> None:
         payload = {
             "offline": bool(offline),
