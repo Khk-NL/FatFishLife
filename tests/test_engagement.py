@@ -48,7 +48,8 @@ class EngagementTest(unittest.TestCase):
     def test_random_cooldown_blocks(self):
         engine = GroupEngagement(GroupConfig(random_probability=1.0, random_cooldown=300))
         for index in range(3):
-            engine.handle_message(msg(f"聊天{index}", timestamp=1000 + index))
+            # Warm up activity without making a random-reply candidate yet.
+            engine.handle_message(msg(f"聊{index}", timestamp=1000 + index))
         first = engine.handle_message(msg("接着说", timestamp=1010))
         self.assertEqual(first.kind, "random")
         engine.on_bot_sent(
