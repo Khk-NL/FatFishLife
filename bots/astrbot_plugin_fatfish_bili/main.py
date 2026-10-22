@@ -241,7 +241,17 @@ class Main(Star):
             moment = moment.astimezone()
         return moment >= datetime.now().astimezone() - timedelta(minutes=minutes)
 
+    def _offline(self) -> bool:
+        path = StarTools.get_data_dir("astrbot_plugin_fatfish_offline") / "offline.json"
+        try:
+            return bool(json.loads(path.read_text(encoding="utf-8")).get("offline"))
+        except (OSError, ValueError):
+            return False
+
     async def _poll_once(self, force: bool = False) -> list[str]:
+        if self._offline():
+            logger.debug("离线模式，跳过 B 站自动回复")
+            return []
         owner = str(self.config.get("owner_uid") or "").strip()
         if not owner:
             return []

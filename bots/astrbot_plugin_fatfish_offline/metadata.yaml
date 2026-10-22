@@ -1,0 +1,5 @@
+name: astrbot_plugin_fatfish_offline
+desc: 峰价时段拦截云端模型，用本地规则维持简单聊天
+author: Kongb
+version: 0.1.0
+repo: https://github.com/Khk-NL/FatFishLife
