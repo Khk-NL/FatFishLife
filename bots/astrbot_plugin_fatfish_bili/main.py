@@ -18,6 +18,7 @@ from astrbot.core.star.filter.command import GreedyStr
 
 from ..astrbot_plugin_fatfish_memory.context import build_context
 from ..astrbot_plugin_fatfish_memory.store import MemoryStore
+from .discovery import DiscoveryStore, discover
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_bili"
 MEMORY_PLUGIN = "astrbot_plugin_fatfish_memory"
@@ -45,6 +46,8 @@ class Main(Star):
         self.memory_db = Path(memory) if memory else StarTools.get_data_dir(MEMORY_PLUGIN) / "memory.db"
         self.seen_path = StarTools.get_data_dir(PLUGIN_NAME) / "seen.json"
         self.seen: set[str] = self._load_seen()
+        self.discovery = DiscoveryStore(StarTools.get_data_dir(PLUGIN_NAME) / "discovery.db")
+        self._discovery_lock = asyncio.Lock()
         self._started = datetime.now().astimezone()
         self._poll_task: asyncio.Task | None = None
         if bool(self.config.get("enable_inbox_poll", False)):
@@ -361,11 +364,62 @@ class Main(Star):
                 "/bili 回复 <BV号> <评论ID> <内容>\n"
                 "/bili 私信 <UID> <内容>\n"
                 "/bili 记忆 <关键词>\n"
+                "/bili 订阅 [关键词 <词>|UP <UID>]\n"
+                "/bili 退订 <编号>\n"
+                "/bili 发现      手动读取新视频，不发布\n"
                 "写操作默认只预览；关闭 dry_run_writes 才会真正发送。"
             )
             return
-        if command in ("状态", "登录", "确认", "收件箱", "处理", "私信") and not self._can_read_private(event):
+        if command in ("状态", "登录", "确认", "收件箱", "处理", "私信", "订阅", "退订", "发现") and not self._can_read_private(event):
             yield event.plain_result("此操作仅限主人或管理员在私聊中使用。")
+            return
+        if command == "订阅":
+            try:
+                if not body:
+                    subscriptions = self.discovery.subscriptions()
+                    lines = [f"{item['id']}. {'关键词' if item['kind'] == 'keyword' else 'UP'} {item['target']}" for item in subscriptions]
+                    yield event.plain_result("当前视频订阅：\n" + "\n".join(lines) if lines else "还没有视频订阅。用 /bili 订阅 关键词 <词> 或 /bili 订阅 UP <UID> 添加。")
+                    return
+                parts = body.split(maxsplit=1)
+                kinds = {"关键词": "keyword", "up": "up"}
+                if len(parts) != 2 or parts[0].lower() not in kinds:
+                    yield event.plain_result("格式：/bili 订阅 关键词 <词> 或 /bili 订阅 UP <UID>")
+                    return
+                subscription_id = self.discovery.subscribe(kinds[parts[0].lower()], parts[1])
+                yield event.plain_result(f"已保存订阅 {subscription_id}。用 /bili 发现 手动读取新投稿。")
+            except (ValueError, sqlite3.Error) as exc:
+                yield event.plain_result(f"订阅失败：{exc}")
+            return
+        if command == "退订":
+            if not body.isdigit():
+                yield event.plain_result("格式：/bili 退订 <编号>，编号可用 /bili 订阅 查看。")
+                return
+            try:
+                removed = self.discovery.unsubscribe(int(body))
+                yield event.plain_result("已退订。" if removed else "没有找到这个订阅编号。")
+            except sqlite3.Error as exc:
+                yield event.plain_result(f"退订失败：{exc}")
+            return
+        if command == "发现":
+            try:
+                async with self._discovery_lock:
+                    result = await discover(self.discovery, self._run, self._remember)
+            except sqlite3.Error as exc:
+                yield event.plain_result(f"发现视频失败：{exc}")
+                return
+            lines = [f"发现 {len(result['candidates'])} 个新候选；每个来源读取最近 5 条，再按播放量排序（仅作热度参考）。"]
+            for index, item in enumerate(result["candidates"], 1):
+                play = str(item["play"]) if item["play"] is not None else "未知"
+                lines.extend([f"{index}. {item['title']}（{item['bvid']}）", f"UP：{item['author']}；发布时间：{item['published_at'] or '未知'}；播放量：{play}", "来源：" + "、".join(item["sources"]), item["url"]])
+            if not result["sources"]:
+                lines.append("尚未添加订阅，用 /bili 订阅 关键词 <词> 或 /bili 订阅 UP <UID> 添加。")
+            for error in result["errors"]:
+                logger.warning("视频发现失败：" + error)
+                lines.append("未完成：" + error)
+            if not result["candidates"] and result["sources"] and not result["errors"]:
+                lines.append("没有尚未发现的新视频。")
+            lines.append("此流程仅保存公开候选，不生成内容或发布。")
+            yield event.plain_result("\n".join(lines))
             return
         if command == "状态":
             auth = await self._run("auth", "status", timeout=60)
