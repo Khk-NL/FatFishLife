@@ -10,6 +10,14 @@ python -m fatfish_story create --topic "新角色上线" --provider mock --templ
 
 该入口先生成并校验分镜，再输出成片、封面、SRT 和结果报告，默认 30 秒。去掉 `--provider mock` 使用 DeepSeek，需要本机配置 `DEEPSEEK_API_KEY`；不会静默降级。当前自动贴脸仅支持已校准的银狼、卡芙卡、刃和仙舟三月七，使用原版牢大图片的既定取脸范围。已有配置与视频默认拒绝覆盖，明确加 `--overwrite` 才替换。详细约定及三模板验收见 `docs/VIDEO_WORKFLOW.md`。
 
+## 成片投稿草稿
+
+```powershell
+python -m fatfish_bili publish outputs/my-topic.mp4 --meta publish-meta.json
+```
+
+默认只在本地生成草稿，不调用平台、不上传。输入必须有匹配的成功渲染报告和封面，元数据明确提供标题、简介、标签和分区。检查草稿后显式增加 `--confirm` 才执行投稿；成功提交审核与公开发布分别处理。元数据示例、登录环境与审核查询见 `docs/BILIBILI.md`。
+
 ## Web 拼贴测试版
 
 ```powershell

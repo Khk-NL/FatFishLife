@@ -15,9 +15,10 @@ web = ["opencv-python-headless>=4.10"]
 [project.scripts]
 fatfish-video = "fatfish_video.cli:main"
 fatfish-story = "fatfish_story.cli:main"
+fatfish-bili = "fatfish_bili.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["fatfish_video*", "fatfish_story*"]
+include = ["fatfish_video*", "fatfish_story*", "fatfish_bili*"]
 
 [tool.setuptools.package-data]
 fatfish_video = ["web/*.html", "web/*.css", "web/*.js"]
