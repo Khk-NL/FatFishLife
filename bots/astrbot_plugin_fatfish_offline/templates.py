@@ -533,8 +533,8 @@ TEMPLATES: dict[str, dict[str, list[str]]] = {
             "这个等我回来再细聊！",
         ],
         "default": [
-            "嘿嘿！晚点来玩！",
-            "老板！暂时忙一会儿！",
+            "嘿嘿！{resume}来玩！",
+            "老板！{resume}见！",
         ],
     },
 }

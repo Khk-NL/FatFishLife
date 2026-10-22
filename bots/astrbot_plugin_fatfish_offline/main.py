@@ -17,7 +17,7 @@ from .state import StateStore
 from .templates import OfflineConfig, OfflineReplyEngine
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
-LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/sid", "/离线")
+LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/帮助", "/表情", "/sid", "/离线")
 HELP_TEXT = """苹果乐命令：
 /记忆 状态 | 搜索 <词> | 最近 | 记住 <内容> | 公开 <内容> | 人设 | 导入 <总结> | 札记 | 提炼 | 绑定 <B站UID>
 /bili 状态 | 收件箱 | 看 <BV号> | 搜 <词> | 回复 <BV号> <评论ID> <内容> | 私信 <UID> <内容> | 处理
