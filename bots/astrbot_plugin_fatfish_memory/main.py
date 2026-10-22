@@ -59,8 +59,11 @@ class Main(Star):
     def _is_owner(self, event: AstrMessageEvent) -> bool:
         return self.store.is_owner(_platform(event), str(event.get_sender_id() or ""))
 
+    def _can_access_private(self, event: AstrMessageEvent) -> bool:
+        return self._is_owner(event) and event.is_private_chat()
+
     def _scopes(self, event: AstrMessageEvent) -> tuple[str, ...]:
-        return ("public", "private") if self._is_owner(event) else ("public",)
+        return ("public", "private") if self._can_access_private(event) else ("public",)
 
     async def _record(self, event: AstrMessageEvent) -> None:
         if not bool(self.config.get("record_all_messages", True)):
@@ -68,8 +71,7 @@ class Main(Star):
         text = str(event.message_str or "").strip()
         if not text:
             return
-        owner = self._is_owner(event)
-        scope = "private" if owner and event.is_private_chat() else "public"
+        scope = "private" if event.is_private_chat() else "public"
         try:
             self.store.remember(
                 text,
@@ -178,8 +180,8 @@ class Main(Star):
             yield event.plain_result("每日总结已导入私人记忆。")
             return
         if command == "总结":
-            if not owner:
-                yield event.plain_result("只有主人可以查看总结。")
+            if not self._can_access_private(event):
+                yield event.plain_result("私人总结只能在主人的私聊中查看。")
                 return
             rows = self.store.summaries(limit=5)
             if not rows:
@@ -190,6 +192,9 @@ class Main(Star):
             return
         if command == "札记":
             if not body:
+                if not self._can_access_private(event):
+                    yield event.plain_result("成长札记只能在主人的私聊中查看。")
+                    return
                 rows = self.store.journals(limit=8)
                 if not rows:
                     yield event.plain_result("还没有成长札记。主人可以写一条，或用 /记忆 提炼。")
@@ -204,8 +209,8 @@ class Main(Star):
             yield event.plain_result("札记已保存。")
             return
         if command == "提炼":
-            if not owner:
-                yield event.plain_result("只有主人可以提炼札记。")
+            if not self._can_access_private(event):
+                yield event.plain_result("请在主人的私聊中提炼札记。")
                 return
             rows = self.store.recent(scopes=("private", "public"), limit=40)
             if not rows:
@@ -248,7 +253,7 @@ class Main(Star):
 
     @filter.llm_tool(name="memory_recall")
     async def memory_recall(self, event: AstrMessageEvent, query: str = "", scope: str = "auto"):
-        """检索大肥鱼的共享记忆。私人记忆只对主人可见。
+        """检索大肥鱼的共享记忆。私人记忆只能在主人的私聊中读取。
 
         Args:
             query(string): 要检索的关键词或问题片段，留空表示最近记忆
@@ -258,8 +263,8 @@ class Main(Star):
         if scope == "public":
             scopes = ("public",)
         elif scope == "private":
-            if not self._is_owner(event):
-                yield event.plain_result("私人记忆只对主人开放。")
+            if not self._can_access_private(event):
+                yield event.plain_result("私人记忆只能在主人的私聊中读取。")
                 return
             scopes = ("private",)
         rows = self.store.recall(query, scopes=scopes, limit=8) if query else self.store.recent(scopes=scopes, limit=8)

@@ -246,6 +246,7 @@ class Main(Star):
         if not owner:
             return []
         handled: list[str] = []
+        notifications: list[str] = []
         for command in (("feed", "mentions", "--limit", "5"), ("feed", "replies", "--limit", "5")):
             payload = await self._run(*command, timeout=60)
             if not payload.get("ok"):
@@ -260,6 +261,7 @@ class Main(Star):
                 reply = await self._reply_comment(item)
                 if reply:
                     handled.append(reply)
+                    notifications.append(reply)
         dms = await self._run("dm", "list", "--unread", "--limit", "5", timeout=60)
         if dms.get("ok"):
             for item in ((dms.get("data") or {}).get("items") or []):
@@ -269,8 +271,9 @@ class Main(Star):
                 reply = await self._reply_dm(item)
                 if reply:
                     handled.append(reply)
+                    notifications.append("已处理一条私信，内容仅在主人私聊中查看。")
         if handled:
-            await self._notify("B 站自动回复：\n" + "\n".join(handled))
+            await self._notify("B 站自动回复：\n" + "\n".join(notifications))
         return handled
 
     async def _poll_loop(self) -> None:
@@ -294,7 +297,15 @@ class Main(Star):
         if event.is_admin():
             return True
         owner_qq = str(self.config.get("owner_qq") or "").strip()
-        return bool(owner_qq) and str(event.get_sender_id() or "") == owner_qq
+        platform = str(event.get_platform_name() or "").lower()
+        return (
+            platform.startswith(("aiocqhttp", "qq_official"))
+            and bool(owner_qq)
+            and str(event.get_sender_id() or "") == owner_qq
+        )
+
+    def _can_read_private(self, event: AstrMessageEvent) -> bool:
+        return self._is_owner(event) and event.is_private_chat()
 
     @filter.command("bili")
     async def bili(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
@@ -316,6 +327,9 @@ class Main(Star):
                 "写操作默认只预览；关闭 dry_run_writes 才会真正发送。"
             )
             return
+        if command in ("状态", "登录", "确认", "收件箱", "处理", "私信") and not self._can_read_private(event):
+            yield event.plain_result("此操作仅限主人或管理员在私聊中使用。")
+            return
         if command == "状态":
             auth = await self._run("auth", "status", timeout=60)
             me = await self._run("me", "show", timeout=60) if auth.get("ok") else {}
@@ -333,9 +347,6 @@ class Main(Star):
             yield event.plain_result("\n".join(lines))
             return
         if command == "处理":
-            if not self._is_owner(event):
-                yield event.plain_result("只有管理员可以触发自动回复。")
-                return
             handled = await self._poll_once(force=True)
             yield event.plain_result("处理完成。\n" + ("\n".join(handled) if handled else "没有需要回复的新消息。"))
             return
@@ -372,7 +383,7 @@ class Main(Star):
                 yield event.plain_result(self._error(payload))
                 return
             data = payload.get("data") or {}
-            self._remember("B 站收件箱：" + json.dumps(data, ensure_ascii=False), scope="public", kind="inbox")
+            self._remember("B 站收件箱：" + json.dumps(data, ensure_ascii=False), scope="private", kind="inbox")
             yield event.plain_result("B 站收件箱：\n" + self._format(payload, 4000))
             return
         if command == "看":
@@ -418,9 +429,6 @@ class Main(Star):
             yield event.plain_result(("已发送。" if not dry else "预览（未发送）：") + "\n" + self._format(payload))
             return
         if command == "私信":
-            if not self._is_owner(event):
-                yield event.plain_result("只有管理员可以发私信。")
-                return
             parts = body.split(maxsplit=1)
             if len(parts) < 2:
                 yield event.plain_result("格式：/bili 私信 <UID|owner> <内容>")
@@ -446,9 +454,13 @@ class Main(Star):
                 conn = sqlite3.connect(self.memory_db, timeout=10)
                 conn.row_factory = sqlite3.Row
                 try:
+                    private = self._can_read_private(event)
+                    scopes = ("public", "private") if private else ("public",)
                     rows = conn.execute(
-                        "SELECT created_at, scope, content FROM events WHERE platform='bilibili' AND content LIKE ? ORDER BY id DESC LIMIT 10",
-                        (f"%{body}%",),
+                        "SELECT created_at, scope, content FROM events WHERE platform='bilibili' "
+                        "AND scope IN (" + ",".join("?" for _ in scopes) + ") "
+                        "AND (kind <> 'inbox' OR ?) AND content LIKE ? ORDER BY id DESC LIMIT 10",
+                        (*scopes, private, f"%{body}%"),
                     ).fetchall()
                 finally:
                     conn.close()
@@ -497,12 +509,15 @@ class Main(Star):
     @filter.llm_tool(name="bili_inbox")
     async def bili_inbox(self, event: AstrMessageEvent):
         """查看 B 站收件箱：新回复、@、赞、系统通知和未读私信。"""
+        if not self._can_read_private(event):
+            yield event.plain_result("收件箱仅限主人或管理员在私聊中查看。")
+            return
         payload = await self._run("feed", "inbox", "--limit", "5", timeout=90)
         if not payload.get("ok"):
             yield event.plain_result(self._error(payload))
             return
         data = payload.get("data") or {}
-        self._remember("B 站收件箱：" + json.dumps(data, ensure_ascii=False), scope="public", kind="inbox")
+        self._remember("B 站收件箱：" + json.dumps(data, ensure_ascii=False), scope="private", kind="inbox")
         yield event.plain_result("B 站收件箱：\n" + self._format(payload, 4000))
 
     async def terminate(self) -> None:

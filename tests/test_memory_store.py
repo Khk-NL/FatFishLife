@@ -73,6 +73,19 @@ class MemoryStoreTests(unittest.TestCase):
         reopened = MemoryStore(self.store.path)
         self.assertEqual(reopened.stats()["events"], 1)
 
+    def test_reopen_reclassifies_legacy_bilibili_inbox_only(self):
+        inbox_id = self.store.remember("旧收件箱里的私信", platform="bilibili", kind="inbox", scope="public")
+        self.store.remember("公开视频", platform="bilibili", kind="video", scope="public")
+        self.store.remember("群聊消息", platform="qq", kind="message", scope="public")
+        reopened = MemoryStore(self.store.path)
+        self.assertEqual(
+            {row["content"] for row in reopened.recall(scopes=("public",))},
+            {"公开视频", "群聊消息"},
+        )
+        private = reopened.recall(scopes=("private",))
+        self.assertEqual([(row["id"], row["content"]) for row in private], [(inbox_id, "旧收件箱里的私信")])
+        self.assertEqual(MemoryStore(self.store.path).stats()["events"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

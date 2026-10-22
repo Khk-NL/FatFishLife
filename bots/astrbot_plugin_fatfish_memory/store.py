@@ -76,6 +76,10 @@ class MemoryStore:
         self._lock = threading.Lock()
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            # Earlier inbox snapshots included private messages under public scope.
+            conn.execute(
+                "UPDATE events SET scope='private' WHERE platform='bilibili' AND kind='inbox' AND scope='public'"
+            )
 
     @contextmanager
     def _connect(self):
