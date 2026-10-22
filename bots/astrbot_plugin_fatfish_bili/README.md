@@ -47,6 +47,10 @@ D:/Code/Apps/bili-venv/Scripts/pip install bili-agent
 
 后台通知可以保留公开评论回复，但只报告私信已处理，不附带私信正文或回复内容；完整结果通过主人私聊中的 `/bili 处理` 查看。
 
+自动回复会从同一份共享记忆库读取相关笔记：公开评论始终只读公开层，即使评论来自主人；只有 `owner_uid` 本人的私信可读取私人笔记与札记。评论原始对话按视频隔离，私信按 UID 隔离，QQ 原始聊天不会自动串入 B 站。成功发送的来信与回复保留会话标记，预览不会记录成已发送的对话。
+
+`inject_context` 默认开启，`max_context_chars` 默认 1800。需要同时安装共享记忆插件的源码；两套插件目录保持相邻，复用同一个检索实现。现有 `reply_persona` 保留，检索资料作为附加背景。
+
 `enable_inbox_poll` 默认关闭。开启后每 `poll_interval_seconds` 秒调用一次 `bili feed inbox`，会消耗 B 站未读状态。
 
 ## 注意

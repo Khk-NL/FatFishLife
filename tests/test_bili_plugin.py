@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -160,6 +161,53 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         result = await collect(self.plugin.bili(Event(private=False), "回复", "BVexample 1 公开回复"))
         self.assertIn("预览（未发送）", result)
         self.plugin._run.assert_awaited_once_with("comment", "reply", "BVexample", "1", "公开回复", timeout=90, dry_run=True)
+
+    def mock_provider(self):
+        provider = types.SimpleNamespace(text_chat=AsyncMock(return_value=types.SimpleNamespace(completion_text="本轮回复")))
+        self.plugin.context = types.SimpleNamespace(get_using_provider=lambda: provider)
+        return provider
+
+    async def test_auto_reply_uses_shared_private_notes_only_for_owner_dm(self):
+        self.store.remember("SHARED_PRIVATE_TOKEN", platform="qq", scope="private", kind="note")
+        self.store.remember("SHARED_PUBLIC_TOKEN", platform="qq", scope="public", kind="note")
+        self.store.add_journal("PRIVATE_JOURNAL_TOKEN")
+        provider = self.mock_provider()
+        for kind, actor in (("comment", "123"), ("dm", "456"), ("dm", "123"), ("dm", "")):
+            with self.subTest(kind=kind, actor=actor):
+                result = await self.plugin._generate_reply(kind, "TOKEN", actor=actor, session=f"{kind}:{actor}")
+                self.assertEqual(result, "本轮回复")
+                system = provider.text_chat.await_args.kwargs["system_prompt"]
+                self.assertIn("SHARED_PUBLIC_TOKEN", system)
+                self.assertEqual("SHARED_PRIVATE_TOKEN" in system, kind == "dm" and actor == "123")
+                self.assertEqual("PRIVATE_JOURNAL_TOKEN" in system, kind == "dm" and actor == "123")
+                self.assertNotIn("PRIVATE_MESSAGE_TOKEN", system)
+        self.plugin._run.assert_not_awaited()
+
+    async def test_auto_reply_isolates_raw_chat_by_video_or_dm_session(self):
+        self.store.remember("THIS_VIDEO_TOKEN", platform="bilibili", scope="public", session="comment:BV1")
+        self.store.remember("OTHER_VIDEO_TOKEN", platform="bilibili", scope="public", session="comment:BV2")
+        self.store.remember("QQ_GROUP_TOKEN", platform="qq", scope="public", session="comment:BV1")
+        provider = self.mock_provider()
+        await self.plugin._generate_reply("comment", "TOKEN", actor="123", session="comment:BV1")
+        system = provider.text_chat.await_args.kwargs["system_prompt"]
+        self.assertIn("THIS_VIDEO_TOKEN", system)
+        self.assertNotIn("OTHER_VIDEO_TOKEN", system)
+        self.assertNotIn("QQ_GROUP_TOKEN", system)
+
+    async def test_auto_reply_records_real_conversation_but_not_dry_run_as_fact(self):
+        self.plugin.seen = set()
+        self.plugin._save_seen = lambda: None
+        self.plugin._generate_reply = AsyncMock(return_value="ACTUAL_REPLY_TOKEN")
+        item = {"user": {"mid": "123"}, "on": {"bvid": "BVexample"}, "rpid": "1", "content": "INCOMING_MESSAGE_TOKEN"}
+        await self.plugin._reply_comment(item)
+        self.assertEqual(self.store.recall("INCOMING_MESSAGE_TOKEN", scopes=("public",)), [])
+        self.assertEqual(self.store.recall("ACTUAL_REPLY_TOKEN", scopes=("public",)), [])
+        self.plugin.config["dry_run_writes"] = False
+        self.plugin.seen.clear()
+        await self.plugin._reply_comment(item)
+        rows = self.store.recall("TOKEN", scopes=("public",), kinds=("message",), conversation=("bilibili", "comment:BVexample"))
+        self.assertEqual({row["content"] for row in rows}, {"ACTUAL_REPLY_TOKEN", "INCOMING_MESSAGE_TOKEN"})
+        self.assertTrue(all(row["session"] == "comment:BVexample" for row in rows))
 
 
 if __name__ == "__main__":

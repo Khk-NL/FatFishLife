@@ -86,6 +86,34 @@ class MemoryStoreTests(unittest.TestCase):
         self.assertEqual([(row["id"], row["content"]) for row in private], [(inbox_id, "旧收件箱里的私信")])
         self.assertEqual(MemoryStore(self.store.path).stats()["events"], 3)
 
+    def test_conversation_only_limits_raw_chat_and_checks_platform(self):
+        self.store.remember("本群聊天", platform="qq", session="group-a", scope="public")
+        self.store.remember("其他群聊天", platform="qq", session="group-b", scope="public")
+        self.store.remember("同名异平台会话", platform="bilibili", session="group-a", scope="public")
+        self.store.remember("共享笔记", platform="bilibili", session="elsewhere", scope="public", kind="note")
+        self.store.remember("私人笔记", platform="qq", scope="private", kind="note")
+        rows = self.store.recent(conversation=("qq", "group-a"))
+        self.assertEqual({row["content"] for row in rows}, {"本群聊天", "共享笔记"})
+        self.assertEqual(len(self.store.recent()), 4)
+        self.assertEqual(
+            [row["content"] for row in self.store.recall("聊天", conversation=("qq", "group-a"))],
+            ["本群聊天"],
+        )
+
+    def test_legacy_public_inbox_is_not_read_before_reload(self):
+        self.store.remember("旧版公开收件箱", platform="bilibili", scope="public", kind="inbox")
+        self.store.remember("公开视频", platform="bilibili", scope="public", kind="video")
+        self.assertEqual([row["content"] for row in self.store.recent()], ["公开视频"])
+
+    def test_kind_filter_applies_before_result_limit(self):
+        self.store.remember("应选中的笔记", kind="note", scope="public")
+        self.store.remember("更新的快照", kind="bili", scope="public")
+        self.assertEqual(
+            [row["content"] for row in self.store.recent(kinds=("note",), limit=1)],
+            ["应选中的笔记"],
+        )
+        self.assertEqual(self.store.recall(kinds=()), [])
+
 
 if __name__ == "__main__":
     unittest.main()

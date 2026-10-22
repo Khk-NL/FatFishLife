@@ -16,6 +16,9 @@ from astrbot.api.message_components import Image, Plain
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
+from ..astrbot_plugin_fatfish_memory.context import build_context
+from ..astrbot_plugin_fatfish_memory.store import MemoryStore
+
 PLUGIN_NAME = "astrbot_plugin_fatfish_bili"
 MEMORY_PLUGIN = "astrbot_plugin_fatfish_memory"
 DEFAULT_PERSONA = (
@@ -114,7 +117,7 @@ class Main(Star):
 
     # ---------- shared memory ----------
 
-    def _remember(self, content: str, *, scope: str = "public", kind: str = "bili") -> bool:
+    def _remember(self, content: str, *, scope: str = "public", kind: str = "bili", session: str = "bili-cli", actor: str = "") -> bool:
         if not self.memory_db.is_file():
             logger.warning(f"共享记忆库不存在：{self.memory_db}")
             return False
@@ -123,7 +126,7 @@ class Main(Star):
             try:
                 conn.execute(
                     "INSERT INTO events(platform, scope, kind, session, actor, content, created_at, meta) VALUES (?,?,?,?,?,?,?,?)",
-                    ("bilibili", scope, kind, "bili-cli", "", " ".join(content.split())[:500], _now(), "{}"),
+                    ("bilibili", scope, kind, session, actor, " ".join(content.split())[:500], _now(), "{}"),
                 )
                 conn.commit()
             finally:
@@ -144,8 +147,22 @@ class Main(Star):
 
     # ---------- reply generation ----------
 
-    async def _generate_reply(self, kind: str, text: str, title: str = "") -> str:
+    async def _generate_reply(self, kind: str, text: str, title: str = "", *, actor: str = "", session: str = "") -> str:
         persona = str(self.config.get("reply_persona") or DEFAULT_REPLY_PERSONA)
+        if bool(self.config.get("inject_context", True)) and self.memory_db.is_file():
+            owner = str(self.config.get("owner_uid") or "").strip()
+            scopes = ("public", "private") if kind == "dm" and owner and actor == owner else ("public",)
+            try:
+                memory = build_context(
+                    MemoryStore(self.memory_db), text, scopes=scopes,
+                    conversation=("bilibili", session) if session else None,
+                    max_chars=int(self.config.get("max_context_chars", 1800)),
+                )
+            except (sqlite3.Error, OSError, ValueError) as exc:
+                logger.warning(f"读取共享记忆失败，跳过本次 B 站自动回复：{exc}")
+                return ""
+            if memory:
+                persona += "\n\n[共享记忆参考]\n" + memory
         context = f"视频《{title}》。" if title else ""
         prompt = (
             f"{context}对方说：{text}\n"
@@ -187,7 +204,8 @@ class Main(Star):
         text = str(item.get("content") or "").strip()
         if not text:
             return None
-        reply = await self._generate_reply("comment", text, str((item.get("on") or {}).get("title") or ""))
+        session = f"comment:{bvid}"
+        reply = await self._generate_reply("comment", text, str((item.get("on") or {}).get("title") or ""), actor=mid, session=session)
         if not reply:
             return None
         dry = bool(self.config.get("dry_run_writes", True))
@@ -200,7 +218,9 @@ class Main(Star):
             return None
         self.seen.add(key)
         self._save_seen()
-        self._remember(f"回复 {user.get('name') or mid} 的评论：{reply}", scope="public", kind="reply")
+        if not dry:
+            self._remember(text, scope="public", kind="message", session=session, actor=mid)
+            self._remember(reply, scope="public", kind="message", session=session, actor="bot")
         return reply if not dry else f"[预览] {reply}"
 
     async def _reply_dm(self, item: dict) -> str | None:
@@ -217,7 +237,8 @@ class Main(Star):
         key = f"dm:{uid}:{message.get('time') or text[:24]}"
         if key in self.seen:
             return None
-        reply = await self._generate_reply("dm", text)
+        session = f"dm:{uid}"
+        reply = await self._generate_reply("dm", text, actor=uid, session=session)
         if not reply:
             return None
         dry = bool(self.config.get("dry_run_writes", True))
@@ -227,7 +248,9 @@ class Main(Star):
             return None
         self.seen.add(key)
         self._save_seen()
-        self._remember(f"回复私信 {item.get('name') or uid}：{reply}", scope="private", kind="dm_reply")
+        if not dry:
+            self._remember(text, scope="private", kind="message", session=session, actor=uid)
+            self._remember(reply, scope="private", kind="message", session=session, actor="bot")
         return reply if not dry else f"[预览] {reply}"
 
     def _recent(self, value, minutes: int = 30) -> bool:

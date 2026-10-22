@@ -116,12 +116,27 @@ class MemoryStore:
             )
             return int(cursor.lastrowid or 0)
 
-    def recall(self, query: str = "", *, scopes: tuple[str, ...] = ("public",), limit: int = 20) -> list[dict]:
-        where = []
+    def recall(
+        self,
+        query: str = "",
+        *,
+        scopes: tuple[str, ...] = ("public",),
+        limit: int = 20,
+        conversation: tuple[str, str] | None = None,
+        kinds: tuple[str, ...] | None = None,
+    ) -> list[dict]:
+        # Keep legacy inbox snapshots out of public access even before a reload.
+        where = ["NOT (platform='bilibili' AND kind='inbox' AND scope='public')"]
         params: list[str] = []
         if scopes:
             where.append("scope IN (" + ",".join("?" for _ in scopes) + ")")
             params.extend(scopes)
+        if conversation is not None:
+            where.append("(kind <> 'message' OR (platform=? AND session=?))")
+            params.extend(conversation)
+        if kinds is not None:
+            where.append("kind IN (" + ",".join("?" for _ in kinds) + ")" if kinds else "0")
+            params.extend(kinds)
         for token in str(query).split():
             where.append("content LIKE ?")
             params.append(f"%{token}%")
@@ -133,8 +148,15 @@ class MemoryStore:
         with self._connect() as conn:
             return [dict(row) for row in conn.execute(sql, params).fetchall()]
 
-    def recent(self, *, scopes: tuple[str, ...] = ("public",), limit: int = 20) -> list[dict]:
-        return self.recall("", scopes=scopes, limit=limit)
+    def recent(
+        self,
+        *,
+        scopes: tuple[str, ...] = ("public",),
+        limit: int = 20,
+        conversation: tuple[str, str] | None = None,
+        kinds: tuple[str, ...] | None = None,
+    ) -> list[dict]:
+        return self.recall("", scopes=scopes, limit=limit, conversation=conversation, kinds=kinds)
 
     def set_persona(self, content: str, name: str = "default") -> None:
         text = str(content).strip()

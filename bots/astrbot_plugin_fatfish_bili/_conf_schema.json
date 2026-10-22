@@ -54,6 +54,16 @@
     "description": "自动回复时使用的人设提示",
     "default": "你是 B 站 UP 主「大肥鱼」，说话短、爱吐槽、有点小聪明，但不刻薄。回复像真人随手打的，不解释自己是 AI，不端着，不用列表和标题。"
   },
+  "inject_context": {
+    "type": "bool",
+    "description": "自动回复时使用相关共享记忆；公开评论只读公开层，主人私信可读私人层",
+    "default": true
+  },
+  "max_context_chars": {
+    "type": "int",
+    "description": "自动回复每次读取的记忆文字上限，默认 1800 字符",
+    "default": 1800
+  },
   "dry_run_writes": {
     "type": "bool",
     "description": "评论、私信等写操作只预览不发送",

@@ -14,6 +14,16 @@
     "description": "单条记忆最多保存的字符数",
     "default": 500
   },
+  "inject_context": {
+    "type": "bool",
+    "description": "对话请求前自动检索并注入相关共享记忆，遵循主人权限和会话隔离",
+    "default": true
+  },
+  "max_context_chars": {
+    "type": "int",
+    "description": "每次自动注入的记忆文字上限，默认 1800 字符",
+    "default": 1800
+  },
   "retention_days": {
     "type": "int",
     "description": "事件保留天数，0 表示不自动清理",

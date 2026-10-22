@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from pathlib import Path
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
+from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
+from .context import build_context
 from .store import MemoryStore
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_memory"
@@ -65,6 +68,30 @@ class Main(Star):
     def _scopes(self, event: AstrMessageEvent) -> tuple[str, ...]:
         return ("public", "private") if self._can_access_private(event) else ("public",)
 
+    def _conversation(self, event: AstrMessageEvent) -> tuple[str, str]:
+        return _platform(event), str(event.get_session_id() or "")
+
+    @filter.on_llm_request()
+    async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
+        if not bool(self.config.get("inject_context", True)):
+            return
+        marker = "\n\n[共享记忆参考]\n"
+        if marker in (req.system_prompt or ""):
+            return
+        try:
+            context = build_context(
+                self.store,
+                str(req.prompt or event.message_str or ""),
+                scopes=self._scopes(event),
+                conversation=self._conversation(event),
+                max_chars=int(self.config.get("max_context_chars", 1800)),
+            )
+        except (sqlite3.Error, OSError, ValueError) as exc:
+            logger.warning(f"检索共享记忆失败，本次请求未注入记忆：{exc}")
+            return
+        if context:
+            req.system_prompt = (req.system_prompt or "") + marker + context
+
     async def _record(self, event: AstrMessageEvent) -> None:
         if not bool(self.config.get("record_all_messages", True)):
             return
@@ -114,7 +141,7 @@ class Main(Star):
             if not body:
                 yield event.plain_result("请给出关键词，例如 /记忆 搜索 直播")
                 return
-            rows = self.store.recall(body, scopes=self._scopes(event), limit=10)
+            rows = self.store.recall(body, scopes=self._scopes(event), limit=10, conversation=self._conversation(event))
             if not rows:
                 yield event.plain_result("没有找到相关记忆。")
                 return
@@ -122,7 +149,7 @@ class Main(Star):
             yield event.plain_result("找到的记忆：\n" + "\n".join(lines))
             return
         if command == "最近":
-            rows = self.store.recent(scopes=self._scopes(event), limit=10)
+            rows = self.store.recent(scopes=self._scopes(event), limit=10, conversation=self._conversation(event))
             if not rows:
                 yield event.plain_result("还没有记忆。")
                 return
@@ -212,7 +239,7 @@ class Main(Star):
             if not self._can_access_private(event):
                 yield event.plain_result("请在主人的私聊中提炼札记。")
                 return
-            rows = self.store.recent(scopes=("private", "public"), limit=40)
+            rows = self.store.recent(scopes=("private", "public"), limit=40, conversation=self._conversation(event))
             if not rows:
                 yield event.plain_result("最近没有可提炼的记忆。")
                 return
@@ -267,7 +294,7 @@ class Main(Star):
                 yield event.plain_result("私人记忆只能在主人的私聊中读取。")
                 return
             scopes = ("private",)
-        rows = self.store.recall(query, scopes=scopes, limit=8) if query else self.store.recent(scopes=scopes, limit=8)
+        rows = self.store.recall(query, scopes=scopes, limit=8, conversation=self._conversation(event)) if query else self.store.recent(scopes=scopes, limit=8, conversation=self._conversation(event))
         if not rows:
             yield event.plain_result("没有找到相关记忆。")
             return

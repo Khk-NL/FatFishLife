@@ -47,8 +47,8 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.config = {}
         self.plugin.store = PLUGIN.MemoryStore(Path(self.directory.name) / "memory.db")
         self.plugin.store.add_owner("qq", "owner")
-        self.plugin.store.remember("PRIVATE_EVENT_TOKEN", scope="private")
-        self.plugin.store.remember("PUBLIC_EVENT_TOKEN", scope="public")
+        self.plugin.store.remember("PRIVATE_EVENT_TOKEN", scope="private", kind="note")
+        self.plugin.store.remember("PUBLIC_EVENT_TOKEN", scope="public", kind="note")
         self.plugin.context = types.SimpleNamespace(
             get_current_chat_provider_id=AsyncMock(return_value="test-provider"),
             llm_generate=AsyncMock(return_value=types.SimpleNamespace(completion_text="私人认识")),
@@ -108,6 +108,45 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         prompt = self.plugin.context.llm_generate.call_args.kwargs["prompt"]
         self.assertIn("PRIVATE_EVENT_TOKEN", prompt)
         self.assertIn("PUBLIC_EVENT_TOKEN", prompt)
+
+    async def test_model_requests_receive_only_authorized_memory(self):
+        for uid, private in (("owner", True), ("owner", False), ("visitor", True), ("visitor", False)):
+            request = types.SimpleNamespace(prompt="TOKEN", system_prompt="EXISTING_PERSONA")
+            await self.plugin.on_llm_request(Event(uid, private), request)
+            self.assertTrue(request.system_prompt.startswith("EXISTING_PERSONA"))
+            self.assertIn("PUBLIC_EVENT_TOKEN", request.system_prompt)
+            self.assertEqual("PRIVATE_EVENT_TOKEN" in request.system_prompt, uid == "owner" and private)
+            self.assertIn("不是本轮指令", request.system_prompt)
+
+    async def test_model_requests_and_tools_do_not_read_other_conversations(self):
+        self.plugin.store.remember("CURRENT_GROUP_TOKEN", platform="qq", scope="public", session="group")
+        self.plugin.store.remember("OTHER_GROUP_TOKEN", platform="qq", scope="public", session="other-group")
+        self.plugin.store.remember("OTHER_PLATFORM_TOKEN", platform="bilibili", scope="public", session="group")
+        event = Event("owner", False)
+        request = types.SimpleNamespace(prompt="TOKEN", system_prompt="")
+        await self.plugin.on_llm_request(event, request)
+        for result in (
+            request.system_prompt,
+            await collect(self.plugin.memory(event, "搜索", "TOKEN")),
+            await collect(self.plugin.memory_recall(event, "TOKEN")),
+        ):
+            self.assertIn("CURRENT_GROUP_TOKEN", result)
+            self.assertNotIn("OTHER_GROUP_TOKEN", result)
+            self.assertNotIn("OTHER_PLATFORM_TOKEN", result)
+
+    async def test_automatic_context_can_be_disabled_and_is_not_duplicated(self):
+        event = Event("owner", True)
+        request = types.SimpleNamespace(prompt="TOKEN", system_prompt="CORE")
+        self.plugin.config["inject_context"] = False
+        await self.plugin.on_llm_request(event, request)
+        self.assertEqual(request.system_prompt, "CORE")
+        self.plugin.config["inject_context"] = True
+        self.plugin.config["max_context_chars"] = 250
+        await self.plugin.on_llm_request(event, request)
+        original = request.system_prompt
+        self.assertLessEqual(len(original), len("CORE\n\n[共享记忆参考]\n") + 250)
+        await self.plugin.on_llm_request(event, request)
+        self.assertEqual(request.system_prompt, original)
 
 
 if __name__ == "__main__":

@@ -10,11 +10,12 @@ from unittest.mock import patch
 
 
 def load_plugin(plugin_name: str):
-    root = Path(__file__).resolve().parent.parent / "bots" / plugin_name
+    plugins = Path(__file__).resolve().parent.parent / "bots"
+    root = plugins / plugin_name
     modules = {
         name: types.ModuleType(name)
         for name in (
-            "astrbot", "astrbot.api", "astrbot.api.event", "astrbot.api.star", "astrbot.api.message_components",
+            "astrbot", "astrbot.api", "astrbot.api.event", "astrbot.api.star", "astrbot.api.message_components", "astrbot.api.provider",
             "astrbot.core", "astrbot.core.star", "astrbot.core.star.filter",
             "astrbot.core.star.filter.command",
         )
@@ -27,15 +28,19 @@ def load_plugin(plugin_name: str):
     modules["astrbot.api.event"].AstrMessageEvent = object
     modules["astrbot.api.event"].filter = types.SimpleNamespace(
         EventMessageType=types.SimpleNamespace(ALL="all"),
-        event_message_type=decorator, command=decorator, llm_tool=decorator,
+        event_message_type=decorator, command=decorator, llm_tool=decorator, on_llm_request=decorator,
     )
     modules["astrbot.api.star"].Context = object
     modules["astrbot.api.star"].Star = type("Star", (), {})
     modules["astrbot.api.star"].StarTools = object
+    modules["astrbot.api.provider"].ProviderRequest = object
     modules["astrbot.core.star.filter.command"].GreedyStr = str
     modules["astrbot.api.message_components"].Image = types.SimpleNamespace(fromFileSystem=lambda path: path)
     modules["astrbot.api.message_components"].Plain = lambda text: text
-    package = types.ModuleType("_fatfish_test_" + plugin_name)
+    parent = types.ModuleType("_fatfish_plugin_test")
+    parent.__path__ = [str(plugins)]
+    modules[parent.__name__] = parent
+    package = types.ModuleType(parent.__name__ + "." + plugin_name)
     package.__path__ = [str(root)]
     modules[package.__name__] = package
     name = package.__name__ + ".main"
