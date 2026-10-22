@@ -1,0 +1,86 @@
+{
+  "1006": {
+    "file": "silverwolf.jpg",
+    "crop": [
+      2202,
+      0,
+      2448,
+      326
+    ],
+    "face": [
+      0.5,
+      0.675,
+      0.43,
+      0.36
+    ],
+    "head_bottom": 0.88,
+    "source": "https://x.com/DragaliaArchive/status/1652015595703943170",
+    "size": [
+      246,
+      326
+    ]
+  },
+  "1005": {
+    "file": "kafka.jpg",
+    "crop": [
+      872,
+      110,
+      1398,
+      748
+    ],
+    "face": [
+      0.51,
+      0.64,
+      0.55,
+      0.38
+    ],
+    "head_bottom": 0.85,
+    "source": "https://www.miyoushe.com/sr/article/49604498",
+    "size": [
+      526,
+      638
+    ]
+  },
+  "1205": {
+    "file": "blade.jpg",
+    "crop": [
+      705,
+      137,
+      1277,
+      770
+    ],
+    "face": [
+      0.51,
+      0.61,
+      0.52,
+      0.43
+    ],
+    "head_bottom": 0.82,
+    "source": "https://www.miyoushe.com/sr/article/49604498",
+    "size": [
+      572,
+      633
+    ]
+  },
+  "1224": {
+    "file": "march.jpg",
+    "crop": [
+      944,
+      155,
+      1480,
+      690
+    ],
+    "face": [
+      0.51,
+      0.65,
+      0.51,
+      0.4
+    ],
+    "head_bottom": 0.87,
+    "source": "https://www.miyoushe.com/dby/article/56610386",
+    "size": [
+      536,
+      535
+    ]
+  }
+}

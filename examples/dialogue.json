@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "title": "大肥鱼模板样片 · dialogue",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "background": "#5AA6CF"
+  },
+  "template": "dialogue",
+  "assets": {
+    "silver": "../assets/originals/role-silver.jpg",
+    "blue": "../assets/originals/role-blue.jpg",
+    "red": "../assets/originals/role-red.jpg",
+    "red_expression": "../assets/originals/role-red-expression.jpg",
+    "notice": {
+      "path": "../assets/originals/reference-layout.png",
+      "crop": [
+        300,
+        0,
+        970,
+        440
+      ]
+    }
+  },
+  "music": {
+    "path": "../assets/music/demo-original.wav",
+    "speed": 1.25,
+    "pitch": "follow_speed",
+    "volume": 0.65,
+    "fade_in": 0.3,
+    "fade_out": 0.7
+  },
+  "scenes": [
+    {
+      "duration": 4,
+      "roles": [
+        "red",
+        "blue"
+      ],
+      "caption": "红衣：孩子们，这次谁负责整活？"
+    },
+    {
+      "duration": 4,
+      "roles": [
+        "red_expression",
+        "blue"
+      ],
+      "caption": "蓝衣：你负责文案，我负责把小曲加速。",
+      "zoom": 0.02
+    },
+    {
+      "duration": 4,
+      "roles": [
+        "blue",
+        "silver"
+      ],
+      "caption": "孩子们，分工明确，今天又是稳定产出的一天。"
+    }
+  ],
+  "output": "../outputs/dialogue.mp4"
+}

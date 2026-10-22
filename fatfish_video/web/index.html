@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FatFishLife · 角色拼贴工作台</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="FatFishLife 首页"><span class="brand-mark"><img src="/assets/icons/fish.svg" alt=""></span><span>FatFishLife<small>角色拼贴工作台</small></span></a>
+    <div class="header-note"><span class="status-dot"></span>本地测试 · 图片与音乐在本机处理</div>
+    <div class="header-actions"><button id="downloadPng" class="button secondary"><img src="/assets/icons/download.svg" alt="">导出角色 PNG</button><button id="renderVideo" class="button primary"><img src="/assets/icons/play.svg" alt="">生成测试视频</button></div>
+  </header>
+
+  <main class="workspace">
+    <aside class="panel library" aria-labelledby="libraryTitle">
+      <div class="panel-title"><h2 id="libraryTitle">角色素材</h2><span id="characterCount" class="badge">载入中</span></div>
+      <label class="search-box"><img src="/assets/icons/search.svg" alt=""><input id="search" type="search" placeholder="搜索角色名 / 英文名" aria-label="搜索崩铁角色"></label>
+      <div class="library-caption">崩坏：星穹铁道<span id="materialMode">正面模型头像 · 4 个已校准</span></div>
+      <div id="characterGrid" class="character-grid" aria-label="角色列表"></div>
+      <div id="emptySearch" class="empty-state" hidden>这个角色暂未收录正面模型图。可导入正脸图片，或切换“立绘备用”。</div>
+      <label for="characterFile" class="button secondary upload-wide"><img src="/assets/icons/upload.svg" alt="">导入自己的角色图片</label>
+      <input id="characterFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      <div class="source-credit">正面模型图来自角色三视图，已分离底图和头发层。<br>立绘备用：<a href="https://github.com/Mar-7th/StarRailRes" target="_blank" rel="noreferrer">StarRailRes</a>。</div>
+      <div class="face-source">
+        <canvas id="faceThumb" width="100" height="100" aria-label="当前脸部素材预览"></canvas>
+        <div><h3>牢大脸部素材</h3><p>原版牢大.png · 已自动裁去身体</p><label for="faceFile" class="text-button">更换并自动截脸</label></div>
+        <input id="faceFile" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+      </div>
+    </aside>
+
+    <section class="editor" aria-labelledby="editorTitle">
+      <div class="editor-heading"><div><span class="eyebrow">CHARACTER COMPOSITOR</span><h1 id="editorTitle">正在准备角色</h1></div><div class="segmented" aria-label="角色图片类型"><button id="useIcon" class="active" aria-pressed="true">正面模型</button><button id="usePreview" aria-pressed="false">立绘备用</button></div></div>
+      <div class="canvas-shell">
+        <div class="canvas-toolbar" role="toolbar" aria-label="画布工具">
+          <div class="tool-group"><button id="moveTool" class="tool active" title="拖动脸部" aria-label="拖动脸部" aria-pressed="true"><img src="/assets/icons/mouse-pointer-2.svg" alt=""></button><button id="restoreTool" class="tool" title="画回原图的头发与饰品" aria-label="保留头发画笔" aria-pressed="false"><img src="/assets/icons/brush.svg" alt=""></button><button id="eraseTool" class="tool" title="擦除画回的区域" aria-label="擦除修补" aria-pressed="false"><img src="/assets/icons/eraser.svg" alt=""></button><span class="divider"></span><button id="undoBrush" class="tool" title="撤销最后一笔" aria-label="撤销画笔"><img src="/assets/icons/undo-2.svg" alt=""></button></div>
+          <button id="compare" class="compare-button" aria-pressed="false">查看原图</button>
+        </div>
+        <div class="canvas-area"><canvas id="stage" width="1024" height="1024" aria-label="角色与牢大脸部合成画布，可拖动脸部" tabindex="0"></canvas></div>
+        <div class="canvas-footer"><span id="toolHint">拖动脸部调整位置，右侧调节大小与角度</span><span>1024 × 1024</span></div>
+      </div>
+      <div class="preview-caption"><span class="badge">视频字幕预览</span><p id="captionPreview">孩子们，今天又是稳定整活的一天。</p></div>
+      <div id="videoResult" class="video-result" hidden><div class="panel-title"><h2>测试成片</h2><a id="videoDownload" class="text-button" download>下载 MP4</a></div><video id="resultPlayer" controls playsinline></video></div>
+    </section>
+
+    <aside class="panel settings" aria-label="素材与音乐设置">
+      <div class="tabs" role="tablist" aria-label="设置分类"><button id="faceTab" role="tab" class="active" aria-selected="true" aria-controls="faceSettings"><img src="/assets/icons/sliders-horizontal.svg" alt="">脸部贴合</button><button id="musicTab" role="tab" aria-selected="false" aria-controls="musicSettings"><img src="/assets/icons/headset.svg" alt="">音乐调速</button></div>
+      <section id="faceSettings" class="settings-section" role="tabpanel" aria-labelledby="faceTab">
+        <div class="section-heading"><h2>调整贴合</h2><button id="resetFace" class="icon-text"><img src="/assets/icons/rotate-ccw.svg" alt="">重置</button></div>
+        <p class="help">正面模型已拆成独立图层，脸部默认置顶，头发不会遮住五官。</p>
+        <div class="layer-settings"><strong>图片图层</strong><label class="check-row"><input id="showFace" type="checkbox" checked>牢大脸部层</label><label class="check-row"><input id="showHair" type="checkbox" checked>头发与饰品层</label><label class="check-row"><input id="showBase" type="checkbox" checked>角色底图层</label><label class="check-row"><input id="faceOnTop" type="checkbox" checked>脸部置顶（头发不遮五官）</label></div>
+        <label class="range-label" for="faceWidth">脸部宽度<output id="faceWidthValue">200 px</output></label><input id="faceWidth" type="range" min="70" max="600" step="1" value="200">
+        <label class="range-label" for="faceHeight">脸部高度<output id="faceHeightValue">230 px</output></label><input id="faceHeight" type="range" min="80" max="650" step="1" value="230">
+        <label class="range-label" for="faceRotation">旋转角度<output id="faceRotationValue">0°</output></label><input id="faceRotation" type="range" min="-60" max="60" step="1" value="0">
+        <label class="range-label" for="feather">边缘羽化<output id="featherValue">5%</output></label><input id="feather" type="range" min="0" max="35" step="1" value="5">
+        <div class="brush-card"><div><img src="/assets/icons/brush.svg" alt=""><strong>头发层修补画笔</strong></div><p>修补头发与饰品，默认位于脸部下方。需要刘海覆盖时，取消“脸部置顶”。</p><label class="range-label" for="brushSize">画笔大小<output id="brushSizeValue">35 px</output></label><input id="brushSize" type="range" min="5" max="100" value="35"></div>
+        <details><summary>取脸范围与精细调整</summary>
+          <label class="range-label" for="sourceZoom">源图取脸缩放<output id="sourceZoomValue">1.00×</output></label><input id="sourceZoom" type="range" min="1" max="5" step="0.05" value="1">
+          <label class="range-label" for="sourceX">源图水平位置<output id="sourceXValue">50%</output></label><input id="sourceX" type="range" min="0" max="100" value="50">
+          <label class="range-label" for="sourceY">源图垂直位置<output id="sourceYValue">50%</output></label><input id="sourceY" type="range" min="0" max="100" value="50">
+          <label class="range-label" for="faceX">画布水平位置<output id="faceXValue">54%</output></label><input id="faceX" type="range" min="0" max="100" step="0.1" value="54">
+          <label class="range-label" for="faceY">画布垂直位置<output id="faceYValue">27%</output></label><input id="faceY" type="range" min="0" max="100" step="0.1" value="27">
+          <label class="range-label" for="opacity">脸部透明度<output id="opacityValue">100%</output></label><input id="opacity" type="range" min="10" max="100" value="100">
+        </details>
+        <div class="appearance-row"><label for="background">背景颜色</label><input id="background" type="color" value="#5aa6cf"></div>
+        <label class="check-row"><input id="transparent" type="checkbox">透明背景 PNG</label><label class="check-row"><input id="guides" type="checkbox" checked>显示贴合参考线（不会导出）</label>
+      </section>
+
+      <section id="musicSettings" class="settings-section" role="tabpanel" aria-labelledby="musicTab" hidden>
+        <div class="section-heading"><h2>音乐调速</h2><span class="badge">本地文件</span></div>
+        <label for="musicFile" class="audio-drop"><img src="/assets/icons/upload.svg" alt=""><strong>导入音乐</strong><span>MP3 / WAV / M4A / FLAC · 最大 50 MB</span></label><input id="musicFile" type="file" accept="audio/*,.flac,.m4a" hidden>
+        <button id="demoMusic" class="text-button demo-button">载入测试音乐</button>
+        <div class="audio-player"><div class="track-name"><img src="/assets/icons/headset.svg" alt=""><span id="musicName">尚未导入音乐</span></div><div class="playback"><button id="playMusic" class="play-button" aria-label="播放音乐" disabled><img id="playIcon" src="/assets/icons/play.svg" alt=""></button><div class="seek-wrap"><input id="seek" aria-label="音乐播放进度" type="range" min="0" max="1000" value="0" disabled><div class="time-label"><span id="currentTime">00:00</span><span id="totalTime">00:00</span></div></div></div></div>
+        <label class="range-label" for="musicSpeed">播放速度<output id="musicSpeedValue" class="speed-value">1.25×</output></label><input id="musicSpeed" type="range" min="0.5" max="2" step="0.05" value="1.25">
+        <div class="speed-presets"><button data-speed="0.85">0.85×</button><button data-speed="1">1.0×</button><button data-speed="1.25" class="active">1.25×</button><button data-speed="1.5">1.5×</button></div>
+        <label class="check-row"><input id="preservePitch" type="checkbox">保留原调（关闭时随加速升调）</label>
+        <label class="range-label" for="volume">音乐音量<output id="volumeValue">65%</output></label><input id="volume" type="range" min="0" max="100" value="65">
+        <p id="adjustedDuration" class="help">导入音乐后可实时试听，调速设置也会用于导出。</p>
+        <button id="exportAudio" class="button secondary upload-wide" disabled><img src="/assets/icons/download.svg" alt="">导出调速后的 WAV</button>
+        <audio id="audio" preload="metadata"></audio>
+      </section>
+
+      <section class="video-settings"><div class="section-heading"><h2>测试视频</h2><span class="badge">1080p</span></div><label for="caption">字幕文案</label><textarea id="caption" rows="3" maxlength="160">孩子们，今天又是稳定整活的一天。</textarea><label class="range-label" for="duration">视频时长<output id="durationValue">8 秒</output></label><input id="duration" type="range" min="2" max="30" value="8"><p class="help">使用当前合成图与音乐设置，生成一条本地 MP4。</p></section>
+    </aside>
+  </main>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

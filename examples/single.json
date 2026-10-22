@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "title": "大肥鱼模板样片 · single",
+  "canvas": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "background": "#5AA6CF"
+  },
+  "template": "single",
+  "assets": {
+    "silver": "../assets/originals/role-silver.jpg",
+    "blue": "../assets/originals/role-blue.jpg",
+    "red": "../assets/originals/role-red.jpg",
+    "red_expression": "../assets/originals/role-red-expression.jpg",
+    "notice": {
+      "path": "../assets/originals/reference-layout.png",
+      "crop": [
+        300,
+        0,
+        970,
+        440
+      ]
+    }
+  },
+  "music": {
+    "path": "../assets/music/demo-original.wav",
+    "speed": 1.25,
+    "pitch": "follow_speed",
+    "volume": 0.65,
+    "fade_in": 0.3,
+    "fade_out": 0.7
+  },
+  "scenes": [
+    {
+      "duration": 4,
+      "roles": [
+        "red"
+      ],
+      "caption": "孩子们，先别急，主包的流水线开工了。"
+    },
+    {
+      "duration": 4,
+      "roles": [
+        "red_expression"
+      ],
+      "caption": "同一套衣服，换个表情，节目效果就来了。"
+    },
+    {
+      "duration": 4,
+      "roles": [
+        "silver"
+      ],
+      "caption": "这条不用抽卡，角色、字幕和小曲直接合成。"
+    }
+  ],
+  "output": "../outputs/single.mp4"
+}

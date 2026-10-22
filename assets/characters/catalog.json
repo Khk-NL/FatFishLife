@@ -1,0 +1,805 @@
+{
+  "source": "https://github.com/Mar-7th/StarRailRes",
+  "characters": [
+    {
+      "id": "1001",
+      "name": "三月七",
+      "tag": "mar7th",
+      "rarity": 4,
+      "icon": "/assets/characters/1001-icon.png",
+      "preview": "/assets/characters/1001-preview.png"
+    },
+    {
+      "id": "1002",
+      "name": "丹恒",
+      "tag": "danheng",
+      "rarity": 4,
+      "icon": "/assets/characters/1002-icon.png",
+      "preview": "/assets/characters/1002-preview.png"
+    },
+    {
+      "id": "1003",
+      "name": "姬子",
+      "tag": "himeko",
+      "rarity": 5,
+      "icon": "/assets/characters/1003-icon.png",
+      "preview": "/assets/characters/1003-preview.png"
+    },
+    {
+      "id": "1004",
+      "name": "瓦尔特",
+      "tag": "welt",
+      "rarity": 5,
+      "icon": "/assets/characters/1004-icon.png",
+      "preview": "/assets/characters/1004-preview.png"
+    },
+    {
+      "id": "1005",
+      "name": "卡芙卡",
+      "tag": "kafka",
+      "rarity": 5,
+      "icon": "/assets/characters/1005-icon.png",
+      "preview": "/assets/characters/1005-preview.png",
+      "front": {
+        "file": "kafka.jpg",
+        "crop": [
+          872,
+          110,
+          1398,
+          748
+        ],
+        "face": [
+          0.51,
+          0.64,
+          0.55,
+          0.38
+        ],
+        "head_bottom": 0.85,
+        "source": "https://www.miyoushe.com/sr/article/49604498",
+        "size": [
+          526,
+          638
+        ],
+        "front": "/assets/fronts/1005-front.png",
+        "hair": "/assets/fronts/1005-hair.png",
+        "base": "/assets/fronts/1005-base.png"
+      }
+    },
+    {
+      "id": "1006",
+      "name": "银狼",
+      "tag": "silverwolf",
+      "rarity": 5,
+      "icon": "/assets/characters/1006-icon.png",
+      "preview": "/assets/characters/1006-preview.png",
+      "front": {
+        "file": "silverwolf.jpg",
+        "crop": [
+          2202,
+          0,
+          2448,
+          326
+        ],
+        "face": [
+          0.5,
+          0.675,
+          0.43,
+          0.36
+        ],
+        "head_bottom": 0.88,
+        "source": "https://x.com/DragaliaArchive/status/1652015595703943170",
+        "size": [
+          246,
+          326
+        ],
+        "front": "/assets/fronts/1006-front.png",
+        "hair": "/assets/fronts/1006-hair.png",
+        "base": "/assets/fronts/1006-base.png"
+      }
+    },
+    {
+      "id": "1008",
+      "name": "阿兰",
+      "tag": "arlan",
+      "rarity": 4,
+      "icon": "/assets/characters/1008-icon.png",
+      "preview": "/assets/characters/1008-preview.png"
+    },
+    {
+      "id": "1009",
+      "name": "艾丝妲",
+      "tag": "asta",
+      "rarity": 4,
+      "icon": "/assets/characters/1009-icon.png",
+      "preview": "/assets/characters/1009-preview.png"
+    },
+    {
+      "id": "1013",
+      "name": "黑塔",
+      "tag": "herta",
+      "rarity": 4,
+      "icon": "/assets/characters/1013-icon.png",
+      "preview": "/assets/characters/1013-preview.png"
+    },
+    {
+      "id": "1014",
+      "name": "Saber",
+      "tag": "saber",
+      "rarity": 5,
+      "icon": "/assets/characters/1014-icon.png",
+      "preview": "/assets/characters/1014-preview.png"
+    },
+    {
+      "id": "1015",
+      "name": "Archer",
+      "tag": "archer",
+      "rarity": 5,
+      "icon": "/assets/characters/1015-icon.png",
+      "preview": "/assets/characters/1015-preview.png"
+    },
+    {
+      "id": "1101",
+      "name": "布洛妮娅",
+      "tag": "bronya",
+      "rarity": 5,
+      "icon": "/assets/characters/1101-icon.png",
+      "preview": "/assets/characters/1101-preview.png"
+    },
+    {
+      "id": "1102",
+      "name": "希儿",
+      "tag": "seele",
+      "rarity": 5,
+      "icon": "/assets/characters/1102-icon.png",
+      "preview": "/assets/characters/1102-preview.png"
+    },
+    {
+      "id": "1103",
+      "name": "希露瓦",
+      "tag": "serval",
+      "rarity": 4,
+      "icon": "/assets/characters/1103-icon.png",
+      "preview": "/assets/characters/1103-preview.png"
+    },
+    {
+      "id": "1104",
+      "name": "杰帕德",
+      "tag": "gepard",
+      "rarity": 5,
+      "icon": "/assets/characters/1104-icon.png",
+      "preview": "/assets/characters/1104-preview.png"
+    },
+    {
+      "id": "1105",
+      "name": "娜塔莎",
+      "tag": "natasha",
+      "rarity": 4,
+      "icon": "/assets/characters/1105-icon.png",
+      "preview": "/assets/characters/1105-preview.png"
+    },
+    {
+      "id": "1106",
+      "name": "佩拉",
+      "tag": "pela",
+      "rarity": 4,
+      "icon": "/assets/characters/1106-icon.png",
+      "preview": "/assets/characters/1106-preview.png"
+    },
+    {
+      "id": "1107",
+      "name": "克拉拉",
+      "tag": "clara",
+      "rarity": 5,
+      "icon": "/assets/characters/1107-icon.png",
+      "preview": "/assets/characters/1107-preview.png"
+    },
+    {
+      "id": "1108",
+      "name": "桑博",
+      "tag": "sampo",
+      "rarity": 4,
+      "icon": "/assets/characters/1108-icon.png",
+      "preview": "/assets/characters/1108-preview.png"
+    },
+    {
+      "id": "1109",
+      "name": "虎克",
+      "tag": "hook",
+      "rarity": 4,
+      "icon": "/assets/characters/1109-icon.png",
+      "preview": "/assets/characters/1109-preview.png"
+    },
+    {
+      "id": "1110",
+      "name": "玲可",
+      "tag": "lynx",
+      "rarity": 4,
+      "icon": "/assets/characters/1110-icon.png",
+      "preview": "/assets/characters/1110-preview.png"
+    },
+    {
+      "id": "1111",
+      "name": "卢卡",
+      "tag": "luka",
+      "rarity": 4,
+      "icon": "/assets/characters/1111-icon.png",
+      "preview": "/assets/characters/1111-preview.png"
+    },
+    {
+      "id": "1112",
+      "name": "托帕&账账",
+      "tag": "topaz",
+      "rarity": 5,
+      "icon": "/assets/characters/1112-icon.png",
+      "preview": "/assets/characters/1112-preview.png"
+    },
+    {
+      "id": "1201",
+      "name": "青雀",
+      "tag": "qingque",
+      "rarity": 4,
+      "icon": "/assets/characters/1201-icon.png",
+      "preview": "/assets/characters/1201-preview.png"
+    },
+    {
+      "id": "1202",
+      "name": "停云",
+      "tag": "tingyun",
+      "rarity": 4,
+      "icon": "/assets/characters/1202-icon.png",
+      "preview": "/assets/characters/1202-preview.png"
+    },
+    {
+      "id": "1203",
+      "name": "罗刹",
+      "tag": "luocha",
+      "rarity": 5,
+      "icon": "/assets/characters/1203-icon.png",
+      "preview": "/assets/characters/1203-preview.png"
+    },
+    {
+      "id": "1204",
+      "name": "景元",
+      "tag": "jingyuan",
+      "rarity": 5,
+      "icon": "/assets/characters/1204-icon.png",
+      "preview": "/assets/characters/1204-preview.png"
+    },
+    {
+      "id": "1205",
+      "name": "刃",
+      "tag": "blade",
+      "rarity": 5,
+      "icon": "/assets/characters/1205-icon.png",
+      "preview": "/assets/characters/1205-preview.png",
+      "front": {
+        "file": "blade.jpg",
+        "crop": [
+          705,
+          137,
+          1277,
+          770
+        ],
+        "face": [
+          0.51,
+          0.61,
+          0.52,
+          0.43
+        ],
+        "head_bottom": 0.82,
+        "source": "https://www.miyoushe.com/sr/article/49604498",
+        "size": [
+          572,
+          633
+        ],
+        "front": "/assets/fronts/1205-front.png",
+        "hair": "/assets/fronts/1205-hair.png",
+        "base": "/assets/fronts/1205-base.png"
+      }
+    },
+    {
+      "id": "1206",
+      "name": "素裳",
+      "tag": "sushang",
+      "rarity": 4,
+      "icon": "/assets/characters/1206-icon.png",
+      "preview": "/assets/characters/1206-preview.png"
+    },
+    {
+      "id": "1207",
+      "name": "驭空",
+      "tag": "yukong",
+      "rarity": 4,
+      "icon": "/assets/characters/1207-icon.png",
+      "preview": "/assets/characters/1207-preview.png"
+    },
+    {
+      "id": "1208",
+      "name": "符玄",
+      "tag": "fuxuan",
+      "rarity": 5,
+      "icon": "/assets/characters/1208-icon.png",
+      "preview": "/assets/characters/1208-preview.png"
+    },
+    {
+      "id": "1209",
+      "name": "彦卿",
+      "tag": "yanqing",
+      "rarity": 5,
+      "icon": "/assets/characters/1209-icon.png",
+      "preview": "/assets/characters/1209-preview.png"
+    },
+    {
+      "id": "1210",
+      "name": "桂乃芬",
+      "tag": "guinaifen",
+      "rarity": 4,
+      "icon": "/assets/characters/1210-icon.png",
+      "preview": "/assets/characters/1210-preview.png"
+    },
+    {
+      "id": "1211",
+      "name": "白露",
+      "tag": "bailu",
+      "rarity": 5,
+      "icon": "/assets/characters/1211-icon.png",
+      "preview": "/assets/characters/1211-preview.png"
+    },
+    {
+      "id": "1212",
+      "name": "镜流",
+      "tag": "jingliu",
+      "rarity": 5,
+      "icon": "/assets/characters/1212-icon.png",
+      "preview": "/assets/characters/1212-preview.png"
+    },
+    {
+      "id": "1213",
+      "name": "丹恒•饮月",
+      "tag": "danhengil",
+      "rarity": 5,
+      "icon": "/assets/characters/1213-icon.png",
+      "preview": "/assets/characters/1213-preview.png"
+    },
+    {
+      "id": "1214",
+      "name": "雪衣",
+      "tag": "xueyi",
+      "rarity": 4,
+      "icon": "/assets/characters/1214-icon.png",
+      "preview": "/assets/characters/1214-preview.png"
+    },
+    {
+      "id": "1215",
+      "name": "寒鸦",
+      "tag": "hanya",
+      "rarity": 4,
+      "icon": "/assets/characters/1215-icon.png",
+      "preview": "/assets/characters/1215-preview.png"
+    },
+    {
+      "id": "1217",
+      "name": "藿藿",
+      "tag": "huohuo",
+      "rarity": 5,
+      "icon": "/assets/characters/1217-icon.png",
+      "preview": "/assets/characters/1217-preview.png"
+    },
+    {
+      "id": "1218",
+      "name": "椒丘",
+      "tag": "jiaoqiu",
+      "rarity": 5,
+      "icon": "/assets/characters/1218-icon.png",
+      "preview": "/assets/characters/1218-preview.png"
+    },
+    {
+      "id": "1220",
+      "name": "飞霄",
+      "tag": "feixiao",
+      "rarity": 5,
+      "icon": "/assets/characters/1220-icon.png",
+      "preview": "/assets/characters/1220-preview.png"
+    },
+    {
+      "id": "1221",
+      "name": "云璃",
+      "tag": "yunli",
+      "rarity": 5,
+      "icon": "/assets/characters/1221-icon.png",
+      "preview": "/assets/characters/1221-preview.png"
+    },
+    {
+      "id": "1222",
+      "name": "灵砂",
+      "tag": "lingsha",
+      "rarity": 5,
+      "icon": "/assets/characters/1222-icon.png",
+      "preview": "/assets/characters/1222-preview.png"
+    },
+    {
+      "id": "1223",
+      "name": "貊泽",
+      "tag": "moze",
+      "rarity": 4,
+      "icon": "/assets/characters/1223-icon.png",
+      "preview": "/assets/characters/1223-preview.png"
+    },
+    {
+      "id": "1224",
+      "name": "三月七",
+      "tag": "mar7th2",
+      "rarity": 4,
+      "icon": "/assets/characters/1224-icon.png",
+      "preview": "/assets/characters/1224-preview.png",
+      "front": {
+        "file": "march.jpg",
+        "crop": [
+          944,
+          155,
+          1480,
+          690
+        ],
+        "face": [
+          0.51,
+          0.65,
+          0.51,
+          0.4
+        ],
+        "head_bottom": 0.87,
+        "source": "https://www.miyoushe.com/dby/article/56610386",
+        "size": [
+          536,
+          535
+        ],
+        "front": "/assets/fronts/1224-front.png",
+        "hair": "/assets/fronts/1224-hair.png",
+        "base": "/assets/fronts/1224-base.png"
+      }
+    },
+    {
+      "id": "1225",
+      "name": "忘归人",
+      "tag": "fugue",
+      "rarity": 5,
+      "icon": "/assets/characters/1225-icon.png",
+      "preview": "/assets/characters/1225-preview.png"
+    },
+    {
+      "id": "1301",
+      "name": "加拉赫",
+      "tag": "gallagher",
+      "rarity": 4,
+      "icon": "/assets/characters/1301-icon.png",
+      "preview": "/assets/characters/1301-preview.png"
+    },
+    {
+      "id": "1302",
+      "name": "银枝",
+      "tag": "argenti",
+      "rarity": 5,
+      "icon": "/assets/characters/1302-icon.png",
+      "preview": "/assets/characters/1302-preview.png"
+    },
+    {
+      "id": "1303",
+      "name": "阮•梅",
+      "tag": "ruanmei",
+      "rarity": 5,
+      "icon": "/assets/characters/1303-icon.png",
+      "preview": "/assets/characters/1303-preview.png"
+    },
+    {
+      "id": "1304",
+      "name": "砂金",
+      "tag": "aventurine",
+      "rarity": 5,
+      "icon": "/assets/characters/1304-icon.png",
+      "preview": "/assets/characters/1304-preview.png"
+    },
+    {
+      "id": "1305",
+      "name": "真理医生",
+      "tag": "drratio",
+      "rarity": 5,
+      "icon": "/assets/characters/1305-icon.png",
+      "preview": "/assets/characters/1305-preview.png"
+    },
+    {
+      "id": "1306",
+      "name": "花火",
+      "tag": "sparkle",
+      "rarity": 5,
+      "icon": "/assets/characters/1306-icon.png",
+      "preview": "/assets/characters/1306-preview.png"
+    },
+    {
+      "id": "1307",
+      "name": "黑天鹅",
+      "tag": "blackswan",
+      "rarity": 5,
+      "icon": "/assets/characters/1307-icon.png",
+      "preview": "/assets/characters/1307-preview.png"
+    },
+    {
+      "id": "1308",
+      "name": "黄泉",
+      "tag": "acheron",
+      "rarity": 5,
+      "icon": "/assets/characters/1308-icon.png",
+      "preview": "/assets/characters/1308-preview.png"
+    },
+    {
+      "id": "1309",
+      "name": "知更鸟",
+      "tag": "robin",
+      "rarity": 5,
+      "icon": "/assets/characters/1309-icon.png",
+      "preview": "/assets/characters/1309-preview.png"
+    },
+    {
+      "id": "1310",
+      "name": "流萤",
+      "tag": "sam",
+      "rarity": 5,
+      "icon": "/assets/characters/1310-icon.png",
+      "preview": "/assets/characters/1310-preview.png"
+    },
+    {
+      "id": "1312",
+      "name": "米沙",
+      "tag": "misha",
+      "rarity": 4,
+      "icon": "/assets/characters/1312-icon.png",
+      "preview": "/assets/characters/1312-preview.png"
+    },
+    {
+      "id": "1313",
+      "name": "星期日",
+      "tag": "sunday",
+      "rarity": 5,
+      "icon": "/assets/characters/1313-icon.png",
+      "preview": "/assets/characters/1313-preview.png"
+    },
+    {
+      "id": "1314",
+      "name": "翡翠",
+      "tag": "jade",
+      "rarity": 5,
+      "icon": "/assets/characters/1314-icon.png",
+      "preview": "/assets/characters/1314-preview.png"
+    },
+    {
+      "id": "1315",
+      "name": "波提欧",
+      "tag": "boothill",
+      "rarity": 5,
+      "icon": "/assets/characters/1315-icon.png",
+      "preview": "/assets/characters/1315-preview.png"
+    },
+    {
+      "id": "1317",
+      "name": "乱破",
+      "tag": "rappa",
+      "rarity": 5,
+      "icon": "/assets/characters/1317-icon.png",
+      "preview": "/assets/characters/1317-preview.png"
+    },
+    {
+      "id": "1321",
+      "name": "大丽花",
+      "tag": "dahlia",
+      "rarity": 5,
+      "icon": "/assets/characters/1321-icon.png",
+      "preview": "/assets/characters/1321-preview.png"
+    },
+    {
+      "id": "1401",
+      "name": "大黑塔",
+      "tag": "theherta",
+      "rarity": 5,
+      "icon": "/assets/characters/1401-icon.png",
+      "preview": "/assets/characters/1401-preview.png"
+    },
+    {
+      "id": "1402",
+      "name": "阿格莱雅",
+      "tag": "aglaea",
+      "rarity": 5,
+      "icon": "/assets/characters/1402-icon.png",
+      "preview": "/assets/characters/1402-preview.png"
+    },
+    {
+      "id": "1403",
+      "name": "缇宝",
+      "tag": "tribbie",
+      "rarity": 5,
+      "icon": "/assets/characters/1403-icon.png",
+      "preview": "/assets/characters/1403-preview.png"
+    },
+    {
+      "id": "1404",
+      "name": "万敌",
+      "tag": "mydei",
+      "rarity": 5,
+      "icon": "/assets/characters/1404-icon.png",
+      "preview": "/assets/characters/1404-preview.png"
+    },
+    {
+      "id": "1405",
+      "name": "那刻夏",
+      "tag": "anaxa",
+      "rarity": 5,
+      "icon": "/assets/characters/1405-icon.png",
+      "preview": "/assets/characters/1405-preview.png"
+    },
+    {
+      "id": "1406",
+      "name": "赛飞儿",
+      "tag": "cipher",
+      "rarity": 5,
+      "icon": "/assets/characters/1406-icon.png",
+      "preview": "/assets/characters/1406-preview.png"
+    },
+    {
+      "id": "1407",
+      "name": "遐蝶",
+      "tag": "castorice",
+      "rarity": 5,
+      "icon": "/assets/characters/1407-icon.png",
+      "preview": "/assets/characters/1407-preview.png"
+    },
+    {
+      "id": "1408",
+      "name": "白厄",
+      "tag": "phainon",
+      "rarity": 5,
+      "icon": "/assets/characters/1408-icon.png",
+      "preview": "/assets/characters/1408-preview.png"
+    },
+    {
+      "id": "1409",
+      "name": "风堇",
+      "tag": "hyacine",
+      "rarity": 5,
+      "icon": "/assets/characters/1409-icon.png",
+      "preview": "/assets/characters/1409-preview.png"
+    },
+    {
+      "id": "1410",
+      "name": "海瑟音",
+      "tag": "hysilens",
+      "rarity": 5,
+      "icon": "/assets/characters/1410-icon.png",
+      "preview": "/assets/characters/1410-preview.png"
+    },
+    {
+      "id": "1412",
+      "name": "刻律德菈",
+      "tag": "cerydra",
+      "rarity": 5,
+      "icon": "/assets/characters/1412-icon.png",
+      "preview": "/assets/characters/1412-preview.png"
+    },
+    {
+      "id": "1413",
+      "name": "长夜月",
+      "tag": "evernight",
+      "rarity": 5,
+      "icon": "/assets/characters/1413-icon.png",
+      "preview": "/assets/characters/1413-preview.png"
+    },
+    {
+      "id": "1414",
+      "name": "丹恒•腾荒",
+      "tag": "danhengpt",
+      "rarity": 5,
+      "icon": "/assets/characters/1414-icon.png",
+      "preview": "/assets/characters/1414-preview.png"
+    },
+    {
+      "id": "1415",
+      "name": "昔涟",
+      "tag": "cyrene",
+      "rarity": 5,
+      "icon": "/assets/characters/1415-icon.png",
+      "preview": "/assets/characters/1415-preview.png"
+    },
+    {
+      "id": "1501",
+      "name": "火花",
+      "tag": "Sparxie",
+      "rarity": 5,
+      "icon": "/assets/characters/1501-icon.png",
+      "preview": "/assets/characters/1501-preview.png"
+    },
+    {
+      "id": "1502",
+      "name": "爻光",
+      "tag": "yaoguang",
+      "rarity": 5,
+      "icon": "/assets/characters/1502-icon.png",
+      "preview": "/assets/characters/1502-preview.png"
+    },
+    {
+      "id": "1503",
+      "name": "真珠",
+      "tag": "pearl",
+      "rarity": 5,
+      "icon": "/assets/characters/1503-icon.png",
+      "preview": "/assets/characters/1503-preview.png"
+    },
+    {
+      "id": "1504",
+      "name": "不死途",
+      "tag": "ashveil",
+      "rarity": 5,
+      "icon": "/assets/characters/1504-icon.png",
+      "preview": "/assets/characters/1504-preview.png"
+    },
+    {
+      "id": "1505",
+      "name": "绯英",
+      "tag": "evanescia",
+      "rarity": 5,
+      "icon": "/assets/characters/1505-icon.png",
+      "preview": "/assets/characters/1505-preview.png"
+    },
+    {
+      "id": "1506",
+      "name": "银狼LV.999",
+      "tag": "silverwolflv999",
+      "rarity": 5,
+      "icon": "/assets/characters/1506-icon.png",
+      "preview": "/assets/characters/1506-preview.png"
+    },
+    {
+      "id": "1507",
+      "name": "千冶•刃",
+      "tag": "mortenaxblade",
+      "rarity": 5,
+      "icon": "/assets/characters/1507-icon.png",
+      "preview": "/assets/characters/1507-preview.png"
+    },
+    {
+      "id": "1508",
+      "name": "远坂凛",
+      "tag": "tohsakarin",
+      "rarity": 5,
+      "icon": "/assets/characters/1508-icon.png",
+      "preview": "/assets/characters/1508-preview.png"
+    },
+    {
+      "id": "1509",
+      "name": "吉尔伽美什",
+      "tag": "gilgamesh",
+      "rarity": 5,
+      "icon": "/assets/characters/1509-icon.png",
+      "preview": "/assets/characters/1509-preview.png"
+    },
+    {
+      "id": "1510",
+      "name": "姬子•启行",
+      "tag": "himekonova",
+      "rarity": 5,
+      "icon": "/assets/characters/1510-icon.png",
+      "preview": "/assets/characters/1510-preview.png"
+    },
+    {
+      "id": "1512",
+      "name": "知更鸟•晴歌",
+      "tag": "robinsummeretto",
+      "rarity": 5,
+      "icon": "/assets/characters/1512-icon.png",
+      "preview": "/assets/characters/1512-preview.png"
+    },
+    {
+      "id": "1513",
+      "name": "砂金•戏浪",
+      "tag": "aventurinewaveflair",
+      "rarity": 5,
+      "icon": "/assets/characters/1513-icon.png",
+      "preview": "/assets/characters/1513-preview.png"
+    }
+  ]
+}
