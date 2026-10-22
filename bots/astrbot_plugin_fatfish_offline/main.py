@@ -3,6 +3,7 @@ keep a small local voice in chat. The persona itself stays untouched."""
 
 from __future__ import annotations
 
+import random
 from datetime import datetime, timedelta
 
 from astrbot.api import logger
@@ -12,6 +13,7 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.star.filter.command import GreedyStr
 
+from .engagement import GroupConfig, GroupEngagement, GroupMessage
 from .logic import Decision, Scheduler, format_resume
 from .state import StateStore
 from .templates import OfflineConfig, OfflineReplyEngine
@@ -45,6 +47,14 @@ class Main(Star):
         self.reason = str(self.config.get("reason") or "high_cost")
         self.hourly_model_limit = int(self.config.get("hourly_model_limit", 350) or 0)
         self.state = StateStore(StarTools.get_data_dir(PLUGIN_NAME))
+        self.engagement = GroupEngagement(
+            GroupConfig(
+                random_probability=float(self.config.get("ambient_chance") or 0.05),
+                random_cooldown=float(self.config.get("ambient_cooldown") or 300),
+                random_hourly_limit=int(self.config.get("ambient_hourly_limit") or 3),
+            )
+        )
+        self._pending_trigger: dict[str, tuple[str | None, str]] = {}
         self.engine = OfflineReplyEngine(
             OfflineConfig(
                 timezone=str(self.config.get("timezone") or "Asia/Shanghai"),
@@ -124,6 +134,35 @@ class Main(Star):
         ignored = {item.strip() for item in str(self.config.get("ignore_uids") or "").split(",") if item.strip()}
         return bool(uid) and uid in ignored
 
+    def _has_at_bot(self, event: AstrMessageEvent) -> bool:
+        self_id = str(event.get_self_id() or "")
+        for component in getattr(event.message_obj, "message", None) or []:
+            if isinstance(component, At) and str(getattr(component, "qq", "")) == self_id:
+                return True
+        return False
+
+    @filter.after_message_sent()
+    async def remember_bot_turn(self, event: AstrMessageEvent):
+        group_id = str(event.get_group_id() or "")
+        if not group_id:
+            return
+        result = event.get_result()
+        text = ""
+        if result is not None:
+            try:
+                text = str(result.get_plain_text() or "").strip()
+            except Exception:
+                text = ""
+        if not text:
+            return
+        target, kind = self._pending_trigger.pop(group_id, (None, "reply"))
+        self.engagement.on_bot_sent(
+            group_id=group_id,
+            text=text,
+            target_user=target,
+            trigger_kind=kind,
+        )
+
     async def _send_help(self, event: AstrMessageEvent) -> None:
         await event.send(MessageChain([Plain(HELP_TEXT)]))
 
@@ -175,6 +214,29 @@ class Main(Star):
                 decision = Decision(True, "usage_limit", self._next_hour(now), None)
             else:
                 self.state.publish_offline(False)
+                group_key = str(event.get_group_id() or "")
+                if group_key:
+                    incoming = str(
+                        getattr(getattr(event, "message_obj", None), "message_str", "")
+                        or event.message_str
+                        or ""
+                    ).strip()
+                    trigger = self.engagement.handle_message(
+                        GroupMessage(
+                            group_id=group_key,
+                            user_id=str(event.get_sender_id() or ""),
+                            text=incoming,
+                            nickname=str(event.get_sender_name() or ""),
+                            at_bot=self._has_at_bot(event),
+                            timestamp=now.timestamp(),
+                        ),
+                        wake_matched=bool(event.is_at_or_wake_command),
+                    )
+                    if trigger:
+                        self._pending_trigger[group_key] = (trigger.target_user, trigger.kind)
+                        if trigger.kind in ("random", "continuation"):
+                            event.is_at_or_wake_command = True
+                            logger.info(f"{trigger.kind} 触发 group={group_key}")
                 return
         self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
 
@@ -221,6 +283,12 @@ class Main(Star):
             return
         try:
             await event.send(MessageChain([Plain(reply)]))
+            self.engagement.on_bot_sent(
+                group_id=group,
+                text=reply,
+                target_user=user,
+                trigger_kind="mention" if addressed else "reply",
+            )
         except Exception as exc:  # sending must not crash the pipeline
             logger.warning(f"离线回复发送失败：{exc}")
             event.stop_event()

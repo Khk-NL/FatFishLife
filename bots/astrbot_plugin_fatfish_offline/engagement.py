@@ -1,0 +1,287 @@
+"""苹果乐群聊参与管理器。
+
+依赖：Python 标准库。不调用大模型，也不发送 QQ 消息。
+
+接入流程：
+1. 收到群消息 -> handle_message()
+2. 返回 trigger 后 -> 选择 AI 或离线回复
+3. 实际发送成功 -> on_bot_sent()
+4. AI 回复前 -> recent_context()
+"""
+
+from __future__ import annotations
+
+import random
+import re
+import time
+from collections import defaultdict, deque
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class GroupConfig:
+    random_probability: float = 0.025
+    random_cooldown: float = 300.0
+    random_hourly_limit: int = 3
+    decay_factor: float = 0.7
+
+    continuation_timeout: float = 90.0
+    open_followup_timeout: float = 30.0
+
+    context_max_messages: int = 120
+    context_window: float = 1200.0
+    context_prompt_limit: int = 30
+
+
+@dataclass
+class GroupMessage:
+    group_id: str
+    user_id: str
+    text: str
+
+    nickname: str = ""
+    message_id: str = ""
+    reply_to_id: str = ""
+
+    at_bot: bool = False
+    is_bot: bool = False
+    is_forwarded: bool = False
+    has_media: bool = False
+    timestamp: float = 0.0
+
+
+@dataclass
+class Trigger:
+    kind: str
+    # wake / mention / quote / continuation / random
+    target_user: Optional[str] = None
+
+
+@dataclass
+class BotTurn:
+    timestamp: float
+    target_user: Optional[str]
+    message_id: str = ""
+
+
+class GroupEngagement:
+    def __init__(
+        self,
+        config: Optional[GroupConfig] = None,
+        rng=None,
+    ):
+        self.config = config or GroupConfig()
+        self.rng = rng or random.Random()
+
+        self.histories = defaultdict(
+            lambda: deque(maxlen=self.config.context_max_messages)
+        )
+
+        self.last_bot_turn: dict[str, BotTurn] = {}
+        self.random_times = defaultdict(deque)
+        self.last_random_at: dict[str, float] = {}
+
+    def _time(self, msg: GroupMessage) -> float:
+        return msg.timestamp or time.time()
+
+    def _clean_text(self, text: str) -> str:
+        text = (text or "").replace("\r", " ").replace("\n", " ")
+        return re.sub(r"\s+", " ", text).strip()[:300]
+
+    def _append_history(self, msg: GroupMessage, now: float):
+        if msg.is_forwarded:
+            return
+        if not msg.text.strip():
+            return
+        msg.timestamp = now
+        msg.text = self._clean_text(msg.text)
+        self.histories[msg.group_id].append(msg)
+
+    def _prune(self, now: float) -> None:
+        """Drop idle groups so a long-running bot does not grow without bound."""
+        if len(self.histories) <= 200:
+            return
+        stale = [
+            group_id
+            for group_id, history in self.histories.items()
+            if not history or now - history[-1].timestamp > 3600
+        ]
+        for group_id in stale[:100]:
+            self.histories.pop(group_id, None)
+            self.last_bot_turn.pop(group_id, None)
+            self.random_times.pop(group_id, None)
+            self.last_random_at.pop(group_id, None)
+
+    def _recent_bot_message(self, group_id: str, now: float) -> Optional[BotTurn]:
+        turn = self.last_bot_turn.get(group_id)
+        if turn and (now - turn.timestamp <= self.config.continuation_timeout):
+            return turn
+        return None
+
+    def _is_continuation(self, msg: GroupMessage, now: float) -> bool:
+        turn = self._recent_bot_message(msg.group_id, now)
+        if not turn:
+            return False
+
+        history = self.histories[msg.group_id]
+        if len(history) < 2:
+            return False
+
+        previous = history[-2]
+
+        # Strong continuation: the bot just answered this person, they keep talking.
+        if previous.is_bot and turn.target_user == msg.user_id:
+            return True
+
+        # Open follow-up: someone clearly reacts right after a random remark.
+        if (
+            previous.is_bot
+            and turn.target_user is None
+            and now - turn.timestamp <= self.config.open_followup_timeout
+        ):
+            return bool(
+                re.search(
+                    r"你刚才|你刚说|你说的|真的吗|真的假的|是吗|然后呢|"
+                    r"为啥|为什么|怎么|不是吧|好耶|确实|原来如此",
+                    msg.text,
+                )
+            )
+        return False
+
+    def _random_eligible(self, msg: GroupMessage, now: float) -> bool:
+        text = msg.text.strip()
+        if not text or len(text) < 3:
+            return False
+        if text.startswith(("/", "#", ".")):
+            return False
+        if re.search(
+            r"https?://|www\.|验证码|密码|身份证|手机号|自杀|轻生|急救|报警",
+            text,
+            re.IGNORECASE,
+        ):
+            return False
+
+        recent = [
+            m
+            for m in self.histories[msg.group_id]
+            if not m.is_bot and now - m.timestamp < 180
+        ]
+        if len(recent) < 3:
+            return False
+
+        if len(self.histories[msg.group_id]) >= 2:
+            previous = self.histories[msg.group_id][-2]
+            if previous.is_bot:
+                return False
+
+        times = self.random_times[msg.group_id]
+        while times and now - times[0] > 3600:
+            times.popleft()
+        if len(times) >= self.config.random_hourly_limit:
+            return False
+
+        last = self.last_random_at.get(msg.group_id, -1e20)
+        if now - last < self.config.random_cooldown:
+            return False
+
+        return True
+
+    def handle_message(
+        self,
+        msg: GroupMessage,
+        *,
+        wake_matched: bool = False,
+    ) -> Optional[Trigger]:
+        """接收群消息并判断是否需要回复。
+
+        必须收到全部群消息，包括未 @ 机器人的普通消息。
+        """
+        now = self._time(msg)
+        msg.timestamp = now
+        msg.text = self._clean_text(msg.text)
+
+        if msg.is_bot or msg.is_forwarded:
+            return None
+
+        self._prune(now)
+
+        turn = self._recent_bot_message(msg.group_id, now)
+        is_quote = bool(
+            msg.reply_to_id and turn and msg.reply_to_id == turn.message_id
+        )
+
+        self._append_history(msg, now)
+
+        if wake_matched:
+            return Trigger("wake", msg.user_id)
+        if msg.at_bot:
+            return Trigger("mention", msg.user_id)
+        if is_quote:
+            return Trigger("quote", msg.user_id)
+        if self._is_continuation(msg, now):
+            return Trigger("continuation", msg.user_id)
+        if self._random_eligible(msg, now):
+            if self.rng.random() < self.config.random_probability:
+                return Trigger("random", None)
+        return None
+
+    def on_bot_sent(
+        self,
+        *,
+        group_id: str,
+        text: str,
+        target_user: Optional[str],
+        trigger_kind: str,
+        message_id: str = "",
+        timestamp: Optional[float] = None,
+    ):
+        """实际发送成功后调用，不能在请求生成时调用。"""
+        now = timestamp or time.time()
+
+        self.last_bot_turn[group_id] = BotTurn(
+            timestamp=now,
+            target_user=target_user,
+            message_id=str(message_id),
+        )
+
+        self._append_history(
+            GroupMessage(
+                group_id=group_id,
+                user_id="__applele__",
+                nickname="苹果乐",
+                text=text,
+                message_id=str(message_id),
+                is_bot=True,
+                timestamp=now,
+            ),
+            now,
+        )
+
+        if trigger_kind == "random":
+            self.last_random_at[group_id] = now
+            self.random_times[group_id].append(now)
+
+    def recent_context(
+        self,
+        group_id: str,
+        *,
+        now: Optional[float] = None,
+    ) -> str:
+        """组装最近群聊上下文，供正常 AI 模式使用。"""
+        now = now or time.time()
+        messages = [
+            m
+            for m in self.histories[group_id]
+            if now - m.timestamp <= self.config.context_window
+        ]
+        messages = messages[-self.config.context_prompt_limit :]
+
+        lines = []
+        for msg in messages:
+            stamp = time.strftime("%H:%M", time.localtime(msg.timestamp))
+            name = "苹果乐" if msg.is_bot else (msg.nickname or "群友")[:24]
+            name = self._clean_text(name)
+            content = self._clean_text(msg.text)[:150]
+            lines.append(f"[{stamp}] {name}: {content}")
+        return "\n".join(lines)

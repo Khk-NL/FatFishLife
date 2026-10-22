@@ -81,6 +81,18 @@ class StateStore:
         self._save()
         return usage["count"]
 
+    def ambient_state(self, group: str) -> dict:
+        return dict((self.data.get("ambient") or {}).get(group) or {})
+
+    def record_ambient(self, group: str, day: str, timestamp: float) -> None:
+        ambient = self.data.setdefault("ambient", {})
+        current = ambient.get(group) or {}
+        count = int(current.get("count", 0)) if current.get("day") == day else 0
+        ambient[group] = {"day": day, "count": count + 1, "last": timestamp}
+        if len(ambient) > 500:
+            self.data["ambient"] = dict(list(ambient.items())[-300:])
+        self._save()
+
     def publish_offline(self, offline: bool, *, reason: str | None = None, resume_at: datetime | None = None) -> None:
         payload = {
             "offline": bool(offline),
