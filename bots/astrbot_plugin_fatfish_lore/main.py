@@ -1,9 +1,14 @@
 """Keep /设定 as a small adapter to AstrBot's verified native knowledge base."""
 
+from pathlib import Path
+
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.command import GreedyStr
+
+DEFAULT_KNOWLEDGE_DIR = Path("D:/Code/Projects/FatFishLife/docs/knowledge")
+DEFAULT_PERSONA_DIR = Path("D:/Code/Projects/FatFishLife/docs/persona")
 
 
 class Main(Star):
@@ -13,11 +18,46 @@ class Main(Star):
         self.kb_name = str(self.config.get("kb_name") or "苹果乐设定")
         self.max_chars = max(300, min(5000, int(self.config.get("max_chars", 1800))))
 
+    async def _import_docs(self, event: AstrMessageEvent):
+        helper = await self.context.kb_manager.get_kb_by_name(self.kb_name)
+        if not helper:
+            yield event.plain_result(f"知识库「{self.kb_name}」不存在，请先在 AstrBot 知识库页面创建。")
+            return
+        files = sorted(DEFAULT_KNOWLEDGE_DIR.glob("*.md"))
+        voice = DEFAULT_PERSONA_DIR / "exusiai-voice.md"
+        if voice.is_file():
+            files.append(voice)
+        imported, failed = [], []
+        for path in files:
+            try:
+                await helper.upload_document(
+                    file_name=path.name,
+                    file_content=path.read_bytes(),
+                    file_type="md",
+                )
+                imported.append(path.name)
+            except Exception as exc:
+                logger.exception("导入知识库文档失败：%s", path)
+                failed.append(f"{path.name}：{exc}")
+        lines = [f"导入完成，共 {len(imported)} 个文件："]
+        lines += [f"- {name}" for name in imported]
+        if failed:
+            lines.append("失败：")
+            lines += [f"- {item}" for item in failed]
+        yield event.plain_result("\n".join(lines))
+
     @filter.command("设定")
     async def lore(self, event: AstrMessageEvent, text: GreedyStr = GreedyStr("")):
         query = str(text or "").strip()
+        if query in ("导入", "同步", "导入资料"):
+            if not event.is_private_chat():
+                yield event.plain_result("导入只在私聊里执行。")
+                return
+            async for message in self._import_docs(event):
+                yield message
+            return
         if not query or query in ("目录", "列表", "list", "建库", "入库", "同步知识库"):
-            yield event.plain_result(f"使用原生知识库「{self.kb_name}」。查询：/设定 <问题>；文档和索引在 AstrBot 知识库页面管理。")
+            yield event.plain_result(f"使用原生知识库「{self.kb_name}」。查询：/设定 <问题>；导入：/设定 导入。")
             return
         try:
             result = await self.context.kb_manager.retrieve(
