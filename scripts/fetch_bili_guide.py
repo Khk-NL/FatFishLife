@@ -17,6 +17,33 @@ OUT_DIR = Path(__file__).resolve().parents[1] / "docs" / "knowledge" / "guides"
 HOME = "C:/Users/kongb/AppData/Roaming/bili-cli"
 
 
+
+
+def _run(args: list[str]) -> dict:
+    env = __import__("os").environ.copy()
+    env["BILI_CLI_HOME"] = HOME
+    result = subprocess.run(
+        [BILI] + args,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        timeout=300,
+    )
+    data = json.loads(result.stdout)
+    if not data.get("ok"):
+        raise RuntimeError(data.get("error"))
+    return data["data"]
+
+
+def subtitle_text(bvid: str) -> str:
+    data = _run(["video", "subtitle", bvid])
+    items = data.get("items") or []
+    lines = [str(item.get("content") or "").strip() for item in items if item.get("content")]
+    return "\n".join(lines)
+
+
 def watch(bvid: str) -> dict:
     env = __import__("os").environ.copy()
     env["BILI_CLI_HOME"] = HOME
@@ -63,7 +90,7 @@ def save(bvid: str) -> Path:
         "## 字幕",
         "",
     ]
-    body.append(transcript_text(data) or "（没有字幕）")
+    body.append(subtitle_text(bvid) or transcript_text(data) or "（没有字幕）")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     safe = re.sub(r"[\\/:*?\"<>|]", "_", title)[:80]
     path = OUT_DIR / f"视频-{safe}.md"
