@@ -298,6 +298,18 @@ class Main(Star):
             return str(target or "").strip()
         return "" if isinstance(raw, dict) and raw.get("post_type") == "notice" and raw.get("sub_type") == "poke" else None
 
+    def _is_friendly_bot(self, event: AstrMessageEvent) -> bool:
+        targets = str(self.config.get("friendly_bots") or "").strip()
+        if not targets:
+            return False
+        name = str(event.get_sender_name() or "")
+        uid = str(event.get_sender_id() or "")
+        for item in targets.replace("，", ",").split(","):
+            item = item.strip()
+            if item and (item == uid or item in name):
+                return True
+        return False
+
     def _is_empty_mention(self, event: AstrMessageEvent) -> bool:
         if not self._has_at_bot(event):
             return False
@@ -370,8 +382,8 @@ class Main(Star):
     async def guard(self, event: AstrMessageEvent):
         if not self.enabled:
             return
-        if self._is_bot(event):
-            # Never answer another bot's @ or reply, and never spend a model call on it.
+        if self._is_bot(event) and not (self._is_friendly_bot(event) and self._has_at_bot(event)):
+            # Ignore other bots, except friendly ones that explicitly @ this bot.
             event.stop_event()
             return
         poke_target = self._poke_target(event)

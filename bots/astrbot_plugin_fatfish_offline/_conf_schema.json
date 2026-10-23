@@ -113,5 +113,10 @@
     "type": "string",
     "description": "额外忽略的机器人 QQ 号，逗号分隔；优先使用消息里的 is_robot 标识",
     "default": ""
+  },
+  "friendly_bots": {
+    "type": "string",
+    "description": "允许交流的 bot 昵称关键词或 QQ 号，逗号分隔；只在这些 bot 明确 @ 时回复",
+    "default": "鱼娘,deepseek"
   }
 }
