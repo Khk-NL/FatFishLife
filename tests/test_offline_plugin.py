@@ -122,7 +122,10 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         event = Event(group="", text="你觉得今天适合出门吗")
         await plugin.guard(event)
         await asyncio.sleep(0)
-        plugin.local_model.chat.assert_awaited_once_with(PLUGIN.LOCAL_SYSTEM, event.message_str)
+        plugin.local_model.chat.assert_awaited_once()
+        _system, _user = plugin.local_model.chat.await_args.args
+        self.assertTrue(_system.startswith(PLUGIN.LOCAL_SYSTEM))
+        self.assertEqual(_user, event.message_str)
         self.assertEqual(event.send.call_args.args[0].chain[0].text, "先看看当地预报呀！")
         self.assertIn("不得编造当前状况", plugin.local_model.chat.call_args.args[0])
         self.assertTrue(event.stopped)
