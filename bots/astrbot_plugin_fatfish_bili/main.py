@@ -202,7 +202,9 @@ class Main(Star):
             return None
         # Owner may get several replies; everyone else gets one per video.
         key = f"comment:{rpid}" if owner and mid == owner else f"comment:{bvid}:{mid}"
-        if key in self.seen:
+        dry = bool(self.config.get("dry_run_writes", True))
+        preview_key = f"preview:{key}"
+        if key in self.seen or (dry and preview_key in self.seen):
             return None
         text = str(item.get("content") or "").strip()
         if not text:
@@ -211,7 +213,6 @@ class Main(Star):
         reply = await self._generate_reply("comment", text, str((item.get("on") or {}).get("title") or ""), actor=mid, session=session)
         if not reply:
             return None
-        dry = bool(self.config.get("dry_run_writes", True))
         args = ["comment", "reply", str(bvid), str(rpid), reply]
         if item.get("root"):
             args.extend(["--root", str(item["root"])])
@@ -219,7 +220,9 @@ class Main(Star):
         if not result.get("ok"):
             logger.warning(f"回复评论失败：{self._error(result)}")
             return None
-        self.seen.add(key)
+        self.seen.add(preview_key if dry else key)
+        if not dry:
+            self.seen.discard(preview_key)
         self._save_seen()
         if not dry:
             self._remember(text, scope="public", kind="message", session=session, actor=mid)
@@ -238,18 +241,21 @@ class Main(Star):
         if not text:
             return None
         key = f"dm:{uid}:{message.get('time') or text[:24]}"
-        if key in self.seen:
+        dry = bool(self.config.get("dry_run_writes", True))
+        preview_key = f"preview:{key}"
+        if key in self.seen or (dry and preview_key in self.seen):
             return None
         session = f"dm:{uid}"
         reply = await self._generate_reply("dm", text, actor=uid, session=session)
         if not reply:
             return None
-        dry = bool(self.config.get("dry_run_writes", True))
         result = await self._run("dm", "send", uid, reply, timeout=90, dry_run=dry)
         if not result.get("ok"):
             logger.warning(f"回复私信失败：{self._error(result)}")
             return None
-        self.seen.add(key)
+        self.seen.add(preview_key if dry else key)
+        if not dry:
+            self.seen.discard(preview_key)
         self._save_seen()
         if not dry:
             self._remember(text, scope="private", kind="message", session=session, actor=uid)

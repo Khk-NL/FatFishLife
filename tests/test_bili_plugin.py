@@ -4,7 +4,7 @@ import tempfile
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from plugin_support import load_plugin
 
@@ -203,11 +203,113 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.store.recall("INCOMING_MESSAGE_TOKEN", scopes=("public",)), [])
         self.assertEqual(self.store.recall("ACTUAL_REPLY_TOKEN", scopes=("public",)), [])
         self.plugin.config["dry_run_writes"] = False
-        self.plugin.seen.clear()
         await self.plugin._reply_comment(item)
         rows = self.store.recall("TOKEN", scopes=("public",), kinds=("message",), conversation=("bilibili", "comment:BVexample"))
         self.assertEqual({row["content"] for row in rows}, {"ACTUAL_REPLY_TOKEN", "INCOMING_MESSAGE_TOKEN"})
         self.assertTrue(all(row["session"] == "comment:BVexample" for row in rows))
+
+
+class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
+    COMMENT = {"user": {"mid": "123"}, "on": {"bvid": "BVexample"}, "rpid": "1", "content": "评论内容"}
+    DM = {"uid": "123", "last_message": {"from": "them", "text": "私信内容", "time": "2026-10-23T08:00:00+08:00"}}
+
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.plugin = self.make_plugin()
+
+    def make_plugin(self, *, dry_run=True, seen_path=None):
+        plugin = PLUGIN.Main.__new__(PLUGIN.Main)
+        plugin.config = {"owner_uid": "123", "dry_run_writes": dry_run}
+        plugin.seen_path = seen_path or self.root / "seen.json"
+        plugin.seen = plugin._load_seen()
+        plugin._generate_reply = AsyncMock(return_value="生成的回复")
+        plugin._run = AsyncMock(return_value={"ok": True, "data": {}})
+        plugin._remember = Mock(return_value=True)
+        return plugin
+
+    def reload_plugin(self):
+        previous = self.plugin
+        self.plugin = self.make_plugin(dry_run=previous.config["dry_run_writes"], seen_path=previous.seen_path)
+        self.assertEqual(self.plugin.seen, previous.seen)
+
+    async def assert_preview_to_send_cycle(self, handler, item):
+        first = await getattr(self.plugin, handler)(item)
+        self.assertEqual(first, "[预览] 生成的回复")
+        self.assertIsNone(await getattr(self.plugin, handler)(item))
+        self.plugin._run.assert_awaited_once()
+        self.assertTrue(self.plugin._run.await_args.kwargs["dry_run"])
+        self.plugin._generate_reply.assert_awaited_once()
+        self.plugin._remember.assert_not_called()
+        self.assertTrue(self.plugin.seen_path.is_file())
+
+        # Preview suppression must survive a reload without suppressing a real send.
+        self.reload_plugin()
+        self.assertIsNone(await getattr(self.plugin, handler)(item))
+        self.plugin._run.assert_not_awaited()
+        self.plugin._generate_reply.assert_not_awaited()
+        self.plugin.config["dry_run_writes"] = False
+        self.assertEqual(await getattr(self.plugin, handler)(item), "生成的回复")
+        self.plugin._run.assert_awaited_once()
+        self.assertFalse(self.plugin._run.await_args.kwargs["dry_run"])
+        self.plugin._generate_reply.assert_awaited_once()
+
+        # Once actually sent, neither mode may send or regenerate it again.
+        for dry_run in (False, True):
+            self.plugin.config["dry_run_writes"] = dry_run
+            self.assertIsNone(await getattr(self.plugin, handler)(item))
+        self.plugin._run.assert_awaited_once()
+        self.plugin._generate_reply.assert_awaited_once()
+        self.reload_plugin()
+        for dry_run in (True, False):
+            self.plugin.config["dry_run_writes"] = dry_run
+            self.assertIsNone(await getattr(self.plugin, handler)(item))
+        self.plugin._run.assert_not_awaited()
+        self.plugin._generate_reply.assert_not_awaited()
+
+    async def test_comment_preview_can_transition_to_single_actual_send_after_reload(self):
+        await self.assert_preview_to_send_cycle("_reply_comment", self.COMMENT)
+
+    async def test_dm_preview_can_transition_to_single_actual_send_after_reload(self):
+        await self.assert_preview_to_send_cycle("_reply_dm", self.DM)
+
+    async def assert_failed_calls_are_retryable(self, handler, item):
+        for dry_run in (True, False):
+            with self.subTest(dry_run=dry_run):
+                self.plugin = self.make_plugin(dry_run=dry_run, seen_path=self.root / f"failed-{dry_run}.json")
+                self.plugin._run.return_value = {"ok": False, "error": {"code": "network_error", "message": "测试失败"}}
+                for _ in range(2):
+                    self.assertIsNone(await getattr(self.plugin, handler)(item))
+                self.assertEqual(self.plugin.seen, set())
+                self.assertFalse(self.plugin.seen_path.exists())
+                self.assertEqual(self.plugin._run.await_count, 2)
+                self.assertEqual(self.plugin._generate_reply.await_count, 2)
+                self.plugin._remember.assert_not_called()
+                self.plugin._run.return_value = {"ok": True, "data": {}}
+                result = await getattr(self.plugin, handler)(item)
+                self.assertEqual(result, "[预览] 生成的回复" if dry_run else "生成的回复")
+                self.assertEqual(self.plugin._run.await_count, 3)
+                self.reload_plugin()
+                self.assertIsNone(await getattr(self.plugin, handler)(item))
+                self.plugin._run.assert_not_awaited()
+
+    async def test_comment_failures_do_not_mark_preview_or_actual_send_as_handled(self):
+        await self.assert_failed_calls_are_retryable("_reply_comment", self.COMMENT)
+
+    async def test_dm_failures_do_not_mark_preview_or_actual_send_as_handled(self):
+        await self.assert_failed_calls_are_retryable("_reply_dm", self.DM)
+
+    async def test_legacy_keys_remain_treated_as_already_sent_after_reload(self):
+        self.plugin.seen = {"comment:1", "dm:123:2026-10-23T08:00:00+08:00"}
+        self.plugin._save_seen()
+        self.reload_plugin()
+        for dry_run in (True, False):
+            self.plugin.config["dry_run_writes"] = dry_run
+            self.assertIsNone(await self.plugin._reply_comment(self.COMMENT))
+            self.assertIsNone(await self.plugin._reply_dm(self.DM))
+        self.plugin._run.assert_not_awaited()
+        self.plugin._generate_reply.assert_not_awaited()
 
 
 if __name__ == "__main__":
