@@ -68,3 +68,26 @@ python -m unittest discover -s tests -p "test_bili_plugin.py" -v
 ```
 
 这些测试覆盖旧数据导入不回放、隐私隔离、命名空间、去重、离线与在线切换和每日口令。模型输出、嵌入服务、知识库效果、真实账号与服务器启动仍须做运行验证；单元测试结果不代替这些检查。本地 WebChat 会经过真实 AstrBot 管线，回复回到本地页面，可用于验证而不向 QQ 联系人发测试消息。
+
+## 六系统映射
+
+| 系统 | 现状 | 位置 |
+| --- | --- | --- |
+| 记忆 | 已统一 | `fatfish_core.memory.MemoryStore`、`build_context`，QQ 与 B 站共用 `memory.db` |
+| 行为 | 分散 | offline 的 `Scheduler`、`GroupEngagement`；bili 的自动回复与去重策略 |
+| 推送 | 分散 | bili 私信、life 说说、offline 通知，各自调用平台接口 |
+| 收发 | 平台原生 | AstrBot 事件与 `event.send`，尚未抽象成统一端口 |
+| 检测 | 分散 | offline 峰谷/节假日判断；bili 登录态、风控、折叠检测 |
+| 理解 | 部分统一 | bili `build_context`；offline 本地 Qwen 兜底；正常对话走 AstrBot LLM |
+
+数据层已经共享，行为、推送、收发、检测、理解仍是各插件自己的实现。
+
+### 迁移顺序
+
+1. `fatfish_core.behavior`：冷却、触发条件、概率衰减，离线与 B 站共用。
+2. `fatfish_core.push`：统一 `push(platform, target, text, meta)`，平台差异放适配器。
+3. `fatfish_core.io`：平台端口注册，新平台只实现 `send/read` 两个方法。
+4. `fatfish_core.detect`：峰谷、节假日、登录态、风控统一返回结构化结果。
+5. `fatfish_core.understand`：按场景选云端或本地模型，统一超时与降级。
+
+迁移时保持现有命令与配置不变，只替换内部调用点，避免破坏已验证的行为。
