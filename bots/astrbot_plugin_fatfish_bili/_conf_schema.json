@@ -83,5 +83,25 @@
     "type": "string",
     "description": "筛选关键词，逗号分隔；标题命中任一关键词才会私信",
     "default": "明日方舟,游戏,音乐,科技"
+  },
+  "study_enabled": {
+    "type": "bool",
+    "description": "每天按标签刷 B 站热门视频，学评论区表达并私信主人",
+    "default": false
+  },
+  "study_tags": {
+    "type": "string",
+    "description": "要学习的标签，逗号分隔",
+    "default": ""
+  },
+  "study_time": {
+    "type": "string",
+    "description": "每天学习的时间点，24 小时制",
+    "default": "21:00"
+  },
+  "study_top_n": {
+    "type": "int",
+    "description": "每个标签取多少个热门视频",
+    "default": 3
   }
 }

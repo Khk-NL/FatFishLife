@@ -20,6 +20,7 @@ from astrbot.core.star.filter.command import GreedyStr
 from fatfish_core import MemoryStore, SeenStore, build_context, read_offline, resolve_shared_db
 from fatfish_core.safety import wrap_untrusted
 from .discovery import DiscoveryStore, discover
+from .study import study_tag
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_bili"
 DEFAULT_PERSONA = (
@@ -55,6 +56,10 @@ class Main(Star):
         self._last_scroll = ""
         if bool(self.config.get("auto_scroll_enabled", False)):
             self._scroll_task = asyncio.create_task(self._scroll_loop())
+        self._study_task: asyncio.Task | None = None
+        self._last_study = ""
+        if bool(self.config.get("study_enabled", False)) and str(self.config.get("study_tags") or "").strip():
+            self._study_task = asyncio.create_task(self._study_loop())
         logger.info(f"fatfish bili ready: exe={self.exe} home={self.home} memory={self.memory_db}")
 
     # ---------- seen bookkeeping ----------
@@ -81,8 +86,9 @@ class Main(Star):
                     if item.strip()
                 }
                 slot = now.strftime("%H:%M")
-                if slot in times and self._last_scroll != slot:
-                    self._last_scroll = slot
+                scheduled = now.strftime("%Y-%m-%dT%H:%M")
+                if slot in times and self._last_scroll != scheduled:
+                    self._last_scroll = scheduled
                     await self._auto_scroll()
             except asyncio.CancelledError:
                 raise
@@ -92,11 +98,15 @@ class Main(Star):
 
     async def _auto_scroll(self) -> None:
         owner = str(self.config.get("owner_uid") or "").strip()
-        if not owner:
+        if not owner or self._pause_reason is not None:
             return
         payload = await self._run("feed", "recommend", "-n", "20", "--unseen", timeout=120)
         if not payload.get("ok"):
+            await self._pause_for_error(payload)
             return
+        if self._pause_reason is not None:
+            return
+        dry = bool(self.config.get("dry_run_writes", True))
         items = (payload.get("data") or {}).get("items") or []
         keywords = [
             item.strip()
@@ -104,26 +114,76 @@ class Main(Star):
             if item.strip()
         ]
         picked = []
+        picked_ids = set()
         for item in items:
             bvid = str(item.get("bvid") or "")
             title = str(item.get("title") or "")
-            if not bvid or bvid in self.seen:
+            if not bvid or bvid in picked_ids or bvid in self.seen or (dry and f"preview:{bvid}" in self.seen):
                 continue
             if keywords and not any(word in title for word in keywords):
                 continue
             picked.append(item)
-            self.seen.add(bvid)
+            picked_ids.add(bvid)
             if len(picked) >= 3:
                 break
         if not picked:
             return
-        self._save_seen()
         lines = [
             f"{item.get('title')} https://www.bilibili.com/video/{item.get('bvid')}"
             for item in picked
         ]
-        await self._run("dm", "send", owner, "今天刷到几个有意思的：\n" + "\n".join(lines), timeout=90)
-        logger.info(f"自动刷 B 站，已私信 {len(lines)} 个视频")
+        result = await self._run("dm", "send", owner, "今天刷到几个有意思的：\n" + "\n".join(lines), timeout=90, dry_run=dry)
+        if not result.get("ok"):
+            if not await self._pause_for_error(result):
+                logger.warning(f"自动推荐私信未确认发送：{self._error(result)}")
+            return
+        for item in picked:
+            bvid = str(item["bvid"])
+            self.seen.add(f"preview:{bvid}" if dry else bvid)
+            if not dry:
+                self.seen.discard(f"preview:{bvid}")
+        self._save_seen()
+        logger.info(f"自动刷 B 站，{'已预览' if dry else '已私信'} {len(lines)} 个视频")
+
+    async def _study_loop(self) -> None:
+        while True:
+            try:
+                now = datetime.now().astimezone()
+                slot = now.strftime("%H:%M")
+                today = now.date().isoformat()
+                if slot == str(self.config.get("study_time") or "21:00") and self._last_study != today:
+                    self._last_study = today
+                    await self._study_tags()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"B 站标签学习失败：{exc}")
+            await asyncio.sleep(60)
+
+    async def _study_tags(self) -> None:
+        tags = [item.strip() for item in str(self.config.get("study_tags") or "").split(",") if item.strip()]
+        owner = str(self.config.get("owner_uid") or "").strip()
+        if not tags:
+            return
+        top_n = int(self.config.get("study_top_n", 3))
+        lines = []
+        for tag in tags:
+            result = await study_tag(
+                self._run, self._memory_store, tag, seen=self.seen, top_n=top_n
+            )
+            self._save_seen()
+            if result["videos"]:
+                lines.append(f"「{tag}」")
+                lines.extend(f"- {video['title']} {video['url']}" for video in result["videos"])
+            if result["terms"]:
+                lines.append(f"  评论区常说：{'、'.join(result['terms'][:10])}")
+        if not lines:
+            return
+        logger.info(f"B 站标签学习完成：{len(tags)} 个标签")
+        if owner:
+            await self._run(
+                "dm", "send", owner, "今天刷 B 站学到的：\n" + "\n".join(lines), timeout=90
+            )
 
     async def _run(self, *args: str, timeout: float = 180.0, dry_run: bool = False) -> dict:
         command = [self.exe]
@@ -883,4 +943,6 @@ class Main(Star):
             self._poll_task.cancel()
         if self._scroll_task and not self._scroll_task.done():
             self._scroll_task.cancel()
+        if self._study_task and not self._study_task.done():
+            self._study_task.cancel()
         logger.info("fatfish bili stopped")

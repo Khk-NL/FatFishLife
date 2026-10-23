@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FatFishLife 配置向导</title>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #171a21;
+    --border: #262b36;
+    --text: #e6e8ee;
+    --muted: #8a92a6;
+    --accent: #f0a04b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 16px 64px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 6px; display: flex; align-items: center; gap: 10px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  fieldset {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--card);
+    padding: 18px 18px 6px;
+    margin: 0 0 16px;
+  }
+  legend { padding: 0 8px; color: var(--accent); font-weight: 600; }
+  label { display: block; margin: 0 0 14px; }
+  label span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
+  input, select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #0d1015;
+    color: var(--text);
+    font: inherit;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .hint { color: var(--muted); font-size: 12px; margin: -8px 0 14px; }
+  button {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 11px 18px; border-radius: 9px; border: 0;
+    background: var(--accent); color: #1a1206; font-weight: 600; font-size: 14px;
+    cursor: pointer;
+  }
+  button.secondary { background: #232a36; color: var(--text); }
+  pre {
+    margin: 14px 0 0; padding: 14px; border-radius: 10px;
+    background: #0b0e12; border: 1px solid var(--border);
+    overflow-x: auto; font-size: 12.5px; white-space: pre-wrap; word-break: break-all;
+  }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .note { margin-top: 22px; color: var(--muted); font-size: 12.5px; }
+  .note code { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><i data-lucide="fish-symbol"></i> FatFishLife 配置向导</h1>
+  <p class="sub">填完点击生成，会得到一个 .env 文件。放到项目根目录，不要提交到 Git。</p>
+
+  <form id="form">
+    <fieldset>
+      <legend>模型</legend>
+      <label>
+        <span>DeepSeek API Key</span>
+        <input id="deepseek_key" type="password" placeholder="sk-..." autocomplete="off">
+      </label>
+      <label>
+        <span>硅基流动 API Key（知识库、语音转写、TTS 共用）</span>
+        <input id="siliconflow_key" type="password" placeholder="sk-..." autocomplete="off">
+      </label>
+    </fieldset>
+
+    <fieldset>
+      <legend>账号</legend>
+      <div class="row">
+        <label>
+          <span>B 站主人 UID</span>
+          <input id="bili_owner" value="297619957">
+        </label>
+        <label>
+          <span>B 站 bot UID</span>
+          <input id="bili_bot" value="3546899328010912">
+        </label>
+      </div>
+      <div class="row">
+        <label>
+          <span>QQ 主人号</span>
+          <input id="qq_owner" value="3124904460">
+        </label>
+        <label>
+          <span>QQ bot 号</span>
+          <input id="qq_bot" value="1670515707">
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>B 站学习</legend>
+      <label>
+        <span>每天学习的标签（逗号分隔）</span>
+        <input id="study_tags" value="明日方舟,能天使,拉特兰">
+      </label>
+      <div class="row">
+        <label>
+          <span>学习时间</span>
+          <input id="study_time" value="21:00" placeholder="21:00">
+        </label>
+        <label>
+          <span>每个标签取几个视频</span>
+          <input id="study_top_n" type="number" min="1" max="10" value="3">
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>可选服务</legend>
+      <label>
+        <span>Pixiv Refresh Token</span>
+        <input id="pixiv_token" type="password" placeholder="留空则不启用 Pixiv" autocomplete="off">
+      </label>
+      <label>
+        <span>AnySearch API Key</span>
+        <input id="anysearch_key" type="password" placeholder="留空则用其他搜索" autocomplete="off">
+      </label>
+      <label>
+        <span>Obsidian vault 路径（只读，单独知识库）</span>
+        <input id="obsidian_vault" placeholder="D:\Notes\MyVault">
+      </label>
+    </fieldset>
+
+    <div class="actions">
+      <button type="button" id="gen"><i data-lucide="file-code-2"></i> 生成 .env</button>
+      <button type="button" class="secondary" id="download"><i data-lucide="download"></i> 下载文件</button>
+    </div>
+    <pre id="out" hidden></pre>
+  </form>
+
+  <p class="note">
+    生成后把 <code>.env</code> 放到 <code>D:\Code\Projects\FatFishLife\</code>，
+    然后告诉我，我来把值写进 AstrBot 和各插件配置。
+  </p>
+</div>
+
+<script>
+  lucide.createIcons();
+
+  const fields = [
+    ["FATFISH_DEEPSEEK_KEY", "deepseek_key"],
+    ["FATFISH_SILICONFLOW_KEY", "siliconflow_key"],
+    ["FATFISH_BILI_OWNER_UID", "bili_owner"],
+    ["FATFISH_BILI_BOT_UID", "bili_bot"],
+    ["FATFISH_QQ_OWNER", "qq_owner"],
+    ["FATFISH_QQ_BOT", "qq_bot"],
+    ["FATFISH_STUDY_TAGS", "study_tags"],
+    ["FATFISH_STUDY_TIME", "study_time"],
+    ["FATFISH_STUDY_TOP_N", "study_top_n"],
+    ["FATFISH_PIXIV_REFRESH_TOKEN", "pixiv_token"],
+    ["FATFISH_ANYSEARCH_KEY", "anysearch_key"],
+    ["FATFISH_OBSIDIAN_VAULT", "obsidian_vault"],
+  ];
+
+  function build() {
+    const lines = ["# FatFishLife 配置，勿提交到 Git", ""];
+    for (const [envKey, id] of fields) {
+      const value = document.getElementById(id).value.trim();
+      lines.push(`${envKey}=${value}`);
+    }
+    return lines.join("\n") + "\n";
+  }
+
+  document.getElementById("gen").addEventListener("click", () => {
+    const out = document.getElementById("out");
+    out.hidden = false;
+    out.textContent = build();
+  });
+
+  document.getElementById("download").addEventListener("click", () => {
+    const blob = new Blob([build()], { type: "text/plain;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = ".env";
+    a.click();
+    URL.revokeObjectURL(a.href);
+  });
+</script>
+</body>
+</html>
