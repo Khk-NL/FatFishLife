@@ -11,7 +11,7 @@
   },
   "memory_db": {
     "type": "string",
-    "description": "共享记忆 SQLite 路径；留空使用 astrbot_plugin_fatfish_memory 的默认库",
+    "description": "共享 SQLite 路径；FATFISH_MEMORY_DB 优先，留空使用记忆插件配置或旧默认库",
     "default": ""
   },
   "owner_uid": {
@@ -66,7 +66,7 @@
   },
   "dry_run_writes": {
     "type": "bool",
-    "description": "评论、私信等写操作只预览不发送",
+    "description": "评论、私信、点赞、收藏、动态发布等写操作只预览不执行",
     "default": true
   }
 }

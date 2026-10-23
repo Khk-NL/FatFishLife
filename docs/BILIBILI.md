@@ -53,3 +53,16 @@ python -m fatfish_bili status BVxxxxxxxxxx --bili D:/Code/Apps/bili-venv/Scripts
 ```
 
 本地草稿会按本次元数据重写；回执单独保存。适配器没有后台任务或自动重复投稿。真实上传、账号分区、风控及审核状态仍需人工账号验收，本项目测试不会实际投稿。
+
+## AstrBot 账号操作
+
+AstrBot 插件复用本机 `bili-agent` 0.6.0，完整用法见 [插件说明](../bots/astrbot_plugin_fatfish_bili/README.md)。本轮扩展提供：
+
+- `/bili 看 <BV号>`：字幕／转写、B 站 AI 总结、热评及抽帧总览图；缺失的资料会标明，不上报观看历史。
+- `/bili 推荐 [条数] [页码]`：账号首页推荐，默认 5 条，最多 30 条，跳过本地看过的视频。
+- `/bili 点赞`、`/bili 取消点赞`、`/bili 收藏`、`/bili 取消收藏`：可指定收藏夹。
+- `/bili 动态 [UID]`、`/bili 动态详情 <ID>`、`/bili 发动态 <正文>`：读取动态或发送纯文字。
+
+除公开视频查看外，以上新操作仅限主人或管理员私聊；写操作继续遵循 `dry_run_writes` 配置。没有新增后台推荐轮询，也不会根据视频内容自动触发点赞、收藏或发动态。公开操作记忆、离线信号、回复去重统一交给 `fatfish_core`，旧 JSON 首次迁移后保留。
+
+2026-10-23 使用现有登录态只读验收：推荐返回 3 条个性化视频；`video watch BV11Bnz6GE37` 返回 AI 总结、1,867 字中文字幕、5 条热评及总览图。回执在本地 `outputs/verification/bili-recommend.json` 和 `bili-watch.json`。点赞、收藏、动态发布只验证命令参数和模拟回执，未对真实账号执行写入。

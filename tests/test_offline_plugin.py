@@ -6,7 +6,7 @@ import types
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from plugin_support import load_plugin
 
@@ -96,7 +96,73 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         plugin.engagement = PLUGIN.GroupEngagement(PLUGIN.GroupConfig(random_probability=0))
         plugin._pending_trigger = {}
         plugin.engine = types.SimpleNamespace(handle=Mock(return_value="离线普通回复"))
+        plugin._local_warm = False
+        plugin._local_mode_task = None
+        plugin._published_mode = None
+        plugin._mode_timer_task = None
+        plugin.local_model = types.SimpleNamespace(
+            enabled=False, warmup=AsyncMock(), unload=AsyncMock(), chat=AsyncMock(return_value=None), close=AsyncMock()
+        )
         return plugin
+
+    async def test_online_return_unloads_a_previous_local_model(self):
+        plugin = self.plugin()
+        plugin._local_warm = True
+        event = Event(group="", text="下班了吗")
+        await plugin.guard(event)
+        await asyncio.sleep(0)
+        plugin.local_model.unload.assert_awaited_once()
+        self.assertFalse(plugin._local_warm)
+        self.assertFalse(event.stopped)
+
+    async def test_default_offline_message_uses_local_model_and_stops_cloud_path(self):
+        plugin = self.plugin(offline=True)
+        plugin.local_model.enabled = True
+        plugin.local_model.chat.return_value = "先看看当地预报呀！"
+        event = Event(group="", text="你觉得今天适合出门吗")
+        await plugin.guard(event)
+        await asyncio.sleep(0)
+        plugin.local_model.chat.assert_awaited_once_with(PLUGIN.LOCAL_SYSTEM, event.message_str)
+        self.assertEqual(event.send.call_args.args[0].chain[0].text, "先看看当地预报呀！")
+        self.assertIn("不得编造当前状况", plugin.local_model.chat.call_args.args[0])
+        self.assertTrue(event.stopped)
+
+    async def test_rapid_mode_changes_finish_with_unload_after_warmup(self):
+        plugin = self.plugin()
+        operations = []
+        entered = asyncio.Event()
+        finish = asyncio.Event()
+
+        async def warmup():
+            entered.set()
+            await finish.wait()
+            operations.append("warmup")
+
+        async def unload():
+            operations.append("unload")
+
+        plugin.local_model.warmup.side_effect = warmup
+        plugin.local_model.unload.side_effect = unload
+        plugin._sync_local_model(True)
+        await entered.wait()
+        plugin._sync_local_model(False)
+        await asyncio.sleep(0)
+        self.assertEqual(operations, [])
+        finish.set()
+        await plugin._local_mode_task
+        self.assertEqual(operations, ["warmup", "unload"])
+
+    async def test_manual_mode_command_publishes_cross_platform_signal_immediately(self):
+        plugin = self.plugin(offline=True)
+        plugin._is_owner = Mock(return_value=True)
+        plugin.state.set_manual = Mock()
+        event = Event(group="", text="/离线 开")
+        event.plain_result = lambda text: text
+        responses = [result async for result in plugin.offline(event, "开")]
+        await asyncio.sleep(0)
+        plugin.state.set_manual.assert_called_once_with("on")
+        plugin.state.publish_offline.assert_called_once_with(True, reason="test", resume_at=None)
+        self.assertEqual(len(responses), 1)
 
     async def test_online_raw_poke_to_bot_replies_locally_in_group_and_private_chat(self):
         for group in ("group", ""):
@@ -228,6 +294,73 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
                 plugin.state.bump_usage.assert_not_called()
 
 
+class OfflineClockTests(unittest.IsolatedAsyncioTestCase):
+    async def test_unattended_clock_crosses_start_and_end_without_rewriting_unchanged_signal(self):
+        plugin = OfflinePluginTriggerTests().plugin()
+        plugin.scheduler = PLUGIN.Scheduler(["09:00-12:00", "14:00-18:00"], holiday_source="manual")
+        plugin.reason = "high_cost"
+        plugin._decision = PLUGIN.Main._decision.__get__(plugin)
+        moments = [
+            datetime(2026, 10, 23, hour, minute, second, tzinfo=plugin.scheduler.tz)
+            for hour, minute, second in ((13, 59, 59), (14, 0, 0), (14, 1, 0), (17, 59, 59), (18, 0, 0))
+        ]
+        current = [moments[0]]
+
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return current[0].astimezone(tz) if tz else current[0]
+
+        sleeps = []
+        real_sleep = asyncio.sleep
+
+        async def advance(delay):
+            sleeps.append(delay)
+            await real_sleep(0)
+            if len(sleeps) == len(moments):
+                raise asyncio.CancelledError
+            current[0] = moments[len(sleeps)]
+
+        with tempfile.TemporaryDirectory() as directory:
+            plugin.state = PLUGIN.StateStore(Path(directory))
+            plugin.state.publish_offline = Mock(wraps=plugin.state.publish_offline)
+            plugin.state.bump_usage = Mock(wraps=plugin.state.bump_usage)
+            with patch.object(PLUGIN, "datetime", Clock), patch.object(PLUGIN.asyncio, "sleep", advance):
+                with self.assertRaises(asyncio.CancelledError):
+                    await plugin._mode_loop()
+                await plugin._local_mode_task
+            transitions = [call.args[0] for call in plugin.state.publish_offline.call_args_list]
+            self.assertEqual(transitions, [False, True, False])
+            self.assertEqual(sleeps, [1, 60, 60, 1, 60])
+            plugin.state.bump_usage.assert_not_called()
+            plugin.local_model.warmup.assert_awaited_once()
+            plugin.local_model.unload.assert_awaited_once()
+            self.assertFalse(plugin.state.runtime.get("offline", "signal")["offline"])
+
+    async def test_terminate_cancels_both_independent_timers(self):
+        plugin = OfflinePluginTriggerTests().plugin()
+        started = []
+        stopped = []
+
+        async def timer(name):
+            started.append(name)
+            try:
+                await asyncio.Event().wait()
+            finally:
+                stopped.append(name)
+
+        plugin._mode_timer_task = asyncio.create_task(timer("mode"))
+        plugin._daily_apple_pie_task = asyncio.create_task(timer("daily"))
+        await asyncio.sleep(0)
+        await plugin.terminate()
+        self.assertCountEqual(started, ["mode", "daily"])
+        self.assertCountEqual(stopped, ["mode", "daily"])
+        self.assertTrue(plugin._mode_timer_task.cancelled())
+        self.assertTrue(plugin._daily_apple_pie_task.cancelled())
+        plugin.local_model.unload.assert_awaited_once()
+        plugin.local_model.close.assert_awaited_once()
+
+
 class DailyApplePiePluginTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -250,6 +383,9 @@ class DailyApplePiePluginTests(unittest.IsolatedAsyncioTestCase):
             send_message=AsyncMock(return_value=True),
         )
         plugin._daily_apple_pie_task = None
+        plugin._local_mode_task = None
+        plugin._mode_timer_task = None
+        plugin.local_model = types.SimpleNamespace(unload=AsyncMock(), close=AsyncMock())
         return plugin
 
     async def test_empty_group_does_not_draw_or_send(self):

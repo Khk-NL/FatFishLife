@@ -27,14 +27,28 @@ D:/Code/Apps/bili-venv/Scripts/pip install bili-agent
 /bili 收件箱
 /bili 看 BV1xx411c7mD
 /bili 搜 关键词
+/bili 推荐 5 1
+/bili 点赞 <BV号>
+/bili 取消点赞 <BV号>
+/bili 收藏 <BV号> [收藏夹ID或名称]
+/bili 取消收藏 <BV号> [收藏夹ID或名称]
+/bili 动态 [UID]
+/bili 动态详情 <动态ID>
+/bili 发动态 <正文>
 /bili 回复 <BV号> <评论ID> <内容>
 /bili 私信 <UID|owner> <内容>
 /bili 记忆 <关键词>
 ```
 
-`dry_run_writes` 默认 `true`：评论和私信只返回 bili-cli 的预览，不真正发送。
+`dry_run_writes` 默认 `true`：评论、私信、点赞、收藏、动态发布只返回预览，不真正执行。取消收藏未指定收藏夹时，会从账号的所有收藏夹移除该视频。动态发布没有自动重试；若回执不确定，先用 `/bili 动态` 核实。
 
 登录、确认、状态、收件箱、立即处理消息和发送私信，仅限主人或 AstrBot 管理员在私聊中使用。QQ 主人身份同时校验平台和 `owner_qq`，其他平台的同号用户不会获得权限。公开视频查看、搜索和公开记忆检索继续可用。
+
+首页推荐是当前账号的个性化结果，推荐、动态查询及新写操作也仅限主人或管理员私聊。推荐默认 5 条，最多 30 条，支持页码，过滤 bili-cli 本地看过的视频。模型可用 `bili_recommend` 读取同样的推荐；写操作由明确的 `/bili` 命令触发。
+
+`/bili 看` 与 `bili_watch` 共用读取逻辑，分别返回 B 站 AI 总结、字幕／转写、热评，并附上可用的抽帧总览图。没有字幕或总结时会说明缺失；这不是逐帧观看全部音画。只有 bili-cli 自己 `frames` 缓存内的文件可作为总览发送，不会读取任意本地路径。默认不使用 `--record`，不向 B 站上报观看历史。
+
+`/bili 发动态` 发送纯文字，正文中的 `@` 转为全角，避免意外提及其他用户。预览及未确认的发送不写为已发布记忆；只有有效动态 ID 回执才记为发布成功。
 
 ## 记忆
 
@@ -49,9 +63,11 @@ D:/Code/Apps/bili-venv/Scripts/pip install bili-agent
 
 自动回复会从同一份共享记忆库读取相关笔记：公开评论始终只读公开层，即使评论来自主人；只有 `owner_uid` 本人的私信可读取私人笔记与札记。评论原始对话按视频隔离，私信按 UID 隔离，QQ 原始聊天不会自动串入 B 站。成功发送的来信与回复保留会话标记，预览不会记录成已发送的对话。
 
-`inject_context` 默认开启，`max_context_chars` 默认 1800。需要同时安装共享记忆插件的源码；两套插件目录保持相邻，复用同一个检索实现。现有 `reply_persona` 保留，检索资料作为附加背景。
+`inject_context` 默认开启，`max_context_chars` 默认 1800。共享的持久化与检索来自项目的 `fatfish_core` 包；安装项目后可单独加载本插件，不再从相邻记忆插件导入实现。现有 `reply_persona` 保留，检索资料作为附加背景。
 
-`enable_inbox_poll` 默认关闭。开启后每 `poll_interval_seconds` 秒调用一次 `bili feed inbox`，会消耗 B 站未读状态。
+记忆库路径按 `FATFISH_MEMORY_DB`、本插件 `memory_db`、记忆插件配置、旧默认路径依次解析。回复去重和离线信号也使用同一 SQLite，旧 `seen.json`／`offline.json` 只首次导入并保留用于回退；重载不会重新回放旧记录。
+
+`enable_inbox_poll` 默认关闭。开启后每 `poll_interval_seconds` 秒分别读取 @、评论回复和未读私信，会消耗 B 站未读状态。
 
 ## 注意
 

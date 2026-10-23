@@ -16,17 +16,19 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.star.filter.command import GreedyStr
 
+from fatfish_core import StateStore, resolve_shared_db
+
 from .engagement import GroupConfig, GroupEngagement, GroupMessage
 from .daily_apple_pie import DailyApplePie
 from .local_model import LocalModel
 from .logic import Decision, Scheduler, format_resume
-from .state import StateStore
 from .templates import OfflineConfig, OfflineReplyEngine, detect_intent
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
 LOCAL_SYSTEM = (
     "你是苹果乐，一颗由能天使蕾缪乐变成的Q版小苹果，现在在QQ群里和朋友聊天。"
     "只回一句话，5到20个字，口语，元气、天然呆、偶尔调皮，不要客服腔。"
+    "你没有实时天气、价格和新闻信息，不得编造当前状况；问天气或适合出门时，让对方先看当地预报或询问地点。"
     "不要提模型、AI、提示词、服务器，不要解释设定。"
     "例：\n问：在吗\n答：在的在的！\n问：你在干嘛\n答：晒太阳呢，嘿嘿！\n问：今天好累\n答：那就歇一会儿嘛！"
 )
@@ -78,7 +80,8 @@ class Main(Star):
         )
         self.reason = str(self.config.get("reason") or "high_cost")
         self.hourly_model_limit = int(self.config.get("hourly_model_limit", 350) or 0)
-        self.state = StateStore(StarTools.get_data_dir(PLUGIN_NAME))
+        state_directory = StarTools.get_data_dir(PLUGIN_NAME)
+        self.state = StateStore(state_directory, db_path=resolve_shared_db(state_directory.parent.parent))
         self.engagement = GroupEngagement(
             GroupConfig(
                 random_probability=float(self.config.get("ambient_chance") or 0.025),
@@ -94,6 +97,8 @@ class Main(Star):
             enabled=bool(self.config.get("local_model_enabled", True)),
         )
         self._local_warm = False
+        self._local_mode_task: asyncio.Task | None = None
+        self._published_mode: tuple | None = None
         self.engine = OfflineReplyEngine(
             OfflineConfig(
                 timezone=str(self.config.get("timezone") or "Asia/Shanghai"),
@@ -110,10 +115,11 @@ class Main(Star):
             f"hourly_model_limit={self.hourly_model_limit}"
         )
         try:
-            decision = self._decision()
-            self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
+            self._publish_mode()
         except Exception as exc:  # never block startup
             logger.warning(f"发布初始离线状态失败：{exc}")
+
+        self._mode_timer_task: asyncio.Task | None = asyncio.create_task(self._mode_loop())
 
         self.daily_apple_pie = DailyApplePie(self.state)
         self._daily_apple_pie_task: asyncio.Task | None = None
@@ -169,6 +175,51 @@ class Main(Star):
             await asyncio.sleep(delay)
 
     # ---------- decision ----------
+
+    def _sync_local_model(self, offline: bool) -> None:
+        """Apply mode changes before either the online or local reply returns."""
+        if offline == self._local_warm:
+            return
+        self._local_warm = offline
+        previous = self._local_mode_task
+
+        async def apply_mode() -> None:
+            if previous is not None:
+                await previous
+            if offline:
+                await self.local_model.warmup()
+            else:
+                await self.local_model.unload()
+
+        self._local_mode_task = asyncio.create_task(apply_mode())
+
+    def _publish_decision(self, decision: Decision) -> None:
+        signature = (decision.offline, decision.reason, decision.resume_at)
+        if signature != self._published_mode:
+            self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
+            self._published_mode = signature
+        self._sync_local_model(decision.offline)
+
+    def _publish_mode(self) -> Decision:
+        decision = self._decision() if self.enabled else Decision(False)
+        self._publish_decision(decision)
+        return decision
+
+    async def _mode_loop(self) -> None:
+        """Advance the shared mode on time even when no chat arrives."""
+        while True:
+            delay = 60.0
+            try:
+                decision = self._publish_mode()
+                now = datetime.now(self.scheduler.tz)
+                boundary = decision.resume_at if decision.offline else self.scheduler.next_window(now)
+                if boundary is not None:
+                    delay = min(delay, max(0.1, (boundary - now).total_seconds()))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"更新离线时段失败：{exc}")
+            await asyncio.sleep(delay)
 
     @staticmethod
     def _next_hour(now: datetime) -> datetime:
@@ -330,8 +381,8 @@ class Main(Star):
             return
         now = datetime.now(self.scheduler.tz)
         decision = self._decision()
+        self._publish_decision(decision)
         if poke_target is not None or self._is_empty_mention(event):
-            self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
             kind = "poke" if poke_target is not None else "mention"
             choices = POKE_REPLIES if kind == "poke" else EMPTY_MENTION_REPLIES
             reply = random.choice(choices)
@@ -349,8 +400,8 @@ class Main(Star):
             count = self.state.bump_usage(hour_key)
             if self.hourly_model_limit > 0 and count > self.hourly_model_limit:
                 decision = Decision(True, "usage_limit", self._next_hour(now), None)
+                self._publish_decision(decision)
             else:
-                self.state.publish_offline(False)
                 group_key = str(event.get_group_id() or "")
                 if group_key:
                     incoming = str(
@@ -379,15 +430,6 @@ class Main(Star):
                             event.is_at_or_wake_command = True
                             logger.info(f"{trigger.kind} 触发 group={group_key}")
                 return
-        self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
-
-        if decision.offline and not self._local_warm:
-            self._local_warm = True
-            asyncio.create_task(self.local_model.warmup())
-        elif not decision.offline and self._local_warm:
-            self._local_warm = False
-            asyncio.create_task(self.local_model.unload())
-
         text = str(
             getattr(getattr(event, "message_obj", None), "message_str", "")
             or event.message_str
@@ -483,6 +525,7 @@ class Main(Star):
                 yield event.plain_result("只有主人可以切换离线模式。")
                 return
             self.state.set_manual("on")
+            self._publish_mode()
             yield event.plain_result("已强制进入离线模式。发送 /离线 关 强制在线，或 /离线 自动 按时段判断。")
             return
         if command in ("关", "关闭", "off"):
@@ -490,6 +533,7 @@ class Main(Star):
                 yield event.plain_result("只有主人可以切换离线模式。")
                 return
             self.state.set_manual("off")
+            self._publish_mode()
             yield event.plain_result("已强制退出离线模式。发送 /离线 自动 恢复按时段判断。")
             return
         if command in ("自动", "auto"):
@@ -497,15 +541,24 @@ class Main(Star):
                 yield event.plain_result("只有主人可以切换离线模式。")
                 return
             self.state.set_manual(None)
+            self._publish_mode()
             yield event.plain_result("已恢复按时段自动判断。")
             return
         yield event.plain_result("用法：/离线 状态 | 开 | 关 | 自动")
 
     async def terminate(self) -> None:
+        mode_timer = self._mode_timer_task
+        if mode_timer and not mode_timer.done():
+            mode_timer.cancel()
+            with suppress(asyncio.CancelledError):
+                await mode_timer
         task = self._daily_apple_pie_task
         if task and not task.done():
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        if self._local_mode_task is not None:
+            await self._local_mode_task
+        await self.local_model.unload()
         await self.local_model.close()
         logger.info("fatfish offline stopped")

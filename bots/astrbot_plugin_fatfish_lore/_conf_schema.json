@@ -1,12 +1,4 @@
 {
-  "lore_path": {
-    "type": "string",
-    "description": "完整角色卡 Markdown 路径",
-    "default": "D:/Code/Projects/FatFishLife/docs/persona/apple-le-full.md"
-  },
-  "max_chars": {
-    "type": "int",
-    "description": "单次返回的最大字符数",
-    "default": 1800
-  }
+  "kb_name": {"type": "string", "description": "AstrBot 原生知识库名称", "default": "苹果乐设定"},
+  "max_chars": {"type": "int", "description": "设定命令返回的最大字符数", "default": 1800}
 }

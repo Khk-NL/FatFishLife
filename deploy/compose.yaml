@@ -12,17 +12,21 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       FATFISH_FFMPEG: /usr/bin/ffmpeg
       FATFISH_FFPROBE: /usr/bin/ffprobe
+      FATFISH_DATA_DIR: /AstrBot/data
+      FATFISH_MEMORY_DB: /AstrBot/data/plugin_data/astrbot_plugin_fatfish_memory/memory.db
     ports:
       - "127.0.0.1:6185:6185"
     expose:
       - "6199"
     volumes:
       - ./state/astrbot:/AstrBot/data
-      - ../bots:/AstrBot/data/plugins:ro
+      - ../bots/astrbot_plugin_fatfish_memory:/AstrBot/data/plugins/astrbot_plugin_fatfish_memory:ro
+      - ../bots/astrbot_plugin_fatfish_bili:/AstrBot/data/plugins/astrbot_plugin_fatfish_bili:ro
+      - ../bots/astrbot_plugin_fatfish_offline:/AstrBot/data/plugins/astrbot_plugin_fatfish_offline:ro
+      - ../bots/astrbot_plugin_fatfish_lore:/AstrBot/data/plugins/astrbot_plugin_fatfish_lore:ro
       - ../assets:/opt/fatfish/assets:ro
       - ../examples:/opt/fatfish/examples:ro
       - ../docs/persona:/opt/fatfish/docs/persona:ro
-      - ../scripts:/opt/fatfish/scripts:ro
       - ./state/outputs:/opt/fatfish/outputs
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:6185/', timeout=5).close()"]

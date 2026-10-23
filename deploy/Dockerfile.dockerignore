@@ -6,6 +6,8 @@
 !fatfish_story/**
 !fatfish_bili/
 !fatfish_bili/**
+!fatfish_core/
+!fatfish_core/**
 **/__pycache__/
 **/*.pyc
 **/.env

@@ -6,8 +6,10 @@ COPY pyproject.toml /opt/fatfish/pyproject.toml
 COPY fatfish_video /opt/fatfish/fatfish_video
 COPY fatfish_story /opt/fatfish/fatfish_story
 COPY fatfish_bili /opt/fatfish/fatfish_bili
+COPY fatfish_core /opt/fatfish/fatfish_core
 RUN python -m venv /opt/bili-venv \
     && /opt/bili-venv/bin/python -m pip install --no-cache-dir "bili-agent==0.6.0" \
-    && python -m pip install --no-cache-dir -e /opt/fatfish "chinese-calendar==1.11.0"
+    && python -m pip install --no-cache-dir -e /opt/fatfish "chinese-calendar==1.11.0" \
+    && python -c "from fatfish_core import MemoryStore, SeenStore, StateStore, build_context"
 
 WORKDIR /AstrBot

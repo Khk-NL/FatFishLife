@@ -1,0 +1,11 @@
+{
+  "enabled": true,
+  "windows": ["09:00-12:00", "14:00-18:00"],
+  "reason": "high_cost",
+  "holiday_source": "auto",
+  "local_model_enabled": false,
+  "local_model_url": "http://127.0.0.1:11434",
+  "local_model_name": "qwen2.5:1.5b",
+  "local_model_timeout": 30,
+  "daily_apple_pie_group_id": ""
+}

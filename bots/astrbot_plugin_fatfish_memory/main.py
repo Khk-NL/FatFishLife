@@ -13,8 +13,7 @@ from astrbot.api.provider import ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
-from .context import build_context
-from .store import MemoryStore
+from fatfish_core import MemoryStore, build_context, resolve_shared_db
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_memory"
 PLATFORM_ALIASES = {
@@ -39,10 +38,7 @@ class Main(Star):
         super().__init__(context)
         self.config = config or {}
         configured = str(self.config.get("db_path") or "").strip()
-        if configured:
-            path = Path(configured).expanduser()
-        else:
-            path = StarTools.get_data_dir(PLUGIN_NAME) / "memory.db"
+        path = resolve_shared_db(StarTools.get_data_dir(PLUGIN_NAME).parent.parent, configured)
         self.store = MemoryStore(path)
         self._last_pruned_day: date | None = None
         self._sync_configured_owners()

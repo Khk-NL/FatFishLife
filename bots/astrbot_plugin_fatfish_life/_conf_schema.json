@@ -1,0 +1,9 @@
+{
+  "enabled": {"type": "bool", "description": "每天写自我总结并决定是否分享；私人日记仅老板私聊可查。保存后重载生效。", "default": true},
+  "reflection_time": {"type": "string", "description": "每天总结时间，北京时间，格式 HH:MM", "default": "23:50"},
+  "publish_enabled": {"type": "bool", "description": "允许自动发布生活动态。关闭时只写日记和留草稿，不发到任何平台。", "default": false},
+  "lookback_days": {"type": "int", "description": "公开动态回顾最近几天的真实公开经历，1到7天", "default": 3},
+  "qq_platform_id": {"type": "string", "description": "QQ空间使用的OneBot连接ID", "default": "napcat"},
+  "qq_bot_id": {"type": "string", "description": "发说说的机器人账号。当前仅授权1670515707；留空不能发布，绝不使用老板大号。", "default": ""},
+  "persona": {"type": "string", "description": "生活日记人设。留空沿用项目苹果乐人设，或B站插件人设。", "default": ""}
+}

@@ -20,6 +20,14 @@ D:\Code\Apps\AstrBot\data\plugins\astrbot_plugin_fatfish_memory
 D:\Code\Apps\AstrBot\data\plugins\astrbot_plugin_fatfish_bili
 ```
 
+先在 AstrBot 使用的 Python 环境安装项目，提供统一数据层 `fatfish_core`：
+
+```powershell
+D:/Code/Apps/AstrBot/.venv/Scripts/python.exe -m pip install -e D:/Code/Projects/FatFishLife
+```
+
+部署的自研入口为 memory、bili、offline、lore；表情交给社区 `meme_manager`，主动消息使用 `proactive_chat`。旧自研 stickers 源码已移除，历史素材及运行数据不删除。`fatfish_life` 当前没有完整插件入口，不挂载。服务器步骤见 [部署说明](../deploy/README.md)，其中社区插件目录保持可写，不会被自研源码覆盖。
+
 ## AstrBot
 
 ```powershell
@@ -114,7 +122,7 @@ AstrBot WebUI → 插件 → `astrbot_plugin_fatfish_offline`：
 
 保存后重载插件生效。每天按北京时间在 18:01、19:01、20:01 分别按 25%、50%、75% 抽签；此前未中签时，21:01 起概率为 100%。每小时只抽一次，周末照常，不受上班离线时段限制，不调用模型，只发固定的“啊噗噜派！”。
 
-当天最多尝试发送一次，记录保存在插件原有的 `state.json`，重载、重启或换群都不重置当天结果。服务错过时间后只抽当前时段，不追补之前的轮次；平台未就绪时不消耗抽签。发送前先保存当天记录，发送异常、结果未确认或中途取消后不自动重发，避免重复。
+当天最多尝试发送一次，记录保存在统一 SQLite 的运行状态中；旧 `state.json` 仅首次导入并保留。重载、重启或换群都不重置当天结果。服务错过时间后只抽当前时段，不追补之前的轮次；平台未就绪时不消耗抽签。发送前先保存当天记录，发送异常、结果未确认或中途取消后不自动重发，避免重复。
 
 ## 故障排查
 

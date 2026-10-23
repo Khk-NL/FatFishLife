@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 import tempfile
 import types
 import unittest
@@ -36,6 +37,9 @@ class Event:
     def plain_result(self, text):
         return text
 
+    def chain_result(self, chain):
+        return chain
+
 
 async def collect(results):
     return "\n".join([result async for result in results])
@@ -52,6 +56,7 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.exe = "unused-bili"
         self.plugin._poll_task = None
         self.plugin._pause_reason = None
+        self.plugin._offline = Mock(return_value=False)
         self.plugin._run = AsyncMock(return_value={"ok": True, "data": {}})
         self.store = MEMORY.MemoryStore(self.plugin.memory_db)
         self.store.remember("PRIVATE_MESSAGE_TOKEN", platform="bilibili", scope="private", kind="dm")
@@ -211,6 +216,120 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(all(row["session"] == "comment:BVexample" for row in rows))
 
 
+class BiliExtensionTests(unittest.IsolatedAsyncioTestCase):
+    setUp = BiliPrivacyTests.setUp
+    untrusted_events = BiliPrivacyTests.untrusted_events
+
+    async def test_account_recommendations_and_interactions_require_trusted_private_chat(self):
+        for action, body in (("推荐", "5"), ("点赞", "BVexample"), ("取消点赞", "BVexample"),
+                             ("收藏", "BVexample"), ("取消收藏", "BVexample"),
+                             ("动态", "123"), ("动态详情", "456"), ("发动态", "正文")):
+            for event in self.untrusted_events():
+                with self.subTest(action=action, event=vars(event)):
+                    self.assertIn("私聊", await collect(self.plugin.bili(event, action, body)))
+        for event in self.untrusted_events():
+            self.assertIn("私聊", await collect(self.plugin.bili_recommend(event)))
+        self.plugin._run.assert_not_awaited()
+
+    async def test_recommendation_command_and_tool_pass_verified_cli_options(self):
+        self.plugin._run.return_value = {"ok": True, "data": {"items": [{"title": "推荐视频"}]}}
+        self.assertIn("推荐视频", await collect(self.plugin.bili(Event(), "推荐", "3 2")))
+        self.plugin._run.assert_awaited_once_with("feed", "recommend", "--count", "3", "--page", "2", "--unseen", timeout=90)
+        self.plugin._run.reset_mock()
+        await collect(self.plugin.bili_recommend(Event(), count=99, page=0))
+        self.plugin._run.assert_awaited_once_with("feed", "recommend", "--count", "30", "--page", "1", "--unseen", timeout=90)
+
+    async def test_invalid_command_arguments_do_not_call_cli(self):
+        for action, body in (("推荐", "0"), ("推荐", "31"), ("推荐", "2 0"),
+                             ("推荐", "--raw"), ("推荐", "1 2 3"), ("点赞", ""),
+                             ("点赞", "BVexample extra"), ("收藏", ""),
+                             ("动态", "bad-id"), ("动态详情", ""), ("发动态", "")):
+            with self.subTest(action=action, body=body):
+                await collect(self.plugin.bili(Event(), action, body))
+        self.plugin._run.assert_not_awaited()
+
+    async def test_interaction_previews_do_not_become_public_memory(self):
+        for action, body, args in (
+            ("点赞", "BVexample", ("video", "like", "BVexample")),
+            ("取消点赞", "BVexample", ("video", "like", "BVexample", "--undo")),
+            ("收藏", "BVexample 明日 方舟", ("video", "fav", "BVexample", "--folder", "明日 方舟")),
+            ("取消收藏", "BVexample", ("video", "fav", "BVexample", "--remove")),
+        ):
+            with self.subTest(action=action):
+                self.plugin._run.reset_mock()
+                self.assertIn("预览（未执行）", await collect(self.plugin.bili(Event(), action, body)))
+                self.plugin._run.assert_awaited_once_with(*args, timeout=90, dry_run=True)
+        self.assertEqual(self.store.recall("BVexample", scopes=("public",)), [])
+
+    async def test_actual_interaction_success_records_fact_but_failure_does_not(self):
+        self.plugin.config["dry_run_writes"] = False
+        await collect(self.plugin.bili(Event(), "收藏", "BVsuccess 文件夹"))
+        rows = self.store.recall("BVsuccess", scopes=("public",))
+        self.assertEqual(len(rows), 1)
+        self.assertIn("文件夹", rows[0]["content"])
+        self.plugin._run.return_value = {"ok": False, "error": {"code": "risk_control", "message": "测试风控"}}
+        self.plugin._notify = AsyncMock()
+        self.assertIn("risk_control", await collect(self.plugin.bili(Event(), "点赞", "BVfailure")))
+        self.assertEqual(self.store.recall("BVfailure", scopes=("public",)), [])
+        self.assertIn("risk_control", self.plugin._pause_reason)
+
+    async def test_dynamic_listing_and_show_only_read(self):
+        for action, body, args in (("动态", "", ("dynamic", "list")),
+                                  ("动态", "123", ("dynamic", "list", "--mid", "123")),
+                                  ("动态详情", "456", ("dynamic", "show", "456"))):
+            self.plugin._run.reset_mock()
+            await collect(self.plugin.bili(Event(), action, body))
+            self.plugin._run.assert_awaited_once_with(*args, timeout=90)
+
+    async def test_dynamic_preview_is_sanitized_and_not_recorded_as_sent(self):
+        self.plugin._run.return_value = {"ok": True, "data": {"dry_run": True}}
+        text = await collect(self.plugin.bili(Event(), "发动态", "你好 @某人"))
+        self.assertIn("未发送", text)
+        self.assertIn("＠某人", text)
+        args = self.plugin._run.await_args
+        self.assertEqual(args.args[:3], ("dynamic", "post", "--file"))
+        self.assertTrue(args.kwargs["dry_run"])
+        self.assertFalse(Path(args.args[3]).exists())
+        self.assertEqual(self.store.recall("某人", scopes=("public",)), [])
+
+    async def test_dynamic_receipt_and_uncertain_status_are_not_confused(self):
+        self.plugin.config["dry_run_writes"] = False
+        self.plugin._run.return_value = {"ok": True, "data": {"id": "12345"}}
+        text = await collect(self.plugin.bili(Event(), "发动态", "SENT_DYNAMIC_TOKEN"))
+        self.assertIn("https://t.bilibili.com/12345", text)
+        self.assertEqual(len(self.store.recall("SENT_DYNAMIC_TOKEN", scopes=("public",))), 1)
+        self.plugin._run.return_value = {"ok": True, "data": {}}
+        text = await collect(self.plugin.bili(Event(), "发动态", "UNCERTAIN_DYNAMIC_TOKEN"))
+        self.assertIn("结果不确定", text)
+        self.assertEqual(self.store.recall("UNCERTAIN_DYNAMIC_TOKEN", scopes=("public",)), [])
+
+    async def test_watch_exposes_ai_summary_transcript_and_safe_frame_sheet(self):
+        sheet = self.plugin.home / "frames" / "video" / "sheet.jpg"
+        sheet.parent.mkdir(parents=True)
+        sheet.write_bytes(b"test-frame")
+        self.plugin._run.return_value = {"ok": True, "data": {
+            "title": "标题", "bvid": "BVexample", "ai_summary": "AI_SUMMARY_TOKEN",
+            "transcript": {"source": "subtitle:zh", "text": "字幕正文"},
+            "hot_comments": [{"content": "热评内容"}], "frames_sheet": str(sheet),
+        }}
+        for results in (self.plugin.bili(Event(), "看", "BVexample"), self.plugin.bili_watch(Event(), "BVexample")):
+            values = [result async for result in results]
+            self.assertIn("AI_SUMMARY_TOKEN", values[0])
+            self.assertIn("字幕正文", values[0])
+            self.assertIn("热评内容", values[0])
+            self.assertIn("抽帧", values[0])
+            self.assertEqual(values[1], [str(sheet.resolve())])
+        self.assertEqual(len(self.store.recall("AI_SUMMARY_TOKEN", scopes=("public",))), 2)
+
+    async def test_watch_does_not_send_files_outside_cli_frame_cache(self):
+        unrelated = self.plugin.home / "private.txt"
+        unrelated.write_text("private", encoding="utf-8")
+        self.plugin._run.return_value = {"ok": True, "data": {"title": "标题", "frames_sheet": str(unrelated)}}
+        values = [result async for result in self.plugin.bili_watch(Event(), "BVexample")]
+        self.assertEqual(len(values), 1)
+        self.assertIn("未提供", values[0])
+
+
 class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
     COMMENT = {"user": {"mid": "123"}, "on": {"bvid": "BVexample"}, "rpid": "1", "content": "评论内容"}
     DM = {"uid": "123", "last_message": {"from": "them", "text": "私信内容", "time": "2026-10-23T08:00:00+08:00"}}
@@ -226,6 +345,7 @@ class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
         plugin.config = {"owner_uid": "123", "dry_run_writes": dry_run}
         plugin._pause_reason = None
         plugin.seen_path = seen_path or self.root / "seen.json"
+        plugin.memory_db = plugin.seen_path.with_suffix(".db")
         plugin.seen = plugin._load_seen()
         plugin._generate_reply = AsyncMock(return_value="生成的回复")
         plugin._run = AsyncMock(return_value={"ok": True, "data": {}})
@@ -245,7 +365,8 @@ class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.plugin._run.await_args.kwargs["dry_run"])
         self.plugin._generate_reply.assert_awaited_once()
         self.plugin._remember.assert_not_called()
-        self.assertTrue(self.plugin.seen_path.is_file())
+        self.assertTrue(self.plugin.memory_db.is_file())
+        self.assertFalse(self.plugin.seen_path.exists())
 
         # Preview suppression must survive a reload without suppressing a real send.
         self.reload_plugin()
@@ -344,6 +465,98 @@ class BiliPollPauseTests(unittest.IsolatedAsyncioTestCase):
 
     def error(self, code):
         return {"ok": False, "error": {"code": code, "message": "测试账号错误"}}
+
+    async def test_background_poll_and_owner_processing_send_a_duplicate_comment_once(self):
+        plugin = self.plugin()
+        plugin.config["dry_run_writes"] = False
+        first_feed_started = asyncio.Event()
+        release_first_feed = asyncio.Event()
+        owner_processing_started = asyncio.Event()
+        feed_count = 0
+
+        async def run(*args, **kwargs):
+            nonlocal feed_count
+            if args[:2] == ("feed", "mentions"):
+                feed_count += 1
+                if feed_count == 1:
+                    first_feed_started.set()
+                    await release_first_feed.wait()
+                return {"ok": True, "data": {"items": [self.COMMENT]}}
+            return {"ok": True, "data": {"items": []}}
+
+        async def owner_process():
+            owner_processing_started.set()
+            return await collect(plugin.bili(Event(), "处理"))
+
+        plugin._run.side_effect = run
+        background = asyncio.create_task(plugin._poll_once(force=True))
+        await asyncio.wait_for(first_feed_started.wait(), timeout=1)
+        manual = asyncio.create_task(owner_process())
+        await asyncio.wait_for(owner_processing_started.wait(), timeout=1)
+        self.assertEqual(feed_count, 1)
+        release_first_feed.set()
+        background_result, manual_result = await asyncio.wait_for(asyncio.gather(background, manual), timeout=1)
+        self.assertEqual(background_result, ["生成的回复"])
+        self.assertIn("没有需要回复的新消息", manual_result)
+        writes = [call for call in plugin._run.await_args_list if call.args[:2] == ("comment", "reply")]
+        self.assertEqual(len(writes), 1)
+        plugin._generate_reply.assert_awaited_once()
+        plugin._notify.assert_awaited_once()
+        self.assertIn("comment:1", plugin.seen)
+
+    async def test_waiting_poll_rechecks_pause_and_offline_after_acquiring_lock(self):
+        for blocked_by in ("pause", "offline"):
+            with self.subTest(blocked_by=blocked_by), patch.object(PLUGIN, "logger", Mock()):
+                plugin = self.plugin()
+                plugin._poll_lock = asyncio.Lock()
+                await plugin._poll_lock.acquire()
+                waiting = asyncio.create_task(plugin._poll_once(force=True))
+                await asyncio.sleep(0)
+                if blocked_by == "pause":
+                    plugin._pause_reason = "等待期间暂停"
+                else:
+                    plugin._offline = Mock(return_value=True)
+                plugin._poll_lock.release()
+                self.assertEqual(await asyncio.wait_for(waiting, timeout=1), [])
+                plugin._run.assert_not_awaited()
+                plugin._generate_reply.assert_not_awaited()
+
+    async def test_poll_crossing_offline_boundary_does_not_start_cloud_provider(self):
+        plugin = self.plugin()
+        plugin._offline = Mock(side_effect=[False, True])
+        del plugin._generate_reply
+        provider = types.SimpleNamespace(text_chat=AsyncMock())
+        plugin.context = types.SimpleNamespace(get_using_provider=lambda: provider)
+        plugin._run.side_effect = [
+            {"ok": True, "data": {"items": [self.COMMENT]}},
+            {"ok": True, "data": {"items": []}},
+            {"ok": True, "data": {"items": []}},
+        ]
+        self.assertEqual(await plugin._poll_once(force=True), [])
+        self.assertEqual(plugin._offline.call_count, 2)
+        provider.text_chat.assert_not_awaited()
+        self.assertEqual(plugin.seen, set())
+        self.assertTrue(all(call.args[:2] != ("comment", "reply") for call in plugin._run.await_args_list))
+
+    async def test_sqlite_offline_failure_blocks_poll_and_provider_but_can_recover(self):
+        plugin = self.plugin()
+        del plugin._offline
+        del plugin._generate_reply
+        provider = types.SimpleNamespace(text_chat=AsyncMock())
+        plugin.context = types.SimpleNamespace(get_using_provider=lambda: provider)
+        tools = types.SimpleNamespace(get_data_dir=lambda name: self.root)
+        with patch.object(PLUGIN, "StarTools", tools), patch.object(PLUGIN, "logger", Mock()) as log:
+            with patch.object(PLUGIN, "read_offline", side_effect=sqlite3.OperationalError("database is locked")):
+                self.assertEqual(await plugin._poll_once(force=True), [])
+                self.assertEqual(await plugin._generate_reply("comment", "公开评论"), "")
+            plugin._run.assert_not_awaited()
+            provider.text_chat.assert_not_awaited()
+            self.assertIn("跳过本次", log.warning.call_args.args[0])
+            self.assertIn("database is locked", log.warning.call_args.args[0])
+            with patch.object(PLUGIN, "read_offline", return_value={"offline": False}):
+                self.assertEqual(await plugin._poll_once(force=True), [])
+            self.assertEqual(plugin._run.await_count, 3)
+            self.assertIsNone(plugin._pause_reason)
 
     async def test_four_blocking_errors_pause_later_polls_force_and_direct_auto_replies(self):
         for code in self.CODES:

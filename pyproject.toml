@@ -18,7 +18,7 @@ fatfish-story = "fatfish_story.cli:main"
 fatfish-bili = "fatfish_bili.cli:main"
 
 [tool.setuptools.packages.find]
-include = ["fatfish_video*", "fatfish_story*", "fatfish_bili*"]
+include = ["fatfish_video*", "fatfish_story*", "fatfish_bili*", "fatfish_core*"]
 
 [tool.setuptools.package-data]
 fatfish_video = ["web/*.html", "web/*.css", "web/*.js"]

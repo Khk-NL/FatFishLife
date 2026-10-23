@@ -1,5 +1,5 @@
 name: astrbot_plugin_fatfish_lore
-desc: 苹果乐的设定库：按章节检索完整角色卡，避免把世界观全部塞进常驻人设
+desc: /设定命令兼容入口，直接使用AstrBot原生知识库
 author: Kongb
-version: 0.1.0
+version: 0.2.0
 repo: https://github.com/Khk-NL/FatFishLife
