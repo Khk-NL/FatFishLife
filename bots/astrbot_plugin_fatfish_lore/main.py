@@ -23,7 +23,7 @@ class Main(Star):
         if not helper:
             yield event.plain_result(f"知识库「{self.kb_name}」不存在，请先在 AstrBot 知识库页面创建。")
             return
-        files = sorted(DEFAULT_KNOWLEDGE_DIR.glob("*.md"))
+        files = sorted(DEFAULT_KNOWLEDGE_DIR.rglob("*.md"))
         voice = DEFAULT_PERSONA_DIR / "exusiai-voice.md"
         if voice.is_file():
             files.append(voice)
