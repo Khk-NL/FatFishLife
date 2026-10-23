@@ -13,11 +13,14 @@ import base64
 import hashlib
 import json
 import secrets
+import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 
 CLIENT_ID = "MOBrBDS8blbauoSck0ZfDbtuzpyT"
 CLIENT_SECRET = "lsACyCD94FhDUtGTXi3QzcFE2uU1hqtDaKeqrdwj"
+LOGIN_CLIENT = "pixiv-android"
 REDIRECT_URI = "https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback"
 TOKEN_URL = "https://oauth.secure.pixiv.net/auth/token"
 
@@ -30,10 +33,11 @@ def build_login_url() -> tuple[str, str]:
         {
             "code_challenge": challenge,
             "code_challenge_method": "S256",
-            "client": CLIENT_ID,
+            "client": LOGIN_CLIENT,
             "redirect_uri": REDIRECT_URI,
         }
     )
+    Path(__file__).with_name(".pixiv_verifier").write_text(verifier, encoding="ascii")
     return f"https://app-api.pixiv.net/web/v1/login?{query}", verifier
 
 
@@ -59,8 +63,12 @@ def exchange(code: str, verifier: str) -> dict:
             "App-Version": "5.0.234",
         },
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
-        return json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Pixiv 返回 {exc.code}：{body}") from exc
 
 
 def main() -> None:
@@ -69,7 +77,7 @@ def main() -> None:
     print(url)
     print("\n2. 点登录，页面会跳到 pixiv.net 或显示一个空白页。")
     print("   从地址栏里找 code= 后面那一串，复制下来。\n")
-    code = input("3. 粘贴 code 后回车：").strip()
+    code = urllib.parse.unquote(input("3. 粘贴 code 后回车：").strip())
     if not code:
         print("没有拿到 code，退出。")
         return

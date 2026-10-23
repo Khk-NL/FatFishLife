@@ -22,6 +22,10 @@ $env:NAPCAT_INJECT_PATH = Join-Path $NapCat "NapCatWinBootHook.dll"
 $env:NAPCAT_LAUNCHER_PATH = Join-Path $NapCat "NapCatWinBootMain.exe"
 $env:NAPCAT_MAIN_PATH = Join-Path $NapCat "napcat.mjs"
 $env:PYTHONIOENCODING = "utf-8"
+$FFmpegBin = Join-Path $PSScriptRoot "..\.tools\ffmpeg\bin"
+if (Test-Path (Join-Path $FFmpegBin "ffmpeg.exe")) {
+    $env:PATH = "$((Resolve-Path $FFmpegBin).Path);$env:PATH"
+}
 
 Write-Host "Starting AstrBot on http://127.0.0.1:6185 ..."
 Start-Process -FilePath "$AstrBot\.venv\Scripts\python.exe" `
