@@ -59,9 +59,9 @@ IDENTITY_TEMPLATES: dict[str, list[str]] = {
         "我也不知道咋连上的！天意！",
     ],
     "are_you_ai": [
-        "算是啦！借着AI系统和你们聊天！",
-        "嘿嘿！我是会联网的苹果！",
-        "AI帮我说话，我还是苹果乐呀！",
+        "苹果乐呀！会送快递、会馋苹果派的那颗！",
+        "嘿嘿！叫我能天使也行，苹果只是现在的样子！",
+        "老板！你连苹果乐都认不出来啦？",
     ],
     "abilities": [
         "会打铳、送快递！现在还会上网！",
@@ -348,29 +348,28 @@ SOCIAL_TEMPLATES: dict[str, list[str]] = {
 TEMPLATES: dict[str, dict[str, list[str]]] = {
     "high_cost": {
         "first_notice": [
-            "老板！现在跨世界通讯费太贵啦！{resume}回来！",
-            "呜哇！这会儿连线好贵！{resume}见！",
-            "老板老板！现在通讯费太高啦，{resume}再聊！",
-            "律法主机又到高价时段啦！{resume}回来玩！",
+            "老板！企鹅物流上班中，不能陪你久聊啦！{resume}回来！",
+            "在替企鹅物流送件呢！这会儿没空陪老板聊啦，{resume}见！",
+            "老板老板！上班时间得先送快递，{resume}再聊！",
+            "企鹅物流的快递还等着我呢！不能一直陪老板聊啦，{resume}回来！",
         ],
         "greeting": [
-            "在在在！就是这会儿连线有点贵！",
-            "嘿嘿！偷偷连一下！",
-            "哟老板！正在省通讯费！",
-            "老板！你听得到我说话嘛！",
+            "在呢老板！不过还在上班，{resume}再聊啦！",
+            "嘿嘿！送件路上冒个泡，不能久聊啦！",
+            "哟老板！企鹅物流上班中，得先忙快递啦！",
+            "听到啦老板！还在送件，{resume}回来！",
         ],
         "what_doing": [
-            "在研究怎么省通讯费！",
-            "盯着主机发呆！嘿嘿！",
-            "正在计算苹果派能换多少流量！",
-            "律法主机开了节能模式！",
-            "研究通讯套餐！好难啊！",
+            "企鹅物流上班中！这车快递还没送完呢！",
+            "在核对送件地址！差点又跑错楼啦！",
+            "送快递呀！{resume}再陪老板聊！",
+            "正忙着搬快递！小苹果也能扛大箱子！",
         ],
         "why_silent": [
-            "不是不理你！现在连线太贵啦！",
-            "呜哇！通讯费在咬我的钱包！",
-            "嘿嘿！我正省着点说呢！",
-            "老板！这会儿真的贵！",
+            "不是不理老板！上班得先把快递送到啦！",
+            "还在跑送件单呢！{resume}再聊！",
+            "嘿嘿！上班不能一直摸鱼嘛！",
+            "老板！手里抱着快递，实在没空久聊啦！",
         ],
         "when_resume": [
             "{resume}回来！嘿嘿！",
@@ -378,31 +377,35 @@ TEMPLATES: dict[str, dict[str, list[str]]] = {
             "{resume}见！老板！",
         ],
         "invite": [
-            "好耶！{resume}再聊怎么玩！",
-            "现在连线太贵啦！{resume}再来！",
-            "老板！{resume}再叫我嘛！",
+            "还在上班啦！{resume}再约！",
+            "这趟快递得先送完！{resume}再陪老板！",
+            "老板！企鹅物流的活还没忙完，{resume}再叫我嘛！",
+        ],
+        "game": [
+            "送件中，暂时开不了黑啦！{resume}再约！",
+            "还在上班呢老板！游戏得等{resume}啦！",
         ],
         "complex": [
-            "这个得认真想想！{resume}再聊！",
-            "呜哇！现在连线太贵，{resume}细说！",
-            "这个问题有点大！等{resume}再聊！",
+            "这个得认真想想！还在上班，{resume}再细聊！",
+            "老板！送件路上没法仔细看，{resume}再说！",
+            "这个问题有点大！先让我送完快递，{resume}再聊！",
         ],
         "follow_up": [
-            "我在我在！偷偷连一下！",
-            "还在省通讯费啦！",
-            "嘿嘿！刚刚说到哪啦？",
-            "老板！别催啦！流量要见底了！",
+            "我在呢！不过还在送件，不能一直聊啦！",
+            "还在上班啦！{resume}回来！",
+            "嘿嘿！先让我把快递送到，{resume}再接着聊！",
+            "老板！再摸鱼下去，快递要迟到啦！",
         ],
         "repair_status": [
-            "没坏！就是现在通讯费太贵啦！",
-            "还在节能模式呢！",
-            "主机没事！我的钱包有事！",
+            "没坏啦！只是还在企鹅物流上班呢！",
+            "还在送快递，{resume}才有空啦！",
+            "我好着呢！手头的送件单还没跑完！",
         ],
         "default": [
-            "嘿嘿！现在得省着聊！",
-            "老板！偷偷连一下！",
-            "律法主机正在节能啦！",
-            "呜哇！今天通讯费好贵！",
+            "嘿嘿！上班时间不能一直摸鱼，{resume}再聊啦！",
+            "老板！这会儿还在送件，没空陪聊啦！",
+            "企鹅物流上班中！等{resume}再听老板说！",
+            "这车快递还没送完呢！老板，{resume}再聊啦！",
         ],
     },
     "maintenance": {
@@ -486,29 +489,29 @@ TEMPLATES: dict[str, dict[str, list[str]]] = {
     },
     "budget_limit": {
         "first_notice": [
-            "老板！律法通讯额度见底啦！{resume}回来！",
-            "呜哇！这期流量快用光啦！{resume}见！",
-            "先省点通讯额度！{resume}再聊！",
+            "老板！今天忙得有点累，得先歇一歇啦！{resume}回来！",
+            "呜哇！苹果也得喘口气，{resume}见！",
+            "先让我缓缓劲儿！{resume}再陪老板聊！",
         ],
         "greeting": [
-            "嘿嘿！偷偷连一下！",
-            "老板！流量得省着用啦！",
+            "在呢老板！这会儿得歇歇，不能久聊啦！",
+            "嘿嘿！歇口气就回来，{resume}见！",
         ],
         "what_doing": [
-            "研究有没有便宜的跨世界套餐！",
-            "正在努力节省流量！",
-            "算算还能买几个苹果派……",
+            "坐下来歇歇！叶子都耷拉啦！",
+            "给自己找块苹果派补补劲儿！",
+            "今天跑得有点累，先缓一会儿啦！",
         ],
         "why_silent": [
-            "额度不太够啦！",
-            "呜哇！这期通讯额度快见底了！",
+            "有点累啦！让我先歇歇嘛！",
+            "呜哇！今天跑得太勤，苹果都没劲儿啦！",
         ],
         "complex": [
-            "这个得等通讯额度恢复再细聊！",
+            "这个得认真想想！等我歇过来，{resume}再细聊！",
         ],
         "default": [
-            "现在得省着用流量啦！",
-            "嘿嘿！节能苹果上线！",
+            "先让我歇一会儿，{resume}再聊啦！",
+            "嘿嘿！苹果也要休息嘛！{resume}见！",
         ],
     },
     "manual": {
@@ -542,16 +545,16 @@ TEMPLATES: dict[str, dict[str, list[str]]] = {
 
 TEMPLATES["usage_limit"] = {
     "first_notice": [
-        "这个小时聊太多啦！{resume}恢复！",
-        "呜哇！额度用完啦，{resume}再聊！",
-        "老板！先省省，{resume}回来！",
+        "老板！说得有点口干啦，我先喝口水！{resume}回来！",
+        "呜哇！先让我歇歇嗓子，{resume}再聊！",
+        "老板！这会儿先歇口气，{resume}回来！",
     ],
     "default": [
         "这个小时先到这儿啦！",
         "聊得太多，我歇会儿！",
-        "省着点，{resume}再聊！",
+        "先歇口气，{resume}再聊！",
     ],
-    "when_resume": ["{resume}恢复！", "等到{resume}就好啦！"],
+    "when_resume": ["{resume}回来！", "等到{resume}就好啦！"],
     "urgent": ["这个我认真说：先找身边信任的人，别一个人扛。"],
 }
 
@@ -615,7 +618,7 @@ def pick(
         lines = IDENTITY_TEMPLATES[intent]
 
     elif intent == "when_resume" and not resume:
-        return "还不确定几点恢复啦！"
+        return "还不确定几点能回来啦！"
 
     elif intent in bank:
         lines = bank[intent]
@@ -629,14 +632,12 @@ def pick(
     else:
         lines = bank.get("default", TEMPLATES[DEFAULT_REASON]["default"])
 
-    # 未知恢复时间不能编造具体时间。
-    if not resume and intent == "first_notice":
-        return "老板！这会儿通讯受限，恢复时间还不确定啦！"
-
     rendered = [
         _render(line, name, resume or "晚点")
         for line in lines
     ]
+    if not resume and intent == "first_notice":
+        rendered = [line + " 具体几点回来还不确定啦！" for line in rendered]
 
     fresh = [line for line in rendered if line not in recent]
     candidates = fresh or rendered
@@ -1000,12 +1001,14 @@ class OfflineReplyEngine:
                         recent=list(self.recent[group_id]),
                         rng=self.rng,
                     )
-                    suffix = (
-                        f" 这会儿连线受限，{resume}再聊！"
-                        if resume else
-                        " 这会儿连线受限，晚点再聊！"
+                    notice = pick(
+                        reason, "first_notice",
+                        name=nickname,
+                        resume=resume,
+                        recent=list(self.recent[group_id]),
+                        rng=self.rng,
                     )
-                    reply = identity_reply + suffix
+                    reply = identity_reply + " " + notice
 
                 else:
                     reply = pick(

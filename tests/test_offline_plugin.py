@@ -95,17 +95,17 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         plugin.engine = types.SimpleNamespace(handle=Mock(return_value="离线普通回复"))
         return plugin
 
-    async def test_online_raw_poke_to_bot_enters_model_path_in_group_and_private_chat(self):
+    async def test_online_raw_poke_to_bot_replies_locally_in_group_and_private_chat(self):
         for group in ("group", ""):
             with self.subTest(group=group):
                 plugin = self.plugin()
                 event = Event(group=group, raw=poke_raw("bot"))
                 await plugin.guard(event)
-                self.assertEqual(event.message_str, "（戳了戳你）")
-                self.assertEqual(event.message_obj.message_str, event.message_str)
-                self.assertTrue(event.is_at_or_wake_command)
-                self.assertFalse(event.stopped)
-                event.send.assert_not_called()
+                self.assertEqual(event.message_str, "")
+                self.assertTrue(event.stopped)
+                event.send.assert_awaited_once()
+                self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.POKE_REPLIES)
+                plugin.state.bump_usage.assert_not_called()
                 if group:
                     self.assertEqual(plugin._pending_trigger[group], ("visitor", "poke"))
 
@@ -126,8 +126,9 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
             plugin = self.plugin()
             event = Event(message=[component])
             await plugin.guard(event)
-            self.assertEqual(event.message_str, "（戳了戳你）")
-            self.assertTrue(event.is_at_or_wake_command)
+            self.assertTrue(event.stopped)
+            event.send.assert_awaited_once()
+            self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.POKE_REPLIES)
 
     async def test_poking_someone_else_never_triggers_model_or_local_reply(self):
         for offline in (True, False):
@@ -151,15 +152,18 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_empty_at_has_separate_local_reply_online_and_offline(self):
         for offline in (True, False):
-            plugin = self.plugin(offline)
-            event = Event(message=[At("bot"), Plain("  ")])
-            await plugin.guard(event)
-            self.assertTrue(event.stopped)
-            event.send.assert_awaited_once()
-            self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.EMPTY_MENTION_REPLIES)
-            self.assertEqual(event.message_str, "")
-            plugin.engine.handle.assert_not_called()
-            self.assertEqual(plugin._pending_trigger, {})
+            for message in ([At("bot")], [At("bot"), Plain("  ")]):
+                with self.subTest(offline=offline, components=len(message)):
+                    plugin = self.plugin(offline)
+                    event = Event(message=message)
+                    await plugin.guard(event)
+                    self.assertTrue(event.stopped)
+                    event.send.assert_awaited_once()
+                    self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.EMPTY_MENTION_REPLIES)
+                    self.assertEqual(event.message_str, "")
+                    plugin.engine.handle.assert_not_called()
+                    self.assertEqual(plugin._pending_trigger, {"group": ("visitor", "mention")})
+                    plugin.state.bump_usage.assert_not_called()
 
     async def test_at_with_text_is_mention_even_if_text_says_poke(self):
         plugin = self.plugin()
@@ -197,6 +201,28 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(event.stopped)
         self.assertFalse(event.is_at_or_wake_command)
         self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.POKE_REPLIES)
+        plugin.state.bump_usage.assert_not_called()
+
+    async def test_work_time_special_replies_include_actual_resume_without_crossing_trigger_types(self):
+        from datetime import datetime, timedelta
+
+        for message, raw, kind, choices in (
+            ([At("bot"), Plain(" ")], None, "mention", PLUGIN.EMPTY_MENTION_REPLIES),
+            ([], poke_raw("bot"), "poke", PLUGIN.POKE_REPLIES),
+        ):
+            with self.subTest(kind=kind):
+                plugin = self.plugin(offline=True)
+                resume = datetime.now(timezone.utc) + timedelta(hours=1)
+                plugin._decision.return_value = PLUGIN.Decision(True, "high_cost", resume)
+                event = Event(message=message, raw=raw)
+                await plugin.guard(event)
+                reply = event.send.call_args.args[0].chain[0].text
+                self.assertTrue(any(reply.startswith(choice) for choice in choices))
+                self.assertIn("企鹅物流上班", reply)
+                self.assertIn(PLUGIN.format_resume(resume, datetime.now(timezone.utc)), reply)
+                self.assertEqual(plugin._pending_trigger["group"], ("visitor", kind))
+                self.assertTrue(event.stopped)
+                plugin.state.bump_usage.assert_not_called()
 
 
 if __name__ == "__main__":

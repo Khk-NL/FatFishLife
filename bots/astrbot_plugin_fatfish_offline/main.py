@@ -4,6 +4,7 @@ keep a small local voice in chat. The persona itself stays untouched."""
 from __future__ import annotations
 
 import random
+import sys
 from datetime import datetime, timedelta
 
 from astrbot.api import logger
@@ -19,8 +20,27 @@ from .state import StateStore
 from .templates import OfflineConfig, OfflineReplyEngine
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
-POKE_REPLIES = ["嘿嘿！别戳啦！", "在的在的！", "呜哇！痒！", "戳一下就想跑？"]
-EMPTY_MENTION_REPLIES = ["在！", "嗯？", "诶？", "来啦来啦！", "叫我？", "在这在这！"]
+# These are original chat adaptations; they are not presented as game dialogue.
+POKE_REPLIES = [
+    "老板，手指借我检查一下，刚刚是不是它干的？",
+    "诶！这颗苹果不负责按响门铃！",
+    "没躲！我这是给老板腾地方！",
+    "再碰叶子可要收保养费了，先欠着！",
+    "谁碰我？哦，老板啊，那先记你一笔！",
+    "老板，叫我不用检查苹果熟没熟！",
+    "知道你想叫我啦，偏要从叶子这边敲门？",
+    "刚刚没站稳而已，才不是被你吓到了！",
+]
+EMPTY_MENTION_REPLIES = [
+    "哟，老板！轮到我出场了吗？",
+    "老板只喊名字，是想听我应一声？好耶，听到了！",
+    "点到！……诶，原来不是点名啊？",
+    "我来啦！老板的下半句话还在路上？",
+    "叫这么大声，是有什么好玩的不带我？",
+    "听见啦！我就等老板自己把后半句说完！",
+    "老板找苹果？这里一颗，暂不外卖！",
+    "嗯？只叫名字的话，我可就当老板想我啦！",
+]
 LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/帮助", "/表情", "/sid", "/离线")
 HELP_TEXT = """苹果乐命令：
 /记忆 状态 | 搜索 <词> | 最近 | 记住 <内容> | 公开 <内容> | 人设 | 导入 <总结> | 札记 | 提炼 | 绑定 <B站UID>
@@ -38,7 +58,7 @@ class Main(Star):
         super().__init__(context)
         self.config = config or {}
         self.enabled = bool(self.config.get("enabled", True))
-        windows = self.config.get("windows") or ["08:00-12:00", "14:00-18:00"]
+        windows = self.config.get("windows") or ["09:00-12:00", "14:00-18:00"]
         self.scheduler = Scheduler(
             windows,
             weekdays=self.config.get("weekdays") or [0, 1, 2, 3, 4],
@@ -223,7 +243,9 @@ class Main(Star):
 
     # ---------- message guard ----------
 
-    @filter.event_message_type(filter.EventMessageType.ALL)
+    # AstrBot's built-in empty-mention listener uses sys.maxsize - 1 and
+    # starts an LLM session before ordinary plugin handlers can see the event.
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=sys.maxsize)
     async def guard(self, event: AstrMessageEvent):
         if not self.enabled:
             return
@@ -238,9 +260,18 @@ class Main(Star):
             return
         now = datetime.now(self.scheduler.tz)
         decision = self._decision()
-        if self._is_empty_mention(event):
+        if poke_target is not None or self._is_empty_mention(event):
             self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
-            await event.send(MessageChain([Plain(random.choice(EMPTY_MENTION_REPLIES))]))
+            kind = "poke" if poke_target is not None else "mention"
+            choices = POKE_REPLIES if kind == "poke" else EMPTY_MENTION_REPLIES
+            reply = random.choice(choices)
+            if decision.offline and decision.reason == "high_cost":
+                resume = format_resume(decision.resume_at, now) if decision.resume_at else "下班后"
+                reply += f" 企鹅物流上班啦，不能陪老板聊，{resume}再来！"
+            group_key = str(event.get_group_id() or "")
+            if group_key:
+                self._pending_trigger[group_key] = (str(event.get_sender_id() or ""), kind)
+            await event.send(MessageChain([Plain(reply)]))
             event.stop_event()
             return
         if not decision.offline:
@@ -251,13 +282,6 @@ class Main(Star):
             else:
                 self.state.publish_offline(False)
                 group_key = str(event.get_group_id() or "")
-                if poke_target is not None:
-                    if group_key:
-                        self._pending_trigger[group_key] = (str(event.get_sender_id() or ""), "poke")
-                    event.message_str = "（戳了戳你）"
-                    event.message_obj.message_str = event.message_str
-                    event.is_at_or_wake_command = True
-                    return
                 if group_key:
                     incoming = str(
                         getattr(getattr(event, "message_obj", None), "message_str", "")
@@ -286,11 +310,6 @@ class Main(Star):
                             logger.info(f"{trigger.kind} 触发 group={group_key}")
                 return
         self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
-
-        if poke_target is not None:
-            await event.send(MessageChain([Plain(random.choice(POKE_REPLIES))]))
-            event.stop_event()
-            return
 
         text = str(
             getattr(getattr(event, "message_obj", None), "message_str", "")

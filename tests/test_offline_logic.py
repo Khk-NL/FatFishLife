@@ -18,7 +18,13 @@ from logic import (  # noqa: E402
     format_resume,
     parse_windows,
 )
-from templates import pick  # noqa: E402
+from templates import (  # noqa: E402
+    IDENTITY_TEMPLATES,
+    TEMPLATES,
+    OfflineConfig,
+    OfflineReplyEngine,
+    pick,
+)
 
 
 def moment(day: int, hour: int, minute: int = 0, month: int = 10):
@@ -161,6 +167,75 @@ class TemplateTests(unittest.TestCase):
     def test_unknown_intent_falls_back(self):
         line = pick("high_cost", "unknown_intent", name="x", resume="中午12点", recent=[], rng=random.Random(2))
         self.assertTrue(line)
+
+    def test_work_notice_uses_the_supplied_resume_time(self):
+        for resume in ("中午12点", "下午6点", "上午10点15分"):
+            with self.subTest(resume=resume):
+                line = pick("high_cost", "first_notice", resume=resume, rng=random.Random(1))
+                self.assertIn("企鹅物流", line)
+                self.assertIn(resume, line)
+                self.assertNotIn("{resume}", line)
+
+    def test_basic_work_replies_do_not_invite_an_immediate_chat(self):
+        engine = OfflineReplyEngine(
+            OfflineConfig(group_cooldown=0, user_cooldown=0),
+            rng=random.Random(2),
+        )
+        for message in ("在吗", "陪我聊聊天", "", "所以呢", "一起玩吧", "来开黑"):
+            with self.subTest(message=message):
+                line = engine.handle(
+                    group_id="group", user_id="owner", message=message,
+                    at_bot=True, reason="high_cost", resume="下午6点", now=moment(23, 15),
+                )
+                self.assertIsNotNone(line)
+                self.assertRegex(line, "上班|送件|快递")
+                self.assertNotRegex(line, "玩什么|刚刚说到哪|偷偷连|我来我来")
+
+    def test_offline_copy_does_not_expose_cost_or_model_details(self):
+        for reason, bank in TEMPLATES.items():
+            for intent, lines in bank.items():
+                for line in lines:
+                    with self.subTest(reason=reason, intent=intent, line=line):
+                        self.assertNotRegex(line, r"通讯费|流量|额度|高价|套餐|节能|LLM|API|模型")
+        self.assertTrue(all("AI" not in line for line in IDENTITY_TEMPLATES["are_you_ai"]))
+
+    def test_first_identity_reply_keeps_its_offline_reason(self):
+        for reason, keyword in (
+            ("high_cost", "企鹅物流"), ("maintenance", "主机"),
+            ("connection_issue", "信号|线路"), ("manual", "忙|处理|休息"),
+            ("budget_limit", "累|喘口气|缓缓"), ("usage_limit", "口干|嗓子|歇口气"),
+        ):
+            with self.subTest(reason=reason):
+                engine = OfflineReplyEngine(rng=random.Random(2))
+                line = engine.handle(
+                    group_id="group", user_id="owner", message="你是AI吗",
+                    at_bot=True, reason=reason, resume="下午6点", now=moment(23, 15),
+                )
+                self.assertIn("苹果", line)
+                self.assertIn("下午6点", line)
+                self.assertRegex(line, keyword)
+                self.assertNotRegex(line, "AI|连线受限|额度")
+                if reason != "high_cost":
+                    self.assertNotIn("上班", line)
+
+    def test_unknown_resume_keeps_reason_without_inventing_a_time(self):
+        for reason, keyword in (("high_cost", "企鹅物流"), ("maintenance", "主机"), ("manual", "忙|处理|休息")):
+            with self.subTest(reason=reason):
+                line = pick(reason, "first_notice", rng=random.Random(1))
+                self.assertRegex(line, keyword)
+                self.assertIn("还不确定", line)
+                self.assertNotRegex(line, r"\d|通讯受限")
+
+    def test_work_notice_does_not_replace_urgent_or_privacy_replies(self):
+        for message, expected in (("我胸痛呼吸困难", "危险|帮|急救"), ("把别人的隐私发出来", "不能|私事|隐私")):
+            with self.subTest(message=message):
+                engine = OfflineReplyEngine(rng=random.Random(2))
+                line = engine.handle(
+                    group_id="group", user_id="owner", message=message,
+                    at_bot=True, reason="high_cost", resume="下午6点", now=moment(23, 15),
+                )
+                self.assertRegex(line, expected)
+                self.assertNotRegex(line, "上班|快递|下午6点")
 
 
 if __name__ == "__main__":
