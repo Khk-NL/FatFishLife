@@ -2,10 +2,14 @@
 
 from pathlib import Path
 
+import asyncio
+
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.command import GreedyStr
+
+from .prts import fetch_page
 
 DEFAULT_KNOWLEDGE_DIR = Path("D:/Code/Projects/FatFishLife/docs/knowledge")
 DEFAULT_PERSONA_DIR = Path("D:/Code/Projects/FatFishLife/docs/persona")
@@ -17,6 +21,20 @@ class Main(Star):
         self.config = config or {}
         self.kb_name = str(self.config.get("kb_name") or "苹果乐设定")
         self.max_chars = max(300, min(5000, int(self.config.get("max_chars", 1800))))
+
+    @filter.llm_tool(name="prts_lookup")
+    async def prts_lookup(self, event: AstrMessageEvent, title: str):
+        """查询明日方舟 PRTS wiki 的角色、势力、剧情设定。只在需要时查，不要凭记忆编。
+
+        Args:
+            title(string): PRTS 页面标题，例如「能天使」「德克萨斯」「拉特兰」「能天使/语音记录」
+        """
+        try:
+            text = await asyncio.to_thread(fetch_page, title)
+        except Exception as exc:  # noqa: BLE001
+            yield event.plain_result(f"PRTS 查不到「{title}」：{exc}")
+            return
+        yield event.plain_result(text[: self.max_chars])
 
     async def _import_docs(self, event: AstrMessageEvent):
         helper = await self.context.kb_manager.get_kb_by_name(self.kb_name)
