@@ -68,5 +68,20 @@
     "type": "bool",
     "description": "评论、私信、点赞、收藏、动态发布等写操作只预览不执行",
     "default": true
+  },
+  "auto_scroll_enabled": {
+    "type": "bool",
+    "description": "每天定时刷 B 站推荐，把感兴趣的视频私信给主人",
+    "default": false
+  },
+  "auto_scroll_times": {
+    "type": "string",
+    "description": "自动刷的时间点，逗号分隔，24 小时制，例如 12:30,20:30",
+    "default": "12:30,20:30"
+  },
+  "auto_scroll_keywords": {
+    "type": "string",
+    "description": "筛选关键词，逗号分隔；标题命中任一关键词才会私信",
+    "default": "明日方舟,游戏,音乐,科技"
   }
 }

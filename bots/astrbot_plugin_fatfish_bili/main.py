@@ -51,6 +51,10 @@ class Main(Star):
         self._poll_task: asyncio.Task | None = None
         if bool(self.config.get("enable_inbox_poll", False)):
             self._poll_task = asyncio.create_task(self._poll_loop())
+        self._scroll_task: asyncio.Task | None = None
+        self._last_scroll = ""
+        if bool(self.config.get("auto_scroll_enabled", False)):
+            self._scroll_task = asyncio.create_task(self._scroll_loop())
         logger.info(f"fatfish bili ready: exe={self.exe} home={self.home} memory={self.memory_db}")
 
     # ---------- seen bookkeeping ----------
@@ -66,6 +70,60 @@ class Main(Star):
             logger.warning(f"保存回复去重记录失败：{exc}")
 
     # ---------- bili-cli ----------
+
+    async def _scroll_loop(self) -> None:
+        while True:
+            try:
+                now = datetime.now().astimezone()
+                times = {
+                    item.strip()
+                    for item in str(self.config.get("auto_scroll_times") or "12:30,20:30").split(",")
+                    if item.strip()
+                }
+                slot = now.strftime("%H:%M")
+                if slot in times and self._last_scroll != slot:
+                    self._last_scroll = slot
+                    await self._auto_scroll()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"自动刷 B 站失败：{exc}")
+            await asyncio.sleep(60)
+
+    async def _auto_scroll(self) -> None:
+        owner = str(self.config.get("owner_uid") or "").strip()
+        if not owner:
+            return
+        payload = await self._run("feed", "recommend", "-n", "20", "--unseen", timeout=120)
+        if not payload.get("ok"):
+            return
+        items = (payload.get("data") or {}).get("items") or []
+        keywords = [
+            item.strip()
+            for item in str(self.config.get("auto_scroll_keywords") or "明日方舟,游戏,音乐,科技").split(",")
+            if item.strip()
+        ]
+        picked = []
+        for item in items:
+            bvid = str(item.get("bvid") or "")
+            title = str(item.get("title") or "")
+            if not bvid or bvid in self.seen:
+                continue
+            if keywords and not any(word in title for word in keywords):
+                continue
+            picked.append(item)
+            self.seen.add(bvid)
+            if len(picked) >= 3:
+                break
+        if not picked:
+            return
+        self._save_seen()
+        lines = [
+            f"{item.get('title')} https://www.bilibili.com/video/{item.get('bvid')}"
+            for item in picked
+        ]
+        await self._run("dm", "send", owner, "今天刷到几个有意思的：\n" + "\n".join(lines), timeout=90)
+        logger.info(f"自动刷 B 站，已私信 {len(lines)} 个视频")
 
     async def _run(self, *args: str, timeout: float = 180.0, dry_run: bool = False) -> dict:
         command = [self.exe]
@@ -823,4 +881,6 @@ class Main(Star):
     async def terminate(self) -> None:
         if self._poll_task and not self._poll_task.done():
             self._poll_task.cancel()
+        if self._scroll_task and not self._scroll_task.done():
+            self._scroll_task.cancel()
         logger.info("fatfish bili stopped")
