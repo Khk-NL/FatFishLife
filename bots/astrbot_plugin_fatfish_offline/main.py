@@ -25,6 +25,7 @@ from .logic import Decision, Scheduler, format_resume
 from .templates import OfflineConfig, OfflineReplyEngine, detect_intent
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
+KB_NAME = "苹果乐设定"
 LOCAL_SYSTEM = (
     "你是苹果乐，一颗由能天使蕾缪乐变成的Q版小苹果，现在在QQ群里和朋友聊天。"
     "只回一句话，5到20个字，口语，元气、天然呆、偶尔调皮，不要客服腔。"
@@ -96,7 +97,7 @@ class Main(Star):
             timeout=float(self.config.get("local_model_timeout") or 30),
             enabled=bool(self.config.get("local_model_enabled", True)),
         )
-        self._local_warm = False
+        self._local_warm: bool | None = None
         self._local_mode_task: asyncio.Task | None = None
         self._published_mode: tuple | None = None
         self.engine = OfflineReplyEngine(
@@ -342,6 +343,19 @@ class Main(Star):
             trigger_kind=kind,
         )
 
+    async def _knowledge(self, query: str) -> str:
+        try:
+            result = await self.context.kb_manager.retrieve(
+                query=query,
+                kb_names=[KB_NAME],
+                top_k_fusion=20,
+                top_m_final=3,
+            )
+        except Exception as exc:
+            logger.warning(f"离线知识库检索失败：{exc}")
+            return ""
+        return str((result or {}).get("context_text") or "")
+
     async def _send_help(self, event: AstrMessageEvent) -> None:
         await event.send(MessageChain([Plain(HELP_TEXT)]))
 
@@ -482,7 +496,11 @@ class Main(Star):
             at_bot=addressed,
         )
         if self.local_model.enabled and reply is not None and detect_intent(text) == "default":
-            smart = await self.local_model.chat(LOCAL_SYSTEM, text)
+            knowledge = await self._knowledge(text)
+            system = LOCAL_SYSTEM
+            if knowledge:
+                system += "\n\n参考设定（只用来理解，用自己的话简短回答，不要原文照抄）：\n" + knowledge[:1200]
+            smart = await self.local_model.chat(system, text)
             if smart:
                 reply = smart
                 logger.info(f"本地模型兜底 group={group}")
