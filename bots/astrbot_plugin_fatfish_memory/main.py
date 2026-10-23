@@ -14,6 +14,7 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
 from fatfish_core import MemoryStore, build_context, resolve_shared_db
+from fatfish_core.mood import MoodStore, react_to
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_memory"
 PLATFORM_ALIASES = {
@@ -40,6 +41,7 @@ class Main(Star):
         configured = str(self.config.get("db_path") or "").strip()
         path = resolve_shared_db(StarTools.get_data_dir(PLUGIN_NAME).parent.parent, configured)
         self.store = MemoryStore(path)
+        self.mood = MoodStore(path)
         self._last_pruned_day: date | None = None
         self._sync_configured_owners()
         logger.info(f"fatfish shared memory ready: {path}")
@@ -89,6 +91,13 @@ class Main(Star):
             return
         if context:
             req.system_prompt = (req.system_prompt or "") + marker + context
+        mood = getattr(self, "mood", None)
+        if mood is not None:
+            try:
+                state = mood.describe()
+            except (sqlite3.Error, OSError):
+                return
+            req.system_prompt = (req.system_prompt or "") + "\n\n[当前状态]\n" + state
 
     def _prune_if_due(self) -> None:
         today = date.today()
@@ -124,6 +133,13 @@ class Main(Star):
         except (sqlite3.Error, ValueError, OSError) as exc:
             logger.warning(f"记录消息失败：{exc}")
             return
+        mood = getattr(self, "mood", None)
+        if mood is not None:
+            try:
+                addressed = bool(getattr(event, "is_at_or_wake_command", False))
+                mood.nudge(react_to(text, addressed=addressed), text[:40])
+            except (sqlite3.Error, OSError):
+                pass
         self._prune_if_due()
 
     @filter.event_message_type(filter.EventMessageType.ALL)
