@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$AstrBotHome = $env:ASTRBOT_HOME,
     [string]$NapCatHome = $env:NAPCAT_HOME,
     [string]$QQNumber = $env:FATFISH_QQ

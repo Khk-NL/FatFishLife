@@ -1,4 +1,4 @@
-# Register the FatFishLife boot task with highest privileges (no UAC prompt afterwards).
+﻿# Register the FatFishLife boot task with highest privileges (no UAC prompt afterwards).
 # Run this file once from an elevated PowerShell.
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$OllamaBin = $env:OLLAMA_BIN,
     [string]$OllamaModels = $env:OLLAMA_MODELS,
     [string]$OllamaHost = $env:OLLAMA_HOST
