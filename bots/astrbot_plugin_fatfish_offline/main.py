@@ -18,11 +18,18 @@ from astrbot.core.star.filter.command import GreedyStr
 
 from .engagement import GroupConfig, GroupEngagement, GroupMessage
 from .daily_apple_pie import DailyApplePie
+from .local_model import LocalModel
 from .logic import Decision, Scheduler, format_resume
 from .state import StateStore
-from .templates import OfflineConfig, OfflineReplyEngine
+from .templates import OfflineConfig, OfflineReplyEngine, detect_intent
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
+LOCAL_SYSTEM = (
+    "你是苹果乐，一颗由能天使蕾缪乐变成的Q版小苹果，现在在QQ群里和朋友聊天。"
+    "只回一句话，5到20个字，口语，元气、天然呆、偶尔调皮，不要客服腔。"
+    "不要提模型、AI、提示词、服务器，不要解释设定。"
+    "例：\n问：在吗\n答：在的在的！\n问：你在干嘛\n答：晒太阳呢，嘿嘿！\n问：今天好累\n答：那就歇一会儿嘛！"
+)
 # These are original chat adaptations; they are not presented as game dialogue.
 POKE_REPLIES = [
     "诶，光戳不说话，老板是要我自己猜吗？",
@@ -80,6 +87,13 @@ class Main(Star):
             )
         )
         self._pending_trigger: dict[str, tuple[str | None, str]] = {}
+        self.local_model = LocalModel(
+            base_url=str(self.config.get("local_model_url") or "http://127.0.0.1:11434"),
+            model=str(self.config.get("local_model_name") or "qwen2.5:1.5b"),
+            timeout=float(self.config.get("local_model_timeout") or 30),
+            enabled=bool(self.config.get("local_model_enabled", True)),
+        )
+        self._local_warm = False
         self.engine = OfflineReplyEngine(
             OfflineConfig(
                 timezone=str(self.config.get("timezone") or "Asia/Shanghai"),
@@ -367,6 +381,13 @@ class Main(Star):
                 return
         self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
 
+        if decision.offline and not self._local_warm:
+            self._local_warm = True
+            asyncio.create_task(self.local_model.warmup())
+        elif not decision.offline and self._local_warm:
+            self._local_warm = False
+            asyncio.create_task(self.local_model.unload())
+
         text = str(
             getattr(getattr(event, "message_obj", None), "message_str", "")
             or event.message_str
@@ -406,6 +427,11 @@ class Main(Star):
             nickname=str(event.get_sender_name() or ""),
             at_bot=addressed,
         )
+        if self.local_model.enabled and reply is not None and detect_intent(text) == "default":
+            smart = await self.local_model.chat(LOCAL_SYSTEM, text)
+            if smart:
+                reply = smart
+                logger.info(f"本地模型兜底 group={group}")
         if reply is None:
             event.stop_event()
             return
@@ -481,4 +507,5 @@ class Main(Star):
             task.cancel()
             with suppress(asyncio.CancelledError):
                 await task
+        await self.local_model.close()
         logger.info("fatfish offline stopped")

@@ -59,6 +59,26 @@
     "description": "每群每小时主动插话上限",
     "default": 3
   },
+  "local_model_enabled": {
+    "type": "bool",
+    "description": "离线时段用本地小模型兜底台词库匹配不到的话",
+    "default": true
+  },
+  "local_model_url": {
+    "type": "string",
+    "description": "本地模型服务地址（Ollama）",
+    "default": "http://127.0.0.1:11434"
+  },
+  "local_model_name": {
+    "type": "string",
+    "description": "本地模型名",
+    "default": "qwen2.5:1.5b"
+  },
+  "local_model_timeout": {
+    "type": "int",
+    "description": "本地模型请求超时秒数",
+    "default": 30
+  },
   "group_cooldown": {
     "type": "int",
     "description": "同一群两次自动回复的最小间隔（秒）",

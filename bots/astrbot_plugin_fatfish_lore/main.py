@@ -11,6 +11,8 @@ from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.command import GreedyStr
 
 DEFAULT_PATH = "D:/Code/Projects/FatFishLife/docs/persona/apple-le-full.md"
+KB_NAME = "苹果乐设定"
+KB_EMBEDDING_ID = "siliconflow/bge-m3"
 
 
 def _is_cjk(char: str) -> bool:
@@ -88,9 +90,35 @@ class Main(Star):
             "不要原文粘贴、不要复述章节标题。）\n\n" + "\n\n".join(blocks)
         )
 
+    async def _build_kb(self) -> str:
+        kb_mgr = self.context.kb_manager
+        existing = await kb_mgr.get_kb_by_name(KB_NAME)
+        if existing:
+            return f"知识库「{KB_NAME}」已存在，跳过创建。"
+        try:
+            helper = await kb_mgr.create_kb(
+                kb_name=KB_NAME,
+                description="苹果乐完整角色卡与世界观",
+                embedding_provider_id=KB_EMBEDDING_ID,
+                chunk_size=512,
+                chunk_overlap=50,
+            )
+            await helper.upload_document(
+                file_name=self.path.name,
+                file_content=self.path.read_bytes(),
+                file_type="md",
+            )
+        except Exception as exc:
+            logger.exception("建库失败")
+            return f"建库失败：{exc}"
+        return f"已创建「{KB_NAME}」并导入 {self.path.name}，可以在人格里绑定或设 kb_names。"
+
     @filter.command("设定")
     async def lore(self, event: AstrMessageEvent, text: GreedyStr = GreedyStr("")):
         query = str(text or "").strip()
+        if query in ("建库", "入库", "同步知识库"):
+            yield event.plain_result(await self._build_kb())
+            return
         if query in ("目录", "列表", "list"):
             yield event.plain_result("设定库目录：\n" + "\n".join(f"- {title}" for title, _ in self.sections))
             return
