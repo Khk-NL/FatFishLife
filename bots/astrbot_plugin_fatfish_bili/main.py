@@ -28,6 +28,7 @@ DEFAULT_PERSONA = (
 )
 
 DEFAULT_REPLY_PERSONA = DEFAULT_PERSONA
+PAUSE_ERROR_CODES = {"not_logged_in", "auth_expired", "risk_control", "captcha_required"}
 
 
 def _now() -> str:
@@ -49,6 +50,7 @@ class Main(Star):
         self.discovery = DiscoveryStore(StarTools.get_data_dir(PLUGIN_NAME) / "discovery.db")
         self._discovery_lock = asyncio.Lock()
         self._started = datetime.now().astimezone()
+        self._pause_reason: str | None = None
         self._poll_task: asyncio.Task | None = None
         if bool(self.config.get("enable_inbox_poll", False)):
             self._poll_task = asyncio.create_task(self._poll_loop())
@@ -148,9 +150,22 @@ class Main(Star):
         except (ValueError, RuntimeError, OSError) as exc:
             logger.warning(f"推送失败：{exc}")
 
+    async def _pause_for_error(self, payload: dict) -> bool:
+        if payload.get("ok") or (payload.get("error") or {}).get("code") not in PAUSE_ERROR_CODES:
+            return False
+        if self._pause_reason is None:
+            self._pause_reason = self._error(payload)
+            logger.warning("B 站自动回复暂停：" + self._pause_reason)
+            await self._notify(
+                self._pause_reason + "\n自动回复已暂停。处理登录或风控后，在主人私聊中发送 /bili 恢复。"
+            )
+        return True
+
     # ---------- reply generation ----------
 
     async def _generate_reply(self, kind: str, text: str, title: str = "", *, actor: str = "", session: str = "") -> str:
+        if self._pause_reason is not None:
+            return ""
         persona = str(self.config.get("reply_persona") or DEFAULT_REPLY_PERSONA)
         if bool(self.config.get("inject_context", True)) and self.memory_db.is_file():
             owner = str(self.config.get("owner_uid") or "").strip()
@@ -189,6 +204,8 @@ class Main(Star):
         return answer[:120]
 
     async def _reply_comment(self, item: dict) -> str | None:
+        if self._pause_reason is not None:
+            return None
         user = item.get("user") or {}
         mid = str(user.get("mid") or "")
         if not mid:
@@ -211,14 +228,15 @@ class Main(Star):
             return None
         session = f"comment:{bvid}"
         reply = await self._generate_reply("comment", text, str((item.get("on") or {}).get("title") or ""), actor=mid, session=session)
-        if not reply:
+        if not reply or self._pause_reason is not None:
             return None
         args = ["comment", "reply", str(bvid), str(rpid), reply]
         if item.get("root"):
             args.extend(["--root", str(item["root"])])
         result = await self._run(*args, timeout=90, dry_run=dry)
         if not result.get("ok"):
-            logger.warning(f"回复评论失败：{self._error(result)}")
+            if not await self._pause_for_error(result):
+                logger.warning(f"回复评论失败：{self._error(result)}")
             return None
         self.seen.add(preview_key if dry else key)
         if not dry:
@@ -230,6 +248,8 @@ class Main(Star):
         return reply if not dry else f"[预览] {reply}"
 
     async def _reply_dm(self, item: dict) -> str | None:
+        if self._pause_reason is not None:
+            return None
         uid = str(item.get("uid") or "")
         owner = str(self.config.get("owner_uid") or "").strip()
         if not uid or (owner and uid != owner):
@@ -247,11 +267,12 @@ class Main(Star):
             return None
         session = f"dm:{uid}"
         reply = await self._generate_reply("dm", text, actor=uid, session=session)
-        if not reply:
+        if not reply or self._pause_reason is not None:
             return None
         result = await self._run("dm", "send", uid, reply, timeout=90, dry_run=dry)
         if not result.get("ok"):
-            logger.warning(f"回复私信失败：{self._error(result)}")
+            if not await self._pause_for_error(result):
+                logger.warning(f"回复私信失败：{self._error(result)}")
             return None
         self.seen.add(preview_key if dry else key)
         if not dry:
@@ -285,6 +306,8 @@ class Main(Star):
             return False
 
     async def _poll_once(self, force: bool = False) -> list[str]:
+        if self._pause_reason is not None:
+            return []
         if self._offline():
             logger.debug("离线模式，跳过 B 站自动回复")
             return []
@@ -294,20 +317,24 @@ class Main(Star):
         handled: list[str] = []
         notifications: list[str] = []
         for command in (("feed", "mentions", "--limit", "5"), ("feed", "replies", "--limit", "5")):
+            if self._pause_reason is not None:
+                return handled
             payload = await self._run(*command, timeout=60)
             if not payload.get("ok"):
-                if payload.get("error", {}).get("code") in ("not_logged_in", "auth_expired", "risk_control", "captcha_required"):
-                    logger.warning(f"B 站轮询中断：{self._error(payload)}")
-                    await self._notify(self._error(payload) + "\n自动回复已暂停。")
+                if await self._pause_for_error(payload):
                     return handled
                 continue
             for item in ((payload.get("data") or {}).get("items") or []):
                 if not force and not self._recent(item.get("time")):
                     continue
                 reply = await self._reply_comment(item)
+                if self._pause_reason is not None:
+                    return handled
                 if reply:
                     handled.append(reply)
                     notifications.append(reply)
+        if self._pause_reason is not None:
+            return handled
         dms = await self._run("dm", "list", "--unread", "--limit", "5", timeout=60)
         if dms.get("ok"):
             for item in ((dms.get("data") or {}).get("items") or []):
@@ -318,6 +345,12 @@ class Main(Star):
                 if reply:
                     handled.append(reply)
                     notifications.append("已处理一条私信，内容仅在主人私聊中查看。")
+                if self._pause_reason is not None:
+                    return handled
+        elif await self._pause_for_error(dms):
+            return handled
+        else:
+            logger.warning(f"读取私信失败：{self._error(dms)}")
         if handled:
             await self._notify("B 站自动回复：\n" + "\n".join(notifications))
         return handled
@@ -327,7 +360,7 @@ class Main(Star):
         logger.info(f"B 站自动回复轮询启动，间隔 {interval} 秒")
         while True:
             try:
-                if bool(self.config.get("auto_reply", True)):
+                if bool(self.config.get("auto_reply", True)) and self._pause_reason is None:
                     handled = await self._poll_once()
                     if handled:
                         logger.info(f"B 站自动回复 {len(handled)} 条")
@@ -365,6 +398,7 @@ class Main(Star):
                 "/bili 确认      检查扫码结果\n"
                 "/bili 收件箱\n"
                 "/bili 处理      立即拉一次消息并回复\n"
+                "/bili 恢复      核实登录后解除自动回复暂停\n"
                 "/bili 看 <BV号>\n"
                 "/bili 搜 <关键词>\n"
                 "/bili 回复 <BV号> <评论ID> <内容>\n"
@@ -376,7 +410,7 @@ class Main(Star):
                 "写操作默认只预览；关闭 dry_run_writes 才会真正发送。"
             )
             return
-        if command in ("状态", "登录", "确认", "收件箱", "处理", "私信", "订阅", "退订", "发现") and not self._can_read_private(event):
+        if command in ("状态", "登录", "确认", "收件箱", "处理", "恢复", "私信", "订阅", "退订", "发现") and not self._can_read_private(event):
             yield event.plain_result("此操作仅限主人或管理员在私聊中使用。")
             return
         if command == "订阅":
@@ -438,14 +472,30 @@ class Main(Star):
             lines.append("凭据目录：" + str(self.home))
             lines.append("共享记忆：" + str(self.memory_db) + ("（存在）" if self.memory_db.is_file() else "（缺失）"))
             lines.append("写操作：" + ("仅预览" if self.config.get("dry_run_writes", True) else "真实发送"))
-            lines.append("自动回复：" + ("开启" if self.config.get("auto_reply", True) else "关闭")
+            lines.append("自动回复：" + ("已暂停" if self._pause_reason is not None else "开启" if self.config.get("auto_reply", True) else "关闭")
                          + ("，仅主人" if self.config.get("auto_reply_owner_only", True) else "，所有人"))
+            if self._pause_reason is not None:
+                lines.append("暂停原因：" + self._pause_reason + "\n处理后发送 /bili 恢复。")
             lines.append("收件箱轮询：" + ("开启" if self._poll_task and not self._poll_task.done() else "关闭"))
             yield event.plain_result("\n".join(lines))
             return
         if command == "处理":
             handled = await self._poll_once(force=True)
-            yield event.plain_result("处理完成。\n" + ("\n".join(handled) if handled else "没有需要回复的新消息。"))
+            if self._pause_reason is not None:
+                yield event.plain_result("自动回复已暂停：\n" + self._pause_reason + "\n处理后发送 /bili 恢复。")
+            else:
+                yield event.plain_result("处理完成。\n" + ("\n".join(handled) if handled else "没有需要回复的新消息。"))
+            return
+        if command == "恢复":
+            payload = await self._run("auth", "status", timeout=60)
+            if not payload.get("ok"):
+                yield event.plain_result("未解除暂停。\n" + self._error(payload))
+                return
+            if not (payload.get("data") or {}).get("logged_in"):
+                yield event.plain_result("未解除暂停：尚未登录，请先完成 /bili 登录 和 /bili 确认。")
+                return
+            self._pause_reason = None
+            yield event.plain_result("自动回复的暂停状态已解除，后续按原配置继续。本次未拉取或发送消息。")
             return
         if command == "登录":
             qr = self.home / "qr.png"

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import types
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 from plugin_support import load_plugin
 
@@ -50,6 +51,7 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.home = Path(directory.name)
         self.plugin.exe = "unused-bili"
         self.plugin._poll_task = None
+        self.plugin._pause_reason = None
         self.plugin._run = AsyncMock(return_value={"ok": True, "data": {}})
         self.store = MEMORY.MemoryStore(self.plugin.memory_db)
         self.store.remember("PRIVATE_MESSAGE_TOKEN", platform="bilibili", scope="private", kind="dm")
@@ -222,6 +224,7 @@ class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
     def make_plugin(self, *, dry_run=True, seen_path=None):
         plugin = PLUGIN.Main.__new__(PLUGIN.Main)
         plugin.config = {"owner_uid": "123", "dry_run_writes": dry_run}
+        plugin._pause_reason = None
         plugin.seen_path = seen_path or self.root / "seen.json"
         plugin.seen = plugin._load_seen()
         plugin._generate_reply = AsyncMock(return_value="生成的回复")
@@ -310,6 +313,198 @@ class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
             self.assertIsNone(await self.plugin._reply_dm(self.DM))
         self.plugin._run.assert_not_awaited()
         self.plugin._generate_reply.assert_not_awaited()
+
+
+class BiliPollPauseTests(unittest.IsolatedAsyncioTestCase):
+    CODES = ("not_logged_in", "auth_expired", "risk_control", "captcha_required")
+    COMMENT = BiliReplyDedupTests.COMMENT
+    DM = BiliReplyDedupTests.DM
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+
+    def plugin(self):
+        plugin = PLUGIN.Main.__new__(PLUGIN.Main)
+        plugin.config = {"owner_qq": "owner", "owner_uid": "123", "dry_run_writes": True}
+        plugin.exe = "unused-bili"
+        plugin.home = self.root
+        plugin.memory_db = self.root / "absent-memory.db"
+        plugin._poll_task = None
+        plugin._pause_reason = None
+        plugin._offline = lambda: False
+        plugin.seen = set()
+        plugin._save_seen = Mock()
+        plugin._remember = Mock(return_value=True)
+        plugin._run = AsyncMock(return_value={"ok": True, "data": {"items": []}})
+        plugin._generate_reply = AsyncMock(return_value="生成的回复")
+        plugin._notify = AsyncMock()
+        return plugin
+
+    def error(self, code):
+        return {"ok": False, "error": {"code": code, "message": "测试账号错误"}}
+
+    async def test_four_blocking_errors_pause_later_polls_force_and_direct_auto_replies(self):
+        for code in self.CODES:
+            with self.subTest(code=code):
+                plugin = self.plugin()
+                plugin._run.return_value = self.error(code)
+                self.assertEqual(await plugin._poll_once(), [])
+                self.assertIn(code, plugin._pause_reason)
+                for force in (False, True):
+                    self.assertEqual(await plugin._poll_once(force=force), [])
+                self.assertIsNone(await plugin._reply_comment(self.COMMENT))
+                self.assertIsNone(await plugin._reply_dm(self.DM))
+                self.assertEqual(await PLUGIN.Main._generate_reply(plugin, "comment", "后续消息"), "")
+                plugin._run.assert_awaited_once()
+                plugin._generate_reply.assert_not_awaited()
+                plugin._notify.assert_awaited_once()
+                self.assertIn("/bili 恢复", plugin._notify.await_args.args[0])
+
+    async def test_blocking_errors_pause_from_second_feed_and_dm_read(self):
+        ok = {"ok": True, "data": {"items": []}}
+        for code in self.CODES:
+            for index in (1, 2):
+                with self.subTest(code=code, failed_read=index):
+                    plugin = self.plugin()
+                    plugin._run.side_effect = [ok] * index + [self.error(code)]
+                    self.assertEqual(await plugin._poll_once(force=True), [])
+                    self.assertIn(code, plugin._pause_reason)
+                    self.assertEqual(plugin._run.await_count, index + 1)
+                    self.assertEqual(await plugin._poll_once(force=True), [])
+                    self.assertEqual(plugin._run.await_count, index + 1)
+                    plugin._notify.assert_awaited_once()
+                    plugin._generate_reply.assert_not_awaited()
+
+    async def test_auto_send_errors_pause_without_handling_next_item_or_feed(self):
+        ok = {"ok": True, "data": {"items": []}}
+        for code in self.CODES:
+            for kind in ("comment", "dm"):
+                with self.subTest(code=code, kind=kind):
+                    plugin = self.plugin()
+                    if kind == "comment":
+                        messages = {"ok": True, "data": {"items": [self.COMMENT, {**self.COMMENT, "rpid": "2"}]}}
+                        plugin._run.side_effect = [messages, self.error(code)]
+                        count = 2
+                    else:
+                        messages = {"ok": True, "data": {"items": [self.DM, self.DM]}}
+                        plugin._run.side_effect = [ok, ok, messages, self.error(code)]
+                        count = 4
+                    self.assertEqual(await plugin._poll_once(force=True), [])
+                    self.assertIn(code, plugin._pause_reason)
+                    self.assertEqual(plugin._run.await_count, count)
+                    plugin._generate_reply.assert_awaited_once()
+                    plugin._notify.assert_awaited_once()
+                    plugin._remember.assert_not_called()
+                    self.assertEqual(plugin.seen, set())
+                    self.assertIsNone(await plugin._reply_comment(self.COMMENT))
+                    self.assertIsNone(await plugin._reply_dm(self.DM))
+                    self.assertEqual(await plugin._poll_once(force=True), [])
+                    self.assertEqual(plugin._run.await_count, count)
+                    plugin._generate_reply.assert_awaited_once()
+
+    async def test_model_result_is_not_sent_if_another_operation_paused_the_account(self):
+        for handler, item in (("_reply_comment", self.COMMENT), ("_reply_dm", self.DM)):
+            with self.subTest(handler=handler):
+                plugin = self.plugin()
+                async def generate(*args, **kwargs):
+                    plugin._pause_reason = "测试期间被另一个操作暂停"
+                    return "刚生成的回复"
+                plugin._generate_reply.side_effect = generate
+                self.assertIsNone(await getattr(plugin, handler)(item))
+                plugin._run.assert_not_awaited()
+                plugin._remember.assert_not_called()
+
+    async def test_paused_poll_loop_does_not_invoke_poll_once(self):
+        plugin = self.plugin()
+        plugin._pause_reason = "已暂停"
+        plugin._poll_once = AsyncMock()
+        with patch.object(PLUGIN.asyncio, "sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                await plugin._poll_loop()
+        plugin._poll_once.assert_not_awaited()
+        plugin._run.assert_not_awaited()
+
+    async def test_temporary_read_errors_do_not_pause_future_polls(self):
+        plugin = self.plugin()
+        plugin._run.return_value = self.error("network_error")
+        self.assertEqual(await plugin._poll_once(force=True), [])
+        self.assertIsNone(plugin._pause_reason)
+        self.assertEqual(plugin._run.await_count, 3)
+        plugin._notify.assert_not_awaited()
+        plugin._run.return_value = {"ok": True, "data": {"items": []}}
+        self.assertEqual(await plugin._poll_once(force=True), [])
+        self.assertEqual(plugin._run.await_count, 6)
+        plugin._generate_reply.assert_not_awaited()
+
+    async def test_resume_requires_trusted_private_chat(self):
+        plugin = self.plugin()
+        plugin._pause_reason = "已暂停"
+        for event in (Event("visitor"), Event(private=False), Event(private=False, admin=True), Event(platform="telegram")):
+            self.assertIn("私聊", await collect(plugin.bili(event, "恢复")))
+        plugin._run.assert_not_awaited()
+        self.assertEqual(plugin._pause_reason, "已暂停")
+
+    async def test_failed_or_logged_out_auth_status_preserves_pause(self):
+        for payload in (self.error("auth_expired"), self.error("risk_control"), {"ok": True, "data": {"logged_in": False}}):
+            with self.subTest(payload=payload):
+                plugin = self.plugin()
+                plugin._pause_reason = "原有暂停原因"
+                plugin._run.return_value = payload
+                result = await collect(plugin.bili(Event(), "恢复"))
+                self.assertIn("未解除暂停", result)
+                self.assertEqual(plugin._pause_reason, "原有暂停原因")
+                plugin._run.assert_awaited_once_with("auth", "status", timeout=60)
+                plugin._generate_reply.assert_not_awaited()
+                plugin._notify.assert_not_awaited()
+
+    async def test_successful_resume_only_checks_auth_and_allows_future_poll(self):
+        for event in (Event(), Event("admin", platform="telegram", admin=True)):
+            with self.subTest(event=vars(event)):
+                plugin = self.plugin()
+                plugin._pause_reason = "原有暂停原因"
+                plugin._run.return_value = {"ok": True, "data": {"logged_in": True}}
+                result = await collect(plugin.bili(event, "恢复"))
+                self.assertIn("暂停状态已解除", result)
+                self.assertIn("未拉取或发送消息", result)
+                self.assertIsNone(plugin._pause_reason)
+                plugin._run.assert_awaited_once_with("auth", "status", timeout=60)
+                plugin._generate_reply.assert_not_awaited()
+                plugin._notify.assert_not_awaited()
+                plugin._run.reset_mock()
+                plugin._run.return_value = {"ok": True, "data": {"items": []}}
+                self.assertEqual(await plugin._poll_once(), [])
+                self.assertEqual(plugin._run.await_count, 3)
+
+    async def test_status_and_forced_processing_show_pause_without_silent_resume(self):
+        plugin = self.plugin()
+        plugin._pause_reason = "暂停原因标记"
+        plugin._run.return_value = {"ok": True, "data": {"logged_in": True}}
+        status = await collect(plugin.bili(Event(), "状态"))
+        self.assertIn("自动回复：已暂停", status)
+        self.assertIn("暂停原因标记", status)
+        self.assertIn("/bili 恢复", status)
+        plugin._run.reset_mock()
+        result = await collect(plugin.bili(Event(), "处理"))
+        self.assertIn("已暂停", result)
+        self.assertNotIn("处理完成", result)
+        plugin._run.assert_not_awaited()
+        self.assertEqual(plugin._pause_reason, "暂停原因标记")
+
+    async def test_manual_commands_and_login_confirmation_keep_existing_behavior(self):
+        plugin = self.plugin()
+        plugin._pause_reason = "暂停原因标记"
+        plugin._run.return_value = {"ok": True, "data": {"logged_in": True}}
+        await collect(plugin.bili(Event("visitor", private=False), "搜", "公开关键词"))
+        plugin._run.assert_awaited_once_with("search", "video", "公开关键词", "--size", "10", timeout=90)
+        plugin._run.reset_mock()
+        await collect(plugin.bili(Event(), "回复", "BVexample 1 主人的手动回复"))
+        plugin._run.assert_awaited_once_with("comment", "reply", "BVexample", "1", "主人的手动回复", timeout=90, dry_run=True)
+        plugin._run.reset_mock()
+        await collect(plugin.bili(Event(), "确认"))
+        self.assertEqual(plugin._pause_reason, "暂停原因标记")
+        plugin._generate_reply.assert_not_awaited()
 
 
 if __name__ == "__main__":
