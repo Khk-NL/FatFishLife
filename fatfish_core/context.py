@@ -48,7 +48,7 @@ def build_context(
     terms = _terms(query)
     private = "private" in scopes
     # Events and journals together contribute at most 40 candidates / 6 items.
-    kinds = ("note", "summary", "video")
+    kinds = ("note", "summary", "video", "style")
     if conversation is not None:
         kinds += ("message",)
     candidates = store.recent(

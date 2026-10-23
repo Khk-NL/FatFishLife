@@ -13,6 +13,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
+from fatfish_core.learning import extract_terms, save_style
 from .data import beijing_day_bounds, events_between, read_usage, record_usage, upsert_daily_journal
 from .publishers import publish_qzone
 from .reflection import DailyLifeState, json_object, public_facts
@@ -101,6 +102,16 @@ class Main(Star):
             record["journal"] = journal
             self.state.save()
         upsert_daily_journal(store.path, day, record["journal"])
+        try:
+            texts = [
+                row["content"] for row in rows
+                if row.get("scope") == "public" and row.get("actor") != "bot"
+            ]
+            learned = extract_terms(texts)
+            if learned:
+                save_style(store, learned)
+        except Exception as exc:
+            logger.warning(f"学习群友说话方式失败：{exc}")
         if "targets" not in record:
             days = max(1, min(7, int(self.config.get("lookback_days", 3))))
             public_rows = events_between(store.path, start - timedelta(days=days - 1), end, scopes=("public",), limit=60)
