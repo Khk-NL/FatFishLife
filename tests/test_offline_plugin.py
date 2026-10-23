@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import asyncio
+import tempfile
 import types
 import unittest
-from datetime import timezone
+from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
 from plugin_support import load_plugin
@@ -223,6 +226,147 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(plugin._pending_trigger["group"], ("visitor", kind))
                 self.assertTrue(event.stopped)
                 plugin.state.bump_usage.assert_not_called()
+
+
+class DailyApplePiePluginTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.plugin_count = 0
+        self.now = datetime(2026, 10, 23, 18, 1, tzinfo=PLUGIN.Scheduler([]).tz)
+
+    def plugin(self, *, state_directory=None):
+        self.plugin_count += 1
+        plugin = PLUGIN.Main.__new__(PLUGIN.Main)
+        plugin.config = {
+            "daily_apple_pie_group_id": "123456",
+            "daily_apple_pie_platform_id": "test-qq",
+        }
+        path = state_directory or Path(self.directory.name) / str(self.plugin_count)
+        plugin.state = PLUGIN.StateStore(path)
+        plugin.daily_apple_pie = PLUGIN.DailyApplePie(plugin.state, Mock(random=Mock(return_value=0)))
+        plugin.context = types.SimpleNamespace(
+            get_platform_inst=Mock(return_value=object()),
+            send_message=AsyncMock(return_value=True),
+        )
+        plugin._daily_apple_pie_task = None
+        return plugin
+
+    async def test_empty_group_does_not_draw_or_send(self):
+        plugin = self.plugin()
+        plugin.config["daily_apple_pie_group_id"] = "  "
+        self.assertTrue(await plugin._daily_apple_pie_once(self.now))
+        plugin.daily_apple_pie.rng.random.assert_not_called()
+        plugin.context.get_platform_inst.assert_not_called()
+        plugin.context.send_message.assert_not_called()
+        self.assertEqual(plugin.state.daily_apple_pie_state(), {})
+
+    async def test_invalid_group_is_rejected_without_send(self):
+        for group in ("not-a-group", "-123456", "0", "１２３４５６", "123 456"):
+            with self.subTest(group=group):
+                plugin = self.plugin()
+                plugin.config["daily_apple_pie_group_id"] = group
+                with self.assertRaises(ValueError):
+                    await plugin._daily_apple_pie_once(self.now)
+                plugin.daily_apple_pie.rng.random.assert_not_called()
+                plugin.context.send_message.assert_not_called()
+                self.assertEqual(plugin.state.daily_apple_pie_state(), {})
+
+    async def test_platform_not_ready_does_not_consume_draw(self):
+        plugin = self.plugin()
+        plugin.context.get_platform_inst.return_value = None
+        self.assertFalse(await plugin._daily_apple_pie_once(self.now))
+        plugin.context.get_platform_inst.assert_called_once_with("test-qq")
+        plugin.daily_apple_pie.rng.random.assert_not_called()
+        plugin.context.send_message.assert_not_called()
+        self.assertEqual(plugin.state.daily_apple_pie_state(), {})
+        plugin.context.get_platform_inst.return_value = object()
+        self.assertTrue(await plugin._daily_apple_pie_once(self.now))
+        plugin.context.send_message.assert_awaited_once()
+
+    async def test_send_uses_only_fixed_line_and_configured_group_session(self):
+        plugin = self.plugin()
+        self.assertTrue(await plugin._daily_apple_pie_once(self.now))
+        plugin.context.send_message.assert_awaited_once()
+        target, message = plugin.context.send_message.call_args.args
+        self.assertEqual(target, "test-qq:GroupMessage:123456")
+        self.assertEqual(len(message.chain), 1)
+        self.assertIsInstance(message.chain[0], Plain)
+        self.assertEqual(message.chain[0].text, "啊噗噜派！")
+        self.assertEqual(plugin.state.daily_apple_pie_state()["status"], "sent")
+
+    async def test_same_day_repeated_ticks_reload_and_changed_group_do_not_resend(self):
+        plugin = self.plugin()
+        await plugin._daily_apple_pie_once(self.now)
+        await plugin._daily_apple_pie_once(self.now.replace(hour=19))
+        plugin.config["daily_apple_pie_group_id"] = "654321"
+        await plugin._daily_apple_pie_once(self.now.replace(hour=20))
+        plugin.context.send_message.assert_awaited_once()
+        plugin.daily_apple_pie.rng.random.assert_called_once()
+        reloaded = self.plugin(state_directory=plugin.state.dir)
+        await reloaded._daily_apple_pie_once(self.now.replace(hour=23))
+        reloaded.context.send_message.assert_not_called()
+        reloaded.daily_apple_pie.rng.random.assert_not_called()
+        self.assertEqual(reloaded.state.daily_apple_pie_state()["status"], "sent")
+
+    async def test_false_or_exception_marks_failed_without_retry(self):
+        for failure in (False, RuntimeError("mock send failure")):
+            with self.subTest(failure=failure):
+                plugin = self.plugin()
+                if isinstance(failure, Exception):
+                    plugin.context.send_message.side_effect = failure
+                else:
+                    plugin.context.send_message.return_value = failure
+                self.assertTrue(await plugin._daily_apple_pie_once(self.now))
+                self.assertEqual(plugin.state.daily_apple_pie_state()["status"], "failed")
+                await plugin._daily_apple_pie_once(self.now.replace(hour=19))
+                plugin.context.send_message.assert_awaited_once()
+                reloaded = self.plugin(state_directory=plugin.state.dir)
+                await reloaded._daily_apple_pie_once(self.now.replace(hour=23))
+                reloaded.context.send_message.assert_not_called()
+                self.assertEqual(reloaded.state.daily_apple_pie_state()["status"], "failed")
+
+    async def test_cancelled_send_leaves_pending_claim_and_does_not_retry(self):
+        plugin = self.plugin()
+        entered_send = asyncio.Event()
+
+        async def wait_in_send(*args):
+            entered_send.set()
+            await asyncio.Event().wait()
+
+        plugin.context.send_message.side_effect = wait_in_send
+        task = asyncio.create_task(plugin._daily_apple_pie_once(self.now))
+        await asyncio.wait_for(entered_send.wait(), timeout=1)
+        self.assertEqual(plugin.state.daily_apple_pie_state()["status"], "pending")
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        reloaded = self.plugin(state_directory=plugin.state.dir)
+        await reloaded._daily_apple_pie_once(self.now.replace(hour=19))
+        reloaded.context.send_message.assert_not_called()
+        reloaded.daily_apple_pie.rng.random.assert_not_called()
+        self.assertEqual(reloaded.state.daily_apple_pie_state()["status"], "pending")
+
+    async def test_terminate_cancels_and_awaits_scheduler_task(self):
+        plugin = self.plugin()
+        started, finalized = asyncio.Event(), asyncio.Event()
+
+        async def scheduler():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                finalized.set()
+
+        plugin._daily_apple_pie_task = asyncio.create_task(scheduler())
+        await asyncio.wait_for(started.wait(), timeout=1)
+        await plugin.terminate()
+        self.assertTrue(finalized.is_set())
+        self.assertTrue(plugin._daily_apple_pie_task.done())
+        self.assertTrue(plugin._daily_apple_pie_task.cancelled())
+
+    async def test_terminate_without_scheduler_is_safe(self):
+        await self.plugin().terminate()
 
 
 if __name__ == "__main__":

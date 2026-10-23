@@ -9,6 +9,16 @@
     "description": "离线时段，格式 HH:MM-HH:MM，可写多个",
     "default": ["09:00-12:00", "14:00-18:00"]
   },
+  "daily_apple_pie_group_id": {
+    "type": "string",
+    "description": "每日‘啊噗噜派！’群号：填入QQ群号启用，留空关闭。北京时间18:01起依次按25%、50%、75%、100%抽签，每天最多发送一次。保存后重载插件生效，周末照常。",
+    "default": ""
+  },
+  "daily_apple_pie_platform_id": {
+    "type": "string",
+    "description": "每日口令使用的QQ连接ID，通常保留napcat；仅在修改过AstrBot平台ID时同步修改。",
+    "default": "napcat"
+  },
   "weekdays": {
     "type": "list",
     "description": "算作工作日的星期（0=周一 … 6=周日）",

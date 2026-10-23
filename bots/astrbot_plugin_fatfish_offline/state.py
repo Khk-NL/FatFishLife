@@ -93,6 +93,13 @@ class StateStore:
             self.data["ambient"] = dict(list(ambient.items())[-300:])
         self._save()
 
+    def daily_apple_pie_state(self) -> dict:
+        return dict(self.data.get("daily_apple_pie") or {})
+
+    def set_daily_apple_pie_state(self, state: dict) -> None:
+        self.data["daily_apple_pie"] = dict(state)
+        self._save()
+
     def publish_offline(self, offline: bool, *, reason: str | None = None, resume_at: datetime | None = None) -> None:
         payload = {
             "offline": bool(offline),

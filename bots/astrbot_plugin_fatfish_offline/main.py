@@ -3,8 +3,10 @@ keep a small local voice in chat. The persona itself stays untouched."""
 
 from __future__ import annotations
 
+import asyncio
 import random
 import sys
+from contextlib import suppress
 from datetime import datetime, timedelta
 
 from astrbot.api import logger
@@ -15,6 +17,7 @@ from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.star.filter.command import GreedyStr
 
 from .engagement import GroupConfig, GroupEngagement, GroupMessage
+from .daily_apple_pie import DailyApplePie
 from .logic import Decision, Scheduler, format_resume
 from .state import StateStore
 from .templates import OfflineConfig, OfflineReplyEngine
@@ -97,6 +100,59 @@ class Main(Star):
             self.state.publish_offline(decision.offline, reason=decision.reason, resume_at=decision.resume_at)
         except Exception as exc:  # never block startup
             logger.warning(f"发布初始离线状态失败：{exc}")
+
+        self.daily_apple_pie = DailyApplePie(self.state)
+        self._daily_apple_pie_task: asyncio.Task | None = None
+        if str(self.config.get("daily_apple_pie_group_id") or "").strip():
+            self._daily_apple_pie_task = asyncio.create_task(self._daily_apple_pie_loop())
+
+    # ---------- daily fixed greeting ----------
+
+    async def _daily_apple_pie_once(self, now: datetime) -> bool:
+        group = str(self.config.get("daily_apple_pie_group_id") or "").strip()
+        if not group:
+            return True
+        if not group.isascii() or not group.isdecimal() or int(group) <= 0:
+            raise ValueError("每日啊噗噜派群号必须是数字，留空则关闭")
+        platform_id = str(self.config.get("daily_apple_pie_platform_id") or "napcat").strip()
+        # A plugin may load before its platform. Wait without using today's draw.
+        if self.context.get_platform_inst(platform_id) is None:
+            return False
+        if not self.daily_apple_pie.draw(now):
+            return True
+
+        target = f"{platform_id}:GroupMessage:{group}"
+        try:
+            sent = await self.context.send_message(target, MessageChain([Plain("啊噗噜派！")]))
+        except asyncio.CancelledError:
+            # The persisted claim prevents another send if cancellation races it.
+            raise
+        except Exception as exc:
+            self.daily_apple_pie.finish(now, False)
+            logger.warning(f"每日啊噗噜派发送结果未确认，今日不再补发：{exc}")
+        else:
+            self.daily_apple_pie.finish(now, bool(sent))
+            if sent:
+                logger.info("每日啊噗噜派已发送，今日不再发送")
+            else:
+                logger.warning("每日啊噗噜派没有找到发送平台，今日不再补发")
+        return True
+
+    async def _daily_apple_pie_loop(self) -> None:
+        logger.info("每日啊噗噜派计划已启用：北京时间 18:01 起逐小时抽签")
+        while True:
+            delay = 60.0
+            try:
+                now = datetime.now(self.scheduler.tz)
+                platform_ready = await self._daily_apple_pie_once(now)
+                if platform_ready:
+                    next_check = self.daily_apple_pie.next_check(now)
+                    delay = max(1.0, (next_check - datetime.now(next_check.tzinfo)).total_seconds())
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(f"每日啊噗噜派调度失败：{exc}")
+            await asyncio.sleep(delay)
 
     # ---------- decision ----------
 
@@ -420,4 +476,9 @@ class Main(Star):
         yield event.plain_result("用法：/离线 状态 | 开 | 关 | 自动")
 
     async def terminate(self) -> None:
+        task = self._daily_apple_pie_task
+        if task and not task.done():
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
         logger.info("fatfish offline stopped")
