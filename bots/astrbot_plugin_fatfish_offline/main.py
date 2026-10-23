@@ -498,6 +498,11 @@ class Main(Star):
         if self.local_model.enabled and reply is not None and detect_intent(text) == "default":
             knowledge = await self._knowledge(text)
             system = LOCAL_SYSTEM
+            if decision.offline and resume_text:
+                system += (
+                    f"\n现在是出勤时间，你在企鹅物流送快递，回消息简短一点；"
+                    f"有人问你怎么了、为什么不回，就说在出勤，{resume_text}回来。"
+                )
             if knowledge:
                 system += "\n\n参考设定（只用来理解，用自己的话简短回答，不要原文照抄）：\n" + knowledge[:1200]
             smart = await self.local_model.chat(system, text)
