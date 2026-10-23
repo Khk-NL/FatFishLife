@@ -12,6 +12,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,20 @@ def inspect_image(raw: bytes) -> tuple[str, str]:
     return extension, digest
 
 
+def _download(url: str) -> bytes:
+    result = subprocess.run(
+        [
+            "curl", "-sS", "--max-time", "60",
+            "-H", "Referer: https://www.bilibili.com/",
+            "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            url,
+        ],
+        capture_output=True,
+        check=True,
+    )
+    return result.stdout
+
+
 def import_collection(manifest_path: Path, target: Path, cache: Path | None = None) -> dict:
     source = load_json(manifest_path)
     pack_manifest_path = target / "manifest.json"
@@ -62,23 +77,26 @@ def import_collection(manifest_path: Path, target: Path, cache: Path | None = No
         if path.is_file() and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp"}
     }
     prepared = []
+    failed = []
     for item in source["images"]:
         name = item["filename"]
         category = item["category"]
         if Path(name).name != name or Path(category).name != category or category in {"", ".", ".."}:
             raise ValueError("清单包含非法文件名或分类")
-        cached = cache / item["cache_filename"] if cache else None
-        if cached and cached.is_file():
-            raw = cached.read_bytes()
-        else:
-            request = urllib.request.Request(item["url"], headers={"User-Agent": "FatFishLife-meme-import/1.0", "Referer": quote(item["source_page"], safe=":/?=&%")})
-            with urllib.request.urlopen(request, timeout=30) as response:
-                raw = response.read(12 * 1024 * 1024 + 1)
-        if len(raw) > 12 * 1024 * 1024 or hashlib.sha256(raw).hexdigest() != item["sha256"]:
-            raise ValueError(f"图片校验失败：{name}")
-        extension, pixels = inspect_image(raw)
-        if Path(name).suffix != extension or pixels != item["pixel_sha256"]:
-            raise ValueError(f"图片内容与清单不一致：{name}")
+        try:
+            cached = cache / item["cache_filename"] if cache else None
+            if cached and cached.is_file():
+                raw = cached.read_bytes()
+            else:
+                raw = _download(item["url"])
+            if len(raw) > 12 * 1024 * 1024 or hashlib.sha256(raw).hexdigest() != item["sha256"]:
+                raise ValueError(f"图片校验失败：{name}")
+            extension, pixels = inspect_image(raw)
+            if Path(name).suffix != extension or pixels != item["pixel_sha256"]:
+                raise ValueError(f"图片内容与清单不一致：{name}")
+        except Exception as exc:
+            failed.append({"filename": name, "reason": str(exc)[:160]})
+            continue
         prepared.append((item, raw))
 
     backup = target.parent.parent / "backup" / ("apple-le-import-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
@@ -96,7 +114,7 @@ def import_collection(manifest_path: Path, target: Path, cache: Path | None = No
         path = image_root / item["category"] / item["filename"]
         path.parent.mkdir(exist_ok=True)
         if path.exists() and path.read_bytes() != raw:
-            raise ValueError(f"目标同名图片内容不同：{path.name}")
+            path.unlink()
         path.write_bytes(raw)
         known.add(item["sha256"])
         added += 1
@@ -106,7 +124,7 @@ def import_collection(manifest_path: Path, target: Path, cache: Path | None = No
     save_json(mapping_path, mapping)
     save_json(pack_manifest_path, pack_manifest)
     save_json(target / "apple-le-sources.json", source)
-    return {"added": added, "skipped_existing": skipped, "collection_total": len(prepared), "target": str(target), "backup": str(backup)}
+    return {"added": added, "skipped_existing": skipped, "failed": failed, "collection_total": len(prepared), "target": str(target), "backup": str(backup)}
 
 
 def main() -> None:
