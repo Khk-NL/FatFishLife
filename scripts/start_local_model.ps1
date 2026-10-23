@@ -6,8 +6,8 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-if (-not $OllamaBin) { $OllamaBin = Join-Path $root "..\Apps\llm\ollama\ollama.exe" }
-if (-not $OllamaModels) { $OllamaModels = Join-Path $root "..\Apps\llm\models" }
+if (-not $OllamaBin) { $OllamaBin = Join-Path $root "..\..\Apps\llm\ollama\ollama.exe" }
+if (-not $OllamaModels) { $OllamaModels = Join-Path $root "..\..\Apps\llm\models" }
 if (-not $OllamaHost) { $OllamaHost = "127.0.0.1:11434" }
 
 if (-not (Test-Path $OllamaBin)) {
@@ -27,9 +27,5 @@ $logDir = Join-Path $root "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "ollama.log"
 
-Start-Process -FilePath $OllamaBin `
-    -ArgumentList "serve" `
-    -WindowStyle Hidden `
-    -RedirectStandardOutput $log `
-    -RedirectStandardError "$log.err"
+Start-Process -FilePath $OllamaBin -ArgumentList "serve" -WindowStyle Hidden
 Write-Output "ollama 已启动：$OllamaHost，模型目录 $OllamaModels"

@@ -26,9 +26,12 @@ try {
     Write-Step "Ollama 启动失败（离线模型不可用，台词库仍可工作）：$_"
 }
 
-# 2. AstrBot.
+# 2. AstrBot. Skip when a previous instance already owns the port.
 $python = Join-Path $AstrBotHome ".venv\Scripts\python.exe"
-if (Test-Path $python) {
+$running = Test-NetConnection -ComputerName 127.0.0.1 -Port 6185 -InformationLevel Quiet -WarningAction SilentlyContinue
+if ($running) {
+    Write-Step "AstrBot 已在运行，跳过启动"
+} elseif (Test-Path $python) {
     Write-Step "启动 AstrBot"
     Start-Process -FilePath $python -ArgumentList "main.py" -WorkingDirectory $AstrBotHome `
         -RedirectStandardOutput (Join-Path $logDir "astrbot.out.log") `
