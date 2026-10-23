@@ -26,6 +26,7 @@ from .templates import OfflineConfig, OfflineReplyEngine, detect_intent
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_offline"
 KB_NAME = "苹果乐设定"
+KEYWORDS = ("苹果派", "能天使", "苹果乐", "蕾缪乐", "拉特兰", "德克萨斯", "企鹅物流")
 LOCAL_SYSTEM = (
     "你是苹果乐，一颗由能天使蕾缪乐变成的Q版小苹果，现在在QQ群里和朋友聊天。"
     "只回一句话，5到20个字，口语，元气、天然呆、偶尔调皮，不要客服腔。"
@@ -91,6 +92,8 @@ class Main(Star):
             )
         )
         self._pending_trigger: dict[str, tuple[str | None, str]] = {}
+        self._keyword_last: dict[str, float] = {}
+        self._last_addressed: dict[str, tuple[str, float]] = {}
         self.local_model = LocalModel(
             base_url=str(self.config.get("local_model_url") or "http://127.0.0.1:11434"),
             model=str(self.config.get("local_model_name") or "qwen2.5:1.5b"),
@@ -299,6 +302,16 @@ class Main(Star):
             return str(target or "").strip()
         return "" if isinstance(raw, dict) and raw.get("post_type") == "notice" and raw.get("sub_type") == "poke" else None
 
+    def _keyword_hit(self, text: str) -> bool:
+        return any(word in text for word in KEYWORDS)
+
+    def _keyword_allowed(self, group: str, now: float) -> bool:
+        last = self._keyword_last.get(group, 0.0)
+        if now - last < 90:
+            return False
+        self._keyword_last[group] = now
+        return True
+
     def _is_friendly_bot(self, event: AstrMessageEvent) -> bool:
         targets = str(self.config.get("friendly_bots") or "").strip()
         if not targets:
@@ -435,10 +448,18 @@ class Main(Star):
                         or event.message_str
                         or ""
                     ).strip()
+                    previous = self._last_addressed.get(group_key)
+                    user_id = str(event.get_sender_id() or "")
+                    carry = bool(
+                        previous
+                        and previous[0] == user_id
+                        and now.timestamp() - previous[1] < 180
+                    )
+                    keyword = self._keyword_hit(incoming) and self._keyword_allowed(group_key, now.timestamp())
                     trigger = self.engagement.handle_message(
                         GroupMessage(
                             group_id=group_key,
-                            user_id=str(event.get_sender_id() or ""),
+                            user_id=user_id,
                             text=incoming,
                             nickname=str(event.get_sender_name() or ""),
                             at_bot=self._has_at_bot(event),
@@ -448,13 +469,15 @@ class Main(Star):
                             ),
                             timestamp=now.timestamp(),
                         ),
-                        wake_matched=bool(event.is_at_or_wake_command) and not self._has_at_bot(event),
+                        wake_matched=bool(event.is_at_or_wake_command) and not self._has_at_bot(event) or keyword or carry,
                     )
                     if trigger:
                         self._pending_trigger[group_key] = (trigger.target_user, trigger.kind)
-                        if trigger.kind in ("random", "continuation"):
+                        if trigger.kind in ("random", "continuation") or keyword or carry:
                             event.is_at_or_wake_command = True
-                            logger.info(f"{trigger.kind} 触发 group={group_key}")
+                            logger.info(f"{trigger.kind} 触发 group={group_key} keyword={keyword} carry={carry}")
+                    if (trigger and trigger.kind in ("wake", "mention", "quote", "continuation")) or keyword or carry:
+                        self._last_addressed[group_key] = (user_id, now.timestamp())
                 return
         text = str(
             getattr(getattr(event, "message_obj", None), "message_str", "")
@@ -481,10 +504,17 @@ class Main(Star):
         group = str(event.get_group_id() or f"private:{event.get_sender_id()}")
         user = str(event.get_sender_id() or "unknown")
         addressed = await self._addressed(event)
+        if not addressed and self._keyword_hit(text) and self._keyword_allowed(group, now.timestamp()):
+            addressed = True
         if not addressed:
-            # Silence in groups unless directly @-ed or replied to.
+            previous = self._last_addressed.get(group)
+            if previous and previous[0] == user and now.timestamp() - previous[1] < 180:
+                addressed = True
+        if not addressed:
+            # Silence in groups unless directly @-ed, replied to, or continuing.
             event.stop_event()
             return
+        self._last_addressed[group] = (user, now.timestamp())
         resume_text = format_resume(decision.resume_at, now) if decision.resume_at else "晚点"
         reply = self.engine.handle(
             group_id=group,
