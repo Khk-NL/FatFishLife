@@ -34,13 +34,20 @@ class Main(Star):
         return format_result(result)
 
     @filter.command("steam")
-    async def steam(self, event: AstrMessageEvent, query: GreedyStr = GreedyStr("")):
-        text = str(query).strip()
-        if text.startswith("价格 "):
-            text = text[3:].strip()
-        if not text:
-            yield event.plain_result("用 /steam <游戏名、appid或商店链接> 查询当前公开价格，如 /steam 620。")
+    async def steam(self, event: AstrMessageEvent, query: GreedyStr = GreedyStr):
+        text = "" if query is GreedyStr else str(query or "").strip()
+        if not text or text.lower() in {"help", "帮助"}:
+            yield event.plain_result("/steam price <game-name|appid|store-url> - Query the current public price\n"
+                                     "/steam search <game-name> - Look up a game or show matching candidates\n"
+                                     "/steam <game-name|appid|store-url> - Direct lookup\n/steam help\n"
+                                     "Example: /steam price 620")
             return
+        action, separator, body = text.partition(" ")
+        if action.lower() in {"price", "search", "价格", "搜索"}:
+            text = body.strip() if separator else ""
+            if not text:
+                yield event.plain_result("Usage: /steam price <game-name|appid|store-url> or /steam search <game-name>.")
+                return
         yield event.plain_result(await self._lookup(text))
 
     @filter.llm_tool(name="fatfish_steam_price")

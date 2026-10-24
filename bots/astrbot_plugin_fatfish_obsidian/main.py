@@ -111,10 +111,18 @@ class Main(Star):
             record_capability(self.store, "obsidian", "failed", stage="search", error_code="service_error")
             return f"知识库检索未完成：{type(exc).__name__}。"
 
-    @filter.command("知识库")
-    async def knowledge(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
+    @filter.command("kb", alias={"知识库"})
+    async def knowledge(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr):
         if not self._owner(event):
             yield event.plain_result("知识库仅供老大私聊使用。")
+            return
+        text = "" if text is GreedyStr else str(text or "").strip()
+        action = str(action).strip()
+        action = {"help": "帮助", "status": "状态", "sync": "同步", "search": "搜索"}.get(action.lower(), action)
+        if action == "帮助":
+            yield event.plain_result("/kb status - Show private knowledge synchronization status\n"
+                                     "/kb sync - Incrementally synchronize the configured private vault\n"
+                                     "/kb search <question> - Search private notes\n/kb help")
             return
         if action == "同步":
             try:
@@ -124,11 +132,13 @@ class Main(Star):
                 yield event.plain_result(f"知识库同步未完成：{type(exc).__name__}；请检查 vault 路径、Embedding 配置和连接。")
         elif action == "搜索" and str(text).strip():
             yield event.plain_result(await self.knowledge_tool(event, str(text).strip()))
+        elif action == "搜索":
+            yield event.plain_result("Usage: /kb search <question>.")
         else:
             result = self.runtime.get(PLUGIN_NAME, "last_result", {})
             yield event.plain_result("独立私人知识库；每天北京时间 " + self._clock.strftime("%H:%M") + " 增量同步。\n"
                                      + "上次同步：" + json.dumps(result, ensure_ascii=False)
-                                     + "\n/知识库 同步；/知识库 搜索 <问题>")
+                                     + "\n/kb sync | search <question> | status | help")
 
     async def _loop(self):
         await asyncio.sleep(30)

@@ -22,12 +22,18 @@ class ConfigureLocalServicesTest(unittest.TestCase):
                 "config/astrbot_plugin_fatfish_bili_config.json": {"dry_run_writes": True},
                 "config/astrbot_plugin_tts_emotion_router_config.json": {"tts_engine": {"siliconflow": {}}, "feature_policies": {"preserve": True}},
                 "config/astrbot_plugin_pixiv_search_config.json": {"refresh_token": "existing-test-token"},
+                "config/astrbot_plugin_fatfish_obsidian_config.json": {"vault_path":"old", "kb_name":"Keep-private-kb", "sync_time":"03:00"},
+                "config/astrbot_plugin_obsidian_sync_config.json": {"sync_on_startup":True,"sync_now_request":True},
             }
             for name, obj in fixtures.items():
                 (data / name).write_text(json.dumps(obj), encoding="utf-8")
             env_file = root / ".env"
             env_file.write_text('FATFISH_DEEPSEEK_KEY="test-deepseek"\nFATFISH_SILICONFLOW_KEY=test-silicon\nFATFISH_ANYSEARCH_KEY=test-any\nFATFISH_BILI_OWNER_UID=123\nFATFISH_STUDY_TAGS=music,game\nFATFISH_PIXIV_REFRESH_TOKEN=must-not-replace\n', encoding="utf-8")
             pixiv_before = (data / "config/astrbot_plugin_pixiv_search_config.json").read_bytes()
+            vault = root / "Private Notes"
+            vault.mkdir()
+            with env_file.open("a", encoding="utf-8") as stream:
+                stream.write("FATFISH_OBSIDIAN_VAULT='" + str(vault) + "'\n")
             preview = MODULE.configure(env_file, root)
             self.assertFalse(preview["applied"])
             self.assertEqual(json.loads((data / "cmd_config.json").read_text())["provider_sources"][0], {"provider": "deepseek"})
@@ -39,6 +45,11 @@ class ConfigureLocalServicesTest(unittest.TestCase):
             self.assertEqual(main["unrelated"], 123)
             self.assertEqual(main["provider_sources"][0]["key"], ["test-deepseek"])
             self.assertTrue(json.loads((data / "config/astrbot_plugin_fatfish_bili_config.json").read_text())["dry_run_writes"])
+            native = json.loads((data / "config/astrbot_plugin_fatfish_obsidian_config.json").read_text())
+            self.assertEqual(native["vault_path"],str(vault.resolve()))
+            self.assertEqual(native["kb_name"],"Keep-private-kb")
+            self.assertEqual(native["sync_time"],"03:00")
+            self.assertFalse(json.loads((data / "config/astrbot_plugin_obsidian_sync_config.json").read_text())["sync_on_startup"])
             self.assertEqual(MODULE.configure(env_file, root, apply=True)["changed_files"], [])
 
 

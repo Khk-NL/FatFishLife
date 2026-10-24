@@ -21,6 +21,8 @@ ERROR_CODES = {"authorization", "network", "service_error", "no_result", "unconf
 TOOL_CAPABILITIES = {
     "tts_speak": ("tts", "generate"),
     "anysearch_batch_search": ("anysearch", "search"),
+    "anysearch_search": ("anysearch", "search"),
+    "anysearch_extract": ("anysearch", "search"),
     "pixiv_search_illust": ("pixiv", "search"),
     "pixiv_search_novel": ("pixiv", "search"),
     "bili_watch": ("bili_learning", "learn"),

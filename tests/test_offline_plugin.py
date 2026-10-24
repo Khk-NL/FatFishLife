@@ -60,7 +60,14 @@ class Event:
         self.message_str = text
         self.is_at_or_wake_command = any(isinstance(component, At) and component.qq == "bot" for component in message)
         self.stopped = False
+        self.extras = {}
         self.send = AsyncMock()
+
+    def get_extra(self, key, default=None):
+        return self.extras.get(key, default)
+
+    def set_extra(self, key, value):
+        self.extras[key] = value
 
     def get_self_id(self):
         return "bot"
@@ -96,7 +103,6 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         plugin._decision = Mock(return_value=PLUGIN.Decision(offline, "test" if offline else None))
         plugin.state = types.SimpleNamespace(publish_offline=Mock(), bump_usage=Mock(return_value=1))
         plugin.engagement = PLUGIN.GroupEngagement(PLUGIN.GroupConfig(random_probability=0))
-        plugin._pending_trigger = {}
         plugin.engine = types.SimpleNamespace(handle=Mock(return_value="离线普通回复"))
         plugin._local_warm = False
         plugin._local_mode_task = None
@@ -197,7 +203,7 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.POKE_REPLIES)
                 plugin.state.bump_usage.assert_not_called()
                 if group:
-                    self.assertEqual(plugin._pending_trigger[group], ("visitor", "poke"))
+                    self.assertEqual(event.get_extra("fatfish_engagement_trigger"), ("visitor", "poke"))
 
     async def test_offline_poke_to_bot_sends_poke_reply_in_group_and_private_chat(self):
         for group in ("group", ""):
@@ -252,7 +258,7 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn(event.send.call_args.args[0].chain[0].text, PLUGIN.EMPTY_MENTION_REPLIES)
                     self.assertEqual(event.message_str, "")
                     plugin.engine.handle.assert_not_called()
-                    self.assertEqual(plugin._pending_trigger, {"group": ("visitor", "mention")})
+                    self.assertEqual(event.get_extra("fatfish_engagement_trigger"), ("visitor", "mention"))
                     plugin.state.bump_usage.assert_not_called()
 
     async def test_at_with_text_is_mention_even_if_text_says_poke(self):
@@ -260,15 +266,33 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         event = Event(message=[At("bot"), Plain("戳一戳是什么")], text="戳一戳是什么")
         await plugin.guard(event)
         self.assertEqual(event.message_str, "戳一戳是什么")
-        self.assertEqual(plugin._pending_trigger["group"], ("visitor", "mention"))
+        self.assertEqual(event.get_extra("fatfish_engagement_trigger"), ("visitor", "mention"))
         self.assertFalse(event.stopped)
         event.send.assert_not_called()
+
+    async def test_queued_turns_in_same_group_keep_their_own_engagement_targets(self):
+        plugin = self.plugin()
+        plugin.engagement.on_bot_sent = Mock()
+        first = Event(message=[At("bot"), Plain("first")], text="first")
+        second = Event(message=[At("bot"), Plain("second")], text="second")
+        first.get_sender_id = lambda: "user-a"
+        second.get_sender_id = lambda: "user-b"
+        first.get_result = lambda: types.SimpleNamespace(get_plain_text=lambda: "reply-a")
+        second.get_result = lambda: types.SimpleNamespace(get_plain_text=lambda: "reply-b")
+        await plugin.guard(first)
+        await plugin.guard(second)
+        await plugin.remember_bot_turn(first)
+        self.assertEqual(plugin.engagement.on_bot_sent.call_args.kwargs["target_user"], "user-a")
+        await plugin.remember_bot_turn(second)
+        self.assertEqual(plugin.engagement.on_bot_sent.call_args.kwargs["target_user"], "user-b")
+        self.assertIsNone(first.get_extra("fatfish_engagement_trigger"))
+        self.assertIsNone(second.get_extra("fatfish_engagement_trigger"))
 
     async def test_at_with_image_is_not_treated_as_empty_at_or_poke(self):
         plugin = self.plugin()
         event = Event(message=[At("bot"), Image()])
         await plugin.guard(event)
-        self.assertEqual(plugin._pending_trigger["group"], ("visitor", "mention"))
+        self.assertEqual(event.get_extra("fatfish_engagement_trigger"), ("visitor", "mention"))
         self.assertEqual(event.message_str, "")
         event.send.assert_not_called()
 
@@ -278,7 +302,7 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
             event = Event(message=[At("other")])
             await plugin.guard(event)
             self.assertFalse(event.is_at_or_wake_command)
-            self.assertEqual(plugin._pending_trigger, {})
+            self.assertIsNone(event.get_extra("fatfish_engagement_trigger"))
             event.send.assert_not_called()
             plugin.engine.handle.assert_not_called()
 
@@ -310,7 +334,7 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(any(reply.startswith(choice) for choice in choices))
                 self.assertIn("企鹅物流上班", reply)
                 self.assertIn(PLUGIN.format_resume(resume, datetime.now(timezone.utc)), reply)
-                self.assertEqual(plugin._pending_trigger["group"], ("visitor", kind))
+                self.assertEqual(event.get_extra("fatfish_engagement_trigger"), ("visitor", kind))
                 self.assertTrue(event.stopped)
                 plugin.state.bump_usage.assert_not_called()
 

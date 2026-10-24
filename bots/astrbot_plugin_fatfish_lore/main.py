@@ -24,6 +24,11 @@ from .prts import fetch_page
 
 DEFAULT_KNOWLEDGE_DIR = Path("D:/Code/Projects/FatFishLife/docs/knowledge")
 DEFAULT_PERSONA_DIR = Path("D:/Code/Projects/FatFishLife/docs/persona")
+LORE_HELP = """Lore commands:
+/lore help | status | list
+/lore sync                    owner private chat
+/lore query <question>
+/lore <question>"""
 
 
 class Main(Star):
@@ -156,10 +161,21 @@ class Main(Star):
                                  f"图谱更新 {graph['processed']} 份，未变 {graph['unchanged']}，失败 {graph['failed']}；"
                                  f"当前 {report['stats']['relations']} 条有出处的关系。")
 
-    @filter.command("设定")
-    async def lore(self, event: AstrMessageEvent, text: GreedyStr = GreedyStr("")):
-        query = str(text or "").strip()
-        if query in ("导入", "同步", "导入资料"):
+    @filter.command("lore", alias={"设定"})
+    async def lore(self, event: AstrMessageEvent, text: GreedyStr = GreedyStr):
+        query = "" if text is GreedyStr else str(text or "").strip()
+        parts = query.split(maxsplit=1)
+        explicit_query = bool(parts and parts[0].lower() == "query")
+        if explicit_query:
+            query = parts[1].strip() if len(parts) > 1 else ""
+            if not query:
+                yield event.plain_result("Usage: /lore query <question>")
+                return
+        command = query.lower() if not explicit_query else None
+        if not explicit_query and command in ("", "help", "帮助"):
+            yield event.plain_result(LORE_HELP)
+            return
+        if not explicit_query and command in ("sync", "导入", "同步", "导入资料"):
             if not event.is_private_chat():
                 yield event.plain_result("导入只在私聊里执行。")
                 return
@@ -169,12 +185,14 @@ class Main(Star):
             async for message in self._import_docs(event):
                 yield message
             return
-        if query in ("图谱", "图谱状态"):
+        if not explicit_query and command in ("status", "图谱", "图谱状态"):
             stats = self.graph.stats()
             yield event.plain_result(f"公开图谱：{stats['documents']} 份资料，{stats['entities']} 个实体，{stats['relations']} 条关系。")
             return
-        if not query or query in ("目录", "列表", "list", "建库", "入库", "同步知识库"):
-            yield event.plain_result(f"使用原生知识库「{self.kb_name}」。查询：/设定 <问题>；导入：/设定 导入。")
+        if not explicit_query and command in ("目录", "列表", "list", "建库", "入库", "同步知识库"):
+            names = [path.stem for path in vault_files(DEFAULT_KNOWLEDGE_DIR).values()]
+            yield event.plain_result("Knowledge sources:\n" + ("\n".join(names[:40]) or "No sources indexed yet.")
+                                     + "\nUsage: /lore query <question> | /lore sync")
             return
         try:
             graph = self.graph.context(query, max_chars=self.max_chars) if hasattr(self, "graph") else ""

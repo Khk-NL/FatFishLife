@@ -20,6 +20,25 @@ class MemoryContextTests(unittest.TestCase):
     def test_empty_database_returns_empty_context(self):
         self.assertEqual(build_context(self.store), "")
 
+    def test_chat_repetition_is_compact_and_records_are_sender_free(self):
+        for actor, text in [('a', '[At:123] 好耶'), ('b', '[CQ:at,qq=456] 好耶'), ('a', '好耶')]:
+            self.store.remember(text, platform='qq', scope='public', session='group-a', actor=actor)
+        context = build_context(self.store, conversation=('qq', 'group-a'))
+        self.assertIn('好耶 × 3', context)
+        self.assertNotIn('[At:', context)
+        self.assertNotIn('[CQ:', context)
+        rows = self.store.recent()
+        self.assertEqual(len(rows), 3)
+        self.assertTrue(all(r['actor'] is None for r in rows))
+        self.assertEqual({r['content'] for r in rows}, {'好耶'})
+
+    def test_query_filtering_cannot_join_nonconsecutive_repetition(self):
+        self.remember('好耶')
+        self.remember('无关插话')
+        self.remember('好耶')
+        context = build_context(self.store, '好', conversation=('qq', 'group-a'))
+        self.assertNotIn('× 2', context)
+
     def test_persona_is_explicitly_marked_as_reference(self):
         self.store.set_persona("我是苹果乐，回答简短。")
         context = build_context(self.store, "不相关的内容")

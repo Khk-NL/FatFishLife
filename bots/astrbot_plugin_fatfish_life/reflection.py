@@ -57,7 +57,7 @@ def public_facts(rows: list[dict]) -> list[dict]:
         facts.append({
             "id": str(row["id"]), "day": day,
             "platform": row.get("platform", "unknown"),
-            "role": "我" if row.get("actor") == "bot" else "公开互动",
+            "role": "我" if row.get("kind") == "reply" or row.get("actor") == "bot" else "公开互动",
             "kind": row.get("kind"), "text": text[:240],
         })
     return facts

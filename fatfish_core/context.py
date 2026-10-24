@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from .memory import MemoryStore
+from .chat_text import clean_chat_text, collapse_chat_repeats
 
 
 def _compact(text: str) -> str:
@@ -46,21 +47,24 @@ def build_context(
     budget = max(0, int(max_chars))
     if not budget:
         return ""
-    query = _compact(query)
+    query = clean_chat_text(query)
     terms = _terms(query)
     private = "private" in scopes
     # Events and journals together contribute at most 40 candidates / 6 items.
     kinds = ("note", "summary", "video", "style")
     if conversation is not None:
-        kinds += ("message",)
+        kinds += ("message", "reply")
     candidates = store.recent(
         scopes=scopes, conversation=conversation, kinds=kinds, limit=36 if private else 40,
         conversation_only=conversation is not None,
     )
+    # Collapse before query filtering/ranking: unrelated intervening messages
+    # must not turn a non-consecutive repetition into a consecutive one.
+    candidates = collapse_chat_repeats(list(reversed(candidates)))
     candidates = [
         row for row in candidates
         if row["scope"] in scopes
-        and (row["kind"] != "message" or (conversation is not None and _compact(row["content"]) != query))
+        and (row["kind"] != "message" or (conversation is not None and row["content"] and row["content"] != query))
     ]
     if private:
         candidates.extend(
@@ -86,7 +90,10 @@ def build_context(
     for _, row in ranked[:6]:
         label = "私人札记参考" if row["kind"] == "journal" else "历史记忆参考"
         source = f"{row['created_at'][:16]} {row['platform']}/{row['scope']}/{row['kind']}"
-        blocks.append(f"【{label} {source}】" + _clip(_compact(row["content"]), 200))
+        content = _clip(_compact(row["content"]), 200)
+        if row.get("repeat_count", 1) > 1:
+            content += f" × {row['repeat_count']}"
+        blocks.append(f"【{label} {source}】" + content)
     if not blocks:
         return ""
 

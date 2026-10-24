@@ -29,7 +29,7 @@ class DeploymentPreparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "state"
             result = prepare(state_dir=destination, write=True)
-            self.assertEqual(len(result["written"]), 10)
+            self.assertEqual(len(result["written"]), 9)
             config = destination / "astrbot/config/astrbot_plugin_fatfish_bili_config.json"
             bili = json.loads(config.read_text(encoding="utf-8"))
             self.assertTrue(bili["dry_run_writes"])
@@ -51,6 +51,10 @@ class DeploymentPreparationTests(unittest.TestCase):
             self.assertFalse(story["owner_qq"])
             steam = json.loads((config.parent / "astrbot_plugin_fatfish_steam_config.json").read_text(encoding="utf-8"))
             self.assertEqual(steam, {"country": "cn", "proxy": ""})
+            memory = json.loads((config.parent / "astrbot_plugin_fatfish_memory_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(memory['max_current_images'], 2)
+            self.assertEqual(memory['image_history_turns'], 1)
+            self.assertTrue(memory['cost_monitor_enabled'])
             config.write_text("existing configuration", encoding="utf-8")
             repeated = prepare(state_dir=destination, write=True)
             self.assertEqual(repeated["written"], [])
@@ -85,8 +89,9 @@ class DeploymentPreparationTests(unittest.TestCase):
                          "astrbot_plugin_fatfish_voice"}.issubset(mounted_plugins))
         self.assertTrue(all(volume.endswith(":ro") for volume in services["astrbot"]["volumes"] if ":/AstrBot/data/plugins/" in volume))
         self.assertNotIn("astrbot_plugin_fatfish_stickers", mounted_plugins)
+        self.assertNotIn("astrbot_plugin_fatfish_context", mounted_plugins)
 
-    def test_source_bundle_has_all_nine_plugins_without_credentials_runtime_or_legacy_stickers(self):
+    def test_source_bundle_has_all_current_plugins_without_credentials_runtime_or_legacy_stickers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             deploy = root / "deploy"

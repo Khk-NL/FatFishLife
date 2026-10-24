@@ -109,10 +109,10 @@ class Main(Star):
                  f"简介：{meta['description']}", "标签：" + "、".join(meta["tags"]),
                  f"分区：zone={meta['zone']}，tid={meta['tid']}；声明 AI 生成。"]
         if row.get("metadata_error"):
-            lines.append("投稿信息待配置：" + row["metadata_error"] + "。在控制台配置后，用 /视频 预览 " + row["id"] + " 取得新的审阅编号。")
+            lines.append("投稿信息待配置：" + row["metadata_error"] + ". Update it in the console, then run /video preview " + row["id"] + " for a new review.")
         else:
-            lines.append(f"看片并检查这些投稿信息后，发 /视频 确认 {row['id']} 才提交审核。")
-        lines.append(f"先不发就用 /视频 取消 {row['id']}。")
+            lines.append(f"Review the video and metadata, then use /video approve {row['id']} to submit this preview.")
+        lines.append(f"Use /video cancel {row['id']} to cancel approval.")
         return "\n".join(lines)
 
     async def _preview(self, row, event):
@@ -123,27 +123,33 @@ class Main(Star):
         await asyncio.to_thread(self.queue.mark_preview, row["id"], **self._identity(event))
         self._growth("review", "success")
 
-    @filter.command("视频")
-    async def video(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
+    @filter.command("video", alias={"视频"})
+    async def video(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr):
         if not self._owner_private(event):
             yield event.plain_result("视频制作和投稿只在老大的 QQ 私聊里处理。")
             return
-        action, body = str(action).strip(), str(text).strip()
+        action = str(action).strip()
+        body = "" if text is GreedyStr else str(text or "").strip()
+        action = {"help": "帮助", "topics": "选题", "create": "制作", "import": "导入", "preview": "预览",
+                  "approve": "确认", "cancel": "取消", "status": "状态"}.get(action.lower(), action)
         if action in ("", "帮助", "help"):
             yield event.plain_result(
-                "/视频 选题：从最近公开候选中选话题\n/视频 制作 <话题>：准备Updream叙事方案\n/视频 导入 <本机成片路径>：核验Updream导出并私聊看片\n"
-                "/视频 预览 <编号>：重发成片，更新投稿配置时需重新审阅\n"
-                "/视频 确认 <编号>：只投稿该次预览\n/视频 取消 <编号>\n/视频 状态 <编号>"
+                "/video topics - List recent public topic candidates\n"
+                "/video create <topic> - Prepare an Updream narrative brief\n"
+                "/video import <local-video-path> - Verify an export and send it for private review\n"
+                "/video preview <review-id> - Review again after changing upload settings\n"
+                "/video approve <review-id> - Submit only the reviewed preview\n"
+                "/video cancel <review-id>\n/video status <review-id>\n/video help"
             )
             return
         if action == "选题":
             store = self._memory()
             rows = store.recent(scopes=("public",), kinds=("video",), limit=5) if store else []
             yield event.plain_result("最近公开选题候选：\n" + "\n".join(str(row["content"]) for row in rows) if rows else
-                                     "还没有公开选题候选。可以先用 /bili 发现，或直接 /视频 制作 <话题>。")
+                                     "No public topic candidates yet. Use /bili discover or /video create <topic>.")
             return
         if action not in ("制作", "导入", "预览", "确认", "取消", "状态") or not body:
-            yield event.plain_result("发送 /视频 帮助 查看用法。")
+            yield event.plain_result("Use /video help for usage.")
             return
         if self._lock.locked():
             yield event.plain_result("上一条视频操作还在处理，完成后再来。")
@@ -156,7 +162,7 @@ class Main(Star):
                         raise ReviewError("话题请控制在 1000 字内")
                     job = await self._prepare_updream(body, event)
                     yield event.plain_result(f"Updream创作方案 {job['id']} 已准备：{job['brief']['title']}\n{job['path']}\n"
-                                             "视频统一在Updream制作；平台生成和导出完成后，用 /视频 导入 <本机成片路径> 发给老大看片。")
+                                             "视频统一在Updream制作。After exporting, use /video import <local-video-path> for private review.")
                 elif action == "导入":
                     row = await self._import_updream(body, event)
                     stage = "review"

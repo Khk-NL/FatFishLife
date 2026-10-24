@@ -19,6 +19,7 @@
     "description": "对话请求前自动检索并注入相关共享记忆，遵循主人权限和会话隔离",
     "default": true
   },
+  "prefetch_latest_arknights": {"type":"bool","description":"明确的方舟前瞻查询先复用已授权AnySearch只读检索，15分钟本会话缓存，普通聊天不查询","default":true},
   "max_context_chars": {
     "type": "int",
     "description": "每次自动注入的记忆文字上限，默认 1800 字符",
@@ -29,6 +30,13 @@
     "description": "事件保留天数，0 表示不自动清理",
     "default": 90
   },
+  "context_hygiene_enabled": {"type":"bool","description":"整理当前会话历史，防止媒体编码被当作文本反复发送","default":true},
+  "image_history_turns": {"type":"int","description":"保留图片的历史消息数，0到2；更早图片保留文字内容","default":1},
+  "max_current_images": {"type":"int","description":"单次最多处理图片数，超出时提示分次发送","default":2},
+  "cost_monitor_enabled": {"type":"bool","description":"每小时更新本地只读成本报告，不额外调用模型或发送消息","default":true},
+  "structured_memory_export_enabled": {"type":"bool","description":"每小时按独立会话更新匿名正文Markdown，不调用模型、不进入公开设定库","default":true},
+  "monitor_interval_seconds": {"type":"int","description":"只读成本报告更新周期，无模型调用","default":3600},
+  "cost_warning_cny": {"type":"float","description":"报告中的费用预警值，估算不等于账单","default":5},
   "db_path": {
     "type": "string",
     "description": "SQLite 路径；留空使用插件数据目录",

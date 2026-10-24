@@ -25,7 +25,7 @@ def resolve_shared_db(data_root: str | Path, configured: str | Path | None = Non
     root = Path(os.environ.get("FATFISH_DATA_DIR") or data_root)
     config_path = root / "config" / "astrbot_plugin_fatfish_memory_config.json"
     if config_path.is_file():
-        config = json.loads(config_path.read_text(encoding="utf-8"))
+        config = json.loads(config_path.read_text(encoding="utf-8-sig"))
         configured = str(config.get("db_path") or "").strip()
         if configured:
             return Path(configured).expanduser()

@@ -43,15 +43,27 @@ def configure(astrbot: Path, model_root: Path, *, apply=False):
         if str(provider.get("provider_source_id", "")).startswith("deepseek"):
             provider.setdefault("custom_extra_body", {})["thinking"] = {"type":"disabled"}
             provider["max_context_tokens"] = 12000
-    main.setdefault("platform_settings", {})["unique_session"] = False
+    platform = main.setdefault("platform_settings", {})
+    platform["unique_session"] = False
+    # Send one complete reply; automatic sentence splitting delays stale turns
+    # and automatic quotes make every acknowledgement look like a new reply.
+    platform["reply_with_quote"] = False
+    platform.setdefault("segmented_reply", {})["enable"] = False
     agent = main["agent_runner"]["config"]
     agent["model"]["request_max_retries"] = 1
-    agent["compression"].update(max_turns=12, trim_turns=2, overflow_strategy="llm_compress", provider_id=LOCAL_ID,
+    # The native manager applies the turn cap before summarization; keep the
+    # token budget as the bound so the task's first turn reaches the summary.
+    agent["compression"].update(max_turns=-1, trim_turns=2, overflow_strategy="llm_compress", provider_id=LOCAL_ID,
                                 instruction=SUMMARY_PROMPT, keep_recent_ratio=.3, fallback_max_tokens=12000)
     agent["misc"].update(max_steps=6, tool_schema_mode="skills_like", sanitize_context_by_modalities=True)
     main["kb_agentic_mode"] = True
     main["kb_fusion_top_k"], main["kb_final_top_k"] = 8, 2
     main["provider_settings"]["max_quoted_fallback_images"] = 1
+    # Reuse the native non-streaming agent buffer instead of sending each
+    # intermediate model step as a separate chat message.
+    main["provider_settings"]["buffer_intermediate_messages"] = True
+    main["provider_settings"]["identifier"] = False
+    main["provider_settings"]["group_name_display"] = False
     main["provider_settings"].setdefault("image_compress_options", {})["max_size"] = 768
     main["provider_ltm_settings"]["active_reply"]["enable"] = False
     learning = load("config/astrbot_plugin_self_learning_config.json")

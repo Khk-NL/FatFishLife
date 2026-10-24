@@ -296,15 +296,15 @@ class BiliExtensionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.store.recall("SENT_DYNAMIC_TOKEN", scopes=("public",))), 1)
         self.plugin._run.return_value = {"ok": True, "data": {}}
         text = await collect(self.plugin.bili(Event(), "发动态", "UNCERTAIN_DYNAMIC_TOKEN"))
-        self.assertIn("结果不确定", text)
+        self.assertIn("result uncertain", text)
         self.assertEqual(self.store.recall("UNCERTAIN_DYNAMIC_TOKEN", scopes=("public",)), [])
 
-    async def test_watch_exposes_ai_summary_transcript_and_safe_frame_sheet(self):
+    async def test_watch_reads_only_text_and_never_sends_frame_sheet(self):
         sheet = self.plugin.home / "frames" / "video" / "sheet.jpg"
         sheet.parent.mkdir(parents=True)
         sheet.write_bytes(b"test-frame")
         self.plugin._run.return_value = {"ok": True, "data": {
-            "title": "标题", "bvid": "BVexample", "ai_summary": "AI_SUMMARY_TOKEN",
+            "title": "标题", "bvid": "BVexample", "tags": ["明日方舟"], "ai_summary": "AI_SUMMARY_TOKEN",
             "transcript": {"source": "subtitle:zh", "text": "字幕正文"},
             "hot_comments": [{"content": "热评内容"}], "frames_sheet": str(sheet),
         }}
@@ -313,9 +313,14 @@ class BiliExtensionTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("AI_SUMMARY_TOKEN", values[0])
             self.assertIn("字幕正文", values[0])
             self.assertIn("热评内容", values[0])
-            self.assertIn("抽帧", values[0])
-            self.assertEqual(values[1], [str(sheet.resolve())])
-        self.assertEqual(len(self.store.recall("AI_SUMMARY_TOKEN", scopes=("public",))), 2)
+            self.assertIn("明日方舟", values[0])
+            self.assertEqual(len(values), 1)
+            args = self.plugin._run.await_args.args
+            self.assertEqual(args[args.index("--frames") + 1], "0")
+            self.assertEqual(args[args.index("--transcript") + 1], "subtitle")
+            self.assertNotIn("--record", args)
+        self.assertEqual(len(self.store.recall("字幕正文", scopes=("public",))), 2)
+        self.assertFalse(self.store.recall("看了 B 站视频", scopes=("public",)))
 
     async def test_watch_does_not_send_files_outside_cli_frame_cache(self):
         unrelated = self.plugin.home / "private.txt"
@@ -324,6 +329,14 @@ class BiliExtensionTests(unittest.IsolatedAsyncioTestCase):
         values = [result async for result in self.plugin.bili_watch(Event(), "BVexample")]
         self.assertEqual(len(values), 1)
         self.assertIn("未提供", values[0])
+
+    async def test_watch_ignores_old_asr_payload_and_does_not_offer_transcription(self):
+        self.plugin._run.return_value = {"ok": True, "data": {"title":"标题", "transcript":{
+            "source":"asr:cloud", "text":"OLD_ASR_TEXT", "hint":"请配置ASR并下载音频"}}}
+        values = [result async for result in self.plugin.bili_watch(Event(), "BVexample")]
+        self.assertNotIn("OLD_ASR_TEXT", values[0])
+        self.assertNotIn("下载音频", values[0])
+        self.assertIn("已有字幕：未提供", values[0])
 
 
 class BiliReplyDedupTests(unittest.IsolatedAsyncioTestCase):
@@ -693,7 +706,7 @@ class BiliPollPauseTests(unittest.IsolatedAsyncioTestCase):
         status = await collect(plugin.bili(Event(), "状态"))
         self.assertIn("自动回复：已暂停", status)
         self.assertIn("暂停原因标记", status)
-        self.assertIn("/bili 恢复", status)
+        self.assertIn("/bili resume", status)
         plugin._run.reset_mock()
         result = await collect(plugin.bili(Event(), "处理"))
         self.assertIn("已暂停", result)

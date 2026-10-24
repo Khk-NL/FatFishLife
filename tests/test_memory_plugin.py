@@ -4,6 +4,7 @@ import tempfile
 import types
 import unittest
 import sqlite3
+import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
@@ -67,6 +68,31 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
                 row = self.plugin.store.recall(text, scopes=("private", "public"))[0]
                 self.assertEqual(row["scope"], "private" if private else "public")
                 self.assertEqual(row["session"], Event(uid, private).unified_msg_origin)
+
+    async def test_record_keeps_plain_text_only_and_skips_mention_only_and_notice(self):
+        At = type('At', (), {})
+        Plain = type('Plain', (), {})
+        plain = Plain(); plain.text = '好耶'
+        event = Event('owner', False, '@昵称 好耶')
+        event.message_obj = types.SimpleNamespace(message=[At(), plain], raw_message={})
+        await self.plugin._record(event)
+        row = self.plugin.store.recall('好耶', scopes=('public',))[0]
+        self.assertEqual(row['content'], '好耶')
+        self.assertIsNone(row['actor'])
+        self.assertEqual(json.loads(row['meta']), {})
+        self.assertEqual(self.plugin.store.recall('昵称', scopes=('public',)), [])
+        before = len(self.plugin.store.recent(scopes=('public', 'private')))
+        event.message_obj.message = [At()]
+        await self.plugin._record(event)
+        event.message_obj.message = [plain]
+        event.message_obj.raw_message = {'post_type': 'notice'}
+        await self.plugin._record(event)
+        self.assertEqual(len(self.plugin.store.recent(scopes=('public', 'private'))), before)
+        event.message_obj.raw_message = {}
+        event.message_obj.message = [type('Image', (), {})(), type('Merge', (), {})(), type('Forward', (), {})()]
+        event.message_str = '[图片] [合并消息]'
+        await self.plugin._record(event)
+        self.assertEqual(len(self.plugin.store.recent(scopes=('public', 'private'))), before)
 
     async def test_daily_retention_removes_old_events_but_keeps_summaries_and_journals(self):
         old_id = self.plugin.store.remember("到期事件", scope="private")

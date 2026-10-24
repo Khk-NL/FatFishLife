@@ -18,7 +18,9 @@ async def run(args):
     from fatfish_core.knowledge_graph import KnowledgeGraph
     from fatfish_core.graph_build import build_graph, file_documents
     cfg = json.loads((args.astrbot / "data/cmd_config.json").read_text(encoding="utf-8-sig"))
-    model = next(p for p in cfg["provider"] if p["id"] == "deepseek/deepseek-flash")
+    model = next((p for p in cfg["provider"] if p["id"] == args.provider_id and p.get("enable", True)), None)
+    if model is None:
+        raise ValueError("Configured graph provider is unavailable; no cloud fallback")
     source = next(p for p in cfg["provider_sources"] if p["id"] == model["provider_source_id"])
     provider = ProviderOpenAIOfficial({**source, **model, "custom_extra_body": {"thinking": {"type": "disabled"}}}, cfg.get("provider_settings", {}))
     graph = KnowledgeGraph(resolve_shared_db(args.astrbot / "data"))
@@ -27,7 +29,7 @@ async def run(args):
         docs += list(file_documents(args.private_vault, "private_obsidian"))
     async def generate(system, text):
         r = await asyncio.wait_for(provider.text_chat(system_prompt=system, prompt=text,
-                                   response_format={"type": "json_object"}, max_tokens=6500), timeout=90)
+                                   response_format={"type": "json_object"}, max_tokens=2048), timeout=90)
         return r.completion_text
     args.output.parent.mkdir(parents=True, exist_ok=True)
     def progress(result):
@@ -46,5 +48,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--astrbot", type=Path, required=True)
     p.add_argument("--private-vault", type=Path)
+    p.add_argument("--provider-id", default="fatfish_context_local", help="Configured provider ID; defaults to local MiniCPM without cloud fallback")
     p.add_argument("--output", type=Path, default=ROOT / "outputs/knowledge-graph-result.json")
     asyncio.run(run(p.parse_args()))

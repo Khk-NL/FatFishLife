@@ -93,7 +93,7 @@ class Main(Star):
             if material or skills:
                 result = await self._generate(
                     "用第一人称写一段不超过180字的私人日记，挑今天实际做过的事、收到的回应和真实感受。"
-                    "区分自己回复、别人聊天、发现候选与实际看过；不要编造送货、吃派、见面等现实经历。"
+                    "区分自己回复、别人聊天、发现候选、读取文字与实际观看；不要编造送货、吃派、见面等现实经历。"
                     "自然简短，保留自己的偏好；没有新感受就收笔，不写反复认错或‘我以后会怎样’的保证。只返回 {\"journal\":\"...\"}。\n"
                     "capabilities是实际使用结果；配置/认证成功不等于会使用，生成语音不等于已发出，审核等待不等于已投稿。"
                     "失败只记实际结果与一个具体待办，不写检讨；这些私人能力记录不授权公开或投稿。\n"
@@ -228,7 +228,7 @@ class Main(Star):
         if not text.strip():
             return
         memory.store.remember(text, platform="qq", scope="private" if event.is_private_chat() else "public",
-                              kind="message", session=event.get_session_id(), actor="bot",
+                              kind="reply", session=str(event.unified_msg_origin or ""), actor=None,
                               meta={"direction": "outgoing", "delivery": "after_message_sent"})
 
     @filter.on_llm_tool_respond()
@@ -268,10 +268,23 @@ class Main(Star):
         alias = "qq" if platform.startswith(("aiocqhttp", "qq_official")) else platform
         return self._memory().is_owner(alias, str(event.get_sender_id() or ""))
 
-    @filter.command("生活")
-    async def life(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
+    @filter.command("life", alias={"生活"})
+    async def life(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr):
         if not self._owner_private(event):
             yield event.plain_result("日记和生活设置只在老大私聊里看。")
+            return
+        text = "" if text is GreedyStr else str(text or "").strip()
+        action = str(action).strip()
+        action = {"status": "状态", "diary": "日记", "draft": "草稿", "preview": "预览",
+                  "resume": "恢复", "growth": "成长", "help": "帮助"}.get(action.lower(), action)
+        if action == "帮助":
+            yield event.plain_result("/life status - Show reflection and publishing status\n"
+                                     "/life diary - Read today's private diary\n"
+                                     "/life draft - Read today's public draft\n"
+                                     "/life preview - Reflect and draw once; do not publish\n"
+                                     "/life growth - Show recorded capability activity\n"
+                                     "/life resume <bilibili|qzone> - Resume a platform after checking its records\n"
+                                     "/life help")
             return
         day = datetime.now(BEIJING).date().isoformat()
         record = self.state.data.get("days", {}).get(day, {})
@@ -290,7 +303,7 @@ class Main(Star):
         elif action == "恢复":
             platform = str(text).strip()
             if platform not in {"bilibili", "qzone"}:
-                yield event.plain_result("核验发布记录、处理登录后，用 /生活 恢复 bilibili 或 /生活 恢复 qzone。")
+                yield event.plain_result("Check publication records and login first, then use /life resume <bilibili|qzone>.")
                 return
             self.state.resume(platform)
             yield event.plain_result("已解除该平台的生活动态暂停。今天处理过的文案不会重发。")
@@ -302,7 +315,7 @@ class Main(Star):
                 f"今日：{record.get('status', '等待总结')}；模型想法：{record.get('reason') or '尚未决定'}\n"
                 f"发布记录：{json.dumps(record.get('results', {}), ensure_ascii=False)}\n"
                 f"暂停：{'、'.join(self.state.data.get('paused', {})) or '无'}\n"
-                "/生活 日记、/生活 成长、/生活 草稿、/生活 预览、/生活 恢复 <平台>"
+                "/life diary | growth | draft | preview | resume <bilibili|qzone> | help"
             )
 
     async def terminate(self):

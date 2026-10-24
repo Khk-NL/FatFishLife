@@ -2,6 +2,8 @@
 
 自检直接读取 AstrBot 的 `provider_stats`，不调用模型或外部服务，不读取对话内容，也不输出会话 ID。报告按小时、模型和调用用途聚合真实的输入未缓存、输入缓存、输出计数。
 
+媒体历史整理、老大私聊 `/成本` 和小时报告现在由已有的 `fatfish_memory` 提供，复用 `fatfish_core.context_policy` 与 `fatfish_core.costs`。独立的 `fatfish_context` 插件已移除，不需要再安装一个插件。报告仍写入原来的 `data/plugin_data/astrbot_plugin_fatfish_context/cost-latest.json`，只是保留已有文件位置。
+
 ```powershell
 python scripts/cost_report.py --db D:/Code/Apps/AstrBot/data/data_v4.db --hours 1
 python scripts/cost_report.py --db D:/Code/Apps/AstrBot/data/data_v4.db --today --output outputs/cost/daily.json
@@ -43,3 +45,25 @@ HTTP 请求成功、插件显示已开启、每日预算配置存在，都不能
 本地服务只监听回环地址，并使用本地密钥。安装：`python scripts/setup_minicpm_context.py --root D:/Code/Apps/MiniCPM`；停 AstrBot 后运行 `python scripts/configure_cost_policy.py --astrbot D:/Code/Apps/AstrBot --model-root D:/Code/Apps/MiniCPM --apply`，再由现有 watchdog 启动两项服务。该脚本备份配置且不显示密钥。
 
 历史修复先用 `scripts/repair_chat_history.py` 预览，指定 `--apply` 时逐会话备份原文再更新。不会合并会话，也不需要伪装成主人发送 `/reset`。
+
+## 旧 context 配置迁移
+
+先停 AstrBot，在首次加载合并后的记忆插件前运行：
+
+```powershell
+python scripts/merge_context_config.py --data-dir D:/Code/Apps/AstrBot/data
+python scripts/merge_context_config.py --data-dir D:/Code/Apps/AstrBot/data --apply
+```
+
+第一条只预览；第二条备份旧记忆配置后，将缺失字段补进 `astrbot_plugin_fatfish_memory_config.json`。已存在的记忆配置字段优先保留，不覆盖手动修改。
+
+| 旧 `fatfish_context` 字段 | 合并后 `fatfish_memory` 字段 |
+| --- | --- |
+| `enabled` | `context_hygiene_enabled` |
+| `image_history_turns` | 同名，默认 1 |
+| `max_current_images` | 同名，默认 2 |
+| `monitor_interval_seconds` | 同名，默认 3600 秒 |
+| `cost_warning_cny` | 同名，默认 5 |
+| 原先始终运行的统计任务 | `cost_monitor_enabled`，默认 true |
+
+重启前停用或移走本机旧 `astrbot_plugin_fatfish_context` 插件目录，保留旧报告数据即可。新的统计任务随记忆插件卸载取消，避免重复计时器；媒体整理仍使用原来的请求钩子优先级 -500。

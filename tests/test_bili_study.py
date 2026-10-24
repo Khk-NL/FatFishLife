@@ -32,7 +32,9 @@ class BiliStudyTest(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             store = MemoryStore(Path(tmp) / "memory.db")
             run = AsyncMock(side_effect=[{"ok": True, "data": {"items": [{"bvid": "BVtest"}]}},
-                                       {"ok": True, "data": {"items": [{"content": "test comment"}]}}])
+                                       {"ok": True, "data": {"title":"真实标题", "tags":["明日方舟"],
+                                        "transcript":{"source":"subtitle:zh", "text":"已有字幕正文"},
+                                        "hot_comments": [{"content": "test comment"}]}}])
             result = await MODULE.study_tag(run, store, "test", seen=set())
             self.assertTrue(result["ok"])
             self.assertEqual(result["comment_count"], 1)
@@ -41,6 +43,24 @@ class BiliStudyTest(unittest.IsolatedAsyncioTestCase):
                 meta = json.loads(connection.execute("SELECT meta FROM events WHERE kind='capability'").fetchone()[0])
             self.assertEqual(meta["status"], "success")
             self.assertNotIn("test comment", rows[0]["content"])
+            reading = store.recent(scopes=("public",), kinds=("video",))[0]
+            self.assertIn("读取B站文字资料", reading["content"])
+            self.assertIn("已有字幕正文", reading["content"])
+            self.assertNotIn("看了", reading["content"])
+            args = run.await_args.args
+            self.assertEqual(args[args.index("--frames") + 1], "0")
+            self.assertEqual(args[args.index("--transcript") + 1], "subtitle")
+
+    async def test_captionless_video_uses_other_text_without_fallback_or_extra_requests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = MemoryStore(Path(tmp) / "memory.db")
+            run = AsyncMock(side_effect=[{"ok": True, "data": {"items": [{"bvid": "BVtest"}]}},
+                                        {"ok": True, "data": {"title":"只有标题", "desc":"公开简介", "tags":["标签"],
+                                         "transcript":{"source":None,"text":"","hint":"自动下载转写"}, "hot_comments":[]}}])
+            result = await MODULE.study_tag(run, store, "test", seen=set())
+            self.assertEqual(result["text_reads"], 1)
+            self.assertEqual(run.await_count, 2)
+            self.assertIn("公开简介", store.recent(scopes=("public",), kinds=("video",))[0]["content"])
 
 
 if __name__ == "__main__":

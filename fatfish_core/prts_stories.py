@@ -52,11 +52,11 @@ def room_sections(html: str) -> dict:
     return result
 
 
-def fetch_page(title: str, cache: Path) -> dict:
+def fetch_page(title: str, cache: Path, *, refresh: bool = False) -> dict:
     cache.mkdir(parents=True,exist_ok=True)
     import hashlib
     target=cache/(hashlib.sha256(title.encode()).hexdigest()+'.json')
-    if target.exists():return json.loads(target.read_text(encoding='utf-8'))
+    if target.exists() and not refresh:return json.loads(target.read_text(encoding='utf-8'))
     params={'action':'parse','page':title,'prop':'text','format':'json','formatversion':2,'disablelimitreport':1}
     req=urllib.request.Request('https://prts.wiki/api.php?'+urllib.parse.urlencode(params),headers={'User-Agent':'FatFishLife/1.0 (source-backed personal knowledge)'})
     with urllib.request.urlopen(req,timeout=35) as response:obj=json.load(response)

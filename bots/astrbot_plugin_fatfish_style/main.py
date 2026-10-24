@@ -23,6 +23,13 @@ from fatfish_core.usage import record_usage
 PLUGIN_NAME = "astrbot_plugin_fatfish_style"
 POSITIVE = {"这个语气很好", "就这样说", "这个说法不错"}
 NEGATIVE = {"别这么说了", "别学这个", "这个语气不喜欢"}
+STYLE_HELP = """Style commands:
+/style help | status | samples
+/style learn                    owner only
+/style like | dislike            feedback on the last reply
+/style status <group-id>         owner private chat
+/style learn <group-id>          owner private chat"""
+STYLE_ACTIONS = {"help": "帮助", "status": "状态", "samples": "样本", "learn": "学习", "like": "喜欢", "dislike": "不喜欢"}
 REVIEW_PROMPT = """你在为苹果乐吸收同一个群的表达习惯。她以能天使为基础，爽朗、有点嘴硬，
 偶尔听懂却故意装傻，称呼老板，短句自然；不强行暧昧、不催促、不每句都接梗。
 学习群友真实发言的句长、语气、接梗和回应节奏；不要只模仿机器人已有回复。
@@ -65,7 +72,7 @@ class Main(Star):
             style = self._style(group)
             state = style.load()
             try:
-                material = await asyncio.to_thread(source_material, self.source, group, self.bot, state["last_id"], public_store=self.store.path)
+                material = await asyncio.to_thread(source_material, self.source, group, self.bot, state["last_id"], public_store=self.store.path, conversation=umo)
                 minimum = max(5, int(self.config.get("min_messages", 10)))
                 if len(material["messages"]) < minimum:
                     state["next_check"] = time.time() + 600
@@ -140,14 +147,19 @@ class Main(Star):
             self._style(group).delivered(ids, str(event.get_sender_id()))
             event.set_extra("fatfish_style_ids", None)
 
-    @filter.command("语气")
-    async def style_command(self, event: AstrMessageEvent, action: str = "状态", target: GreedyStr = GreedyStr("")):
+    @filter.command("style", alias={"语气"})
+    async def style_command(self, event: AstrMessageEvent, action: str = "status", target: GreedyStr = GreedyStr):
+        action = STYLE_ACTIONS.get(str(action or "status").strip().lower(), action)
+        target = "" if target is GreedyStr else target
+        if action in ("帮助", "help"):
+            yield event.plain_result(STYLE_HELP)
+            return
         group = self._group(event)
         owner = self.store.is_owner("qq", str(event.get_sender_id()))
         if not group and owner and event.is_private_chat() and str(target).strip().isdigit():
             group = str(target).strip()
         if not group:
-            yield event.plain_result("请在当前群查看；老板也可私聊发送 /语气 状态 <群号>。")
+            yield event.plain_result("请在当前群查看。\nOwner DM: /style status <group-id>.")
             return
         style = self._style(group)
         if action == "学习":
@@ -158,7 +170,12 @@ class Main(Star):
                 if group in self._jobs:
                     added = await self._jobs[group]
                 else:
-                    added = await self.refresh(group, event.unified_msg_origin)
+                    source_umo = event.unified_msg_origin
+                    if event.is_private_chat() and ":FriendMessage:" in source_umo:
+                        # The owner explicitly selected a group on this adapter;
+                        # never use the owner's private records as group evidence.
+                        source_umo = source_umo.split(":FriendMessage:", 1)[0] + ":GroupMessage:" + group
+                    added = await self.refresh(group, source_umo)
                 yield event.plain_result(f"这轮吸收了 {added} 条合适的表达习惯。")
             except Exception:
                 yield event.plain_result("这轮没学完，保留原来的表达习惯，稍后会重试。")
@@ -178,7 +195,7 @@ class Main(Star):
                 f"本群已分析 {state['messages']} 条语料、{state['batches']} 轮；保留 {len(active)} 条表达习惯。\n"
                 f"回复时参考 {state['references']} 次；喜欢 {state['positive']} 次，不喜欢 {state['negative']} 次。\n"
                 + (f"上次学习未完成：{state['last_error']}。\n" if state.get("last_error") else "")
-                + "/语气 样本；/语气 喜欢；/语气 不喜欢；老板可用 /语气 学习。"
+                + "Usage: /style samples | like | dislike; owner: /style learn."
             )
 
     async def terminate(self):

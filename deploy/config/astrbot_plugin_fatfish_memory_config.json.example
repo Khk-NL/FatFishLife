@@ -5,5 +5,13 @@
   "retention_days": 90,
   "db_path": "",
   "inject_context": true,
-  "max_context_chars": 1800
+  "prefetch_latest_arknights": true,
+  "max_context_chars": 1800,
+  "context_hygiene_enabled": true,
+  "image_history_turns": 1,
+  "max_current_images": 2,
+  "cost_monitor_enabled": true,
+  "structured_memory_export_enabled": true,
+  "monitor_interval_seconds": 3600,
+  "cost_warning_cny": 5
 }

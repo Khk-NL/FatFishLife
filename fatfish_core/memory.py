@@ -12,6 +12,7 @@ import threading
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from .chat_text import clean_chat_text
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -103,6 +104,14 @@ class MemoryStore:
         meta: dict | None = None,
         limit: int = 500,
     ) -> int:
+        if kind == "message":
+            # Chat memory is deliberately sender-free. Keep only its cleaned
+            # body, time and conversation boundary, even for other adapters.
+            content = meta.get("plain_text", content) if isinstance(meta, dict) else content
+            content = clean_chat_text(content)
+            if scope == "public" and actor and actor != "bot":
+                content = content.replace(str(actor), "某人")
+            actor, meta = None, {}
         text = " ".join(str(content).split())
         if not text:
             raise ValueError("记忆内容不能为空")
@@ -144,7 +153,7 @@ class MemoryStore:
         for token in str(query).split():
             where.append("content LIKE ?")
             params.append(f"%{token}%")
-        sql = "SELECT id, platform, scope, kind, session, actor, content, created_at FROM events"
+        sql = "SELECT id, platform, scope, kind, session, actor, content, created_at, meta FROM events"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY id DESC LIMIT ?"

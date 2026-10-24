@@ -1,7 +1,0 @@
-{
-  "enabled": {"type":"bool","description":"整理当前会话历史，防止媒体编码被当作文本反复发送","default":true},
-  "image_history_turns": {"type":"int","description":"保留图片的历史消息数，0到2；更早图片保留文字内容","default":1},
-  "max_current_images": {"type":"int","description":"单次最多处理图片数，超出时提示分次发送","default":2},
-  "monitor_interval_seconds": {"type":"int","description":"只读成本报告更新周期，无模型调用","default":3600},
-  "cost_warning_cny": {"type":"float","description":"报告中的费用预警值，估算不等于账单","default":5}
-}

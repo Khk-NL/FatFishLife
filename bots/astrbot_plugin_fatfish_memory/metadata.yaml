@@ -1,5 +1,5 @@
 name: astrbot_plugin_fatfish_memory
-desc: 大肥鱼双平台共享记忆：人设、主人资料、聊天摘要与事件
+desc: 大肥鱼会话记忆：隔离聊天、媒体历史整理与只读成本统计
 author: Kongb
 version: 0.1.0
 repo: https://github.com/Khk-NL/FatFishLife

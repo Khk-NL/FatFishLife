@@ -71,6 +71,34 @@ class StyleTests(unittest.TestCase):
             self.style.adopt(self.material, {"wrong_field": []})
         self.assertEqual(self.style.load()["last_id"], 0)
 
+    def test_repetition_cannot_be_two_independent_learning_evidence_items(self):
+        material = {'messages': [{'id': 1, 'text': '好耶'}, {'id': 2, 'text': '[At:123] 好耶'}], 'last_id': 2}
+        self.assertEqual(self.style.adopt(material, {'patterns': [pattern()]}), 0)
+
+    def test_mentions_are_cleaned_and_corpus_repetition_counts_once_after_public_check(self):
+        path = self.root / 'source.db'
+        with closing(sqlite3.connect(path)) as db, db:
+            db.executescript('CREATE TABLE filtered_messages(id INTEGER,message TEXT,sender_id TEXT,group_id TEXT,timestamp REAL);'
+                             'CREATE TABLE style_learning_reviews(id INTEGER,group_id TEXT,status TEXT,learned_patterns TEXT);')
+            db.executemany('INSERT INTO filtered_messages VALUES(?,?,?,?,?)', [
+                (1, '[At:123] 好耶', 'a', 'group', time.time()),
+                (2, '[CQ:at,qq=456] 好耶', 'b', 'group', time.time()),
+                (3, '[At:123]', 'b', 'group', time.time()),
+                (4, '不能放行的私聊', 'b', 'group', time.time())])
+        public = MemoryStore(self.root / 'public.db')
+        for actor, text in [('a', '[At:123] 好耶'), ('b', '好耶')]:
+            public.remember(text, actor=actor, platform='qq', scope='public', session='napcat:GroupMessage:group')
+        public.remember('不能放行的私聊', actor='b', platform='qq', scope='private', session='napcat:FriendMessage:group')
+        material = source_material(path, 'group', 'bot', public_store=public.path)
+        self.assertEqual(material['messages'], [{'id': 1, 'text': '好耶', 'repeat_count': 2}])
+        self.assertEqual(material['last_id'], 4)
+        other_adapter = source_material(path, 'group', 'bot', public_store=public.path,
+                                        conversation='other:GroupMessage:group')
+        self.assertEqual(other_adapter['messages'], [])
+        matched = source_material(path, 'group', 'bot', public_store=public.path,
+                                  conversation='napcat:GroupMessage:group')
+        self.assertEqual(matched['messages'], material['messages'])
+
     def test_corpus_excludes_bot_and_other_group_and_deduplicates_legacy_candidates(self):
         path = self.root / "source.db"
         with closing(sqlite3.connect(path)) as db, db:

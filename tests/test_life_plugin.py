@@ -31,6 +31,7 @@ class Event:
         self.private, self.admin = private, admin
         self.sender, self.platform, self.text = sender, platform, text
         self._has_send_oper = sent
+        self.unified_msg_origin = "test:" + ("FriendMessage:owner" if private else "GroupMessage:group")
 
     def is_private_chat(self):
         return self.private
@@ -301,8 +302,8 @@ class LifePluginTests(unittest.IsolatedAsyncioTestCase):
         await self.plugin.record_sent(Event(sent=True, private=False, text="机器人群聊回复"))
         private = self.store.recall("机器人私聊回复", scopes=("private",))
         public = self.store.recall("机器人群聊回复", scopes=("public",))
-        self.assertEqual([(row["actor"], row["session"]) for row in private], [("bot", "synthetic-session")])
-        self.assertEqual([(row["actor"], row["session"]) for row in public], [("bot", "synthetic-session")])
+        self.assertEqual([(row["actor"], row["session"], row["kind"]) for row in private], [(None, "test:FriendMessage:owner", "reply")])
+        self.assertEqual([(row["actor"], row["session"], row["kind"]) for row in public], [(None, "test:GroupMessage:group", "reply")])
         self.assertEqual(self.store.recall("机器人私聊回复", scopes=("public",)), [])
 
     async def test_missing_provider_leaves_reflection_incomplete_and_does_not_publish(self):

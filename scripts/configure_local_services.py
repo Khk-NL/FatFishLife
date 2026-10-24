@@ -98,14 +98,18 @@ def configure(env_file: Path, astrbot: Path, *, apply: bool = False) -> dict:
         pending.append("minimax_key")
     vault = env.get("FATFISH_OBSIDIAN_VAULT", "")
     if vault and Path(vault).is_dir():
-        obsidian = load("config/astrbot_plugin_obsidian_sync_config.json")
-        obsidian.update(obsidian_dir=str(Path(vault).resolve()), kb_name="FatFish-Obsidian-Private",
-                        kb_file_id="fatfish_obsidian_private", restrict_commands=True)
-        if env.get("FATFISH_QQ_OWNER"):
-            obsidian["admin_user_ids"] = [env["FATFISH_QQ_OWNER"]]
-        # The installed legacy importer must be validated before it runs.
-        obsidian["sync_on_startup"] = False
-        obsidian["sync_now_request"] = False
+        native_config = "config/astrbot_plugin_fatfish_obsidian_config.json"
+        if (data / native_config).is_file():
+            obsidian = load(native_config)
+            obsidian["vault_path"] = str(Path(vault).resolve())
+            # Keep the existing independent KB name and sync schedule.
+        legacy_config = "config/astrbot_plugin_obsidian_sync_config.json"
+        if (data / legacy_config).is_file():
+            legacy = load(legacy_config)
+            legacy["sync_on_startup"] = False
+            legacy["sync_now_request"] = False
+        if not (data / native_config).is_file():
+            pending.append("obsidian_native_adapter")
     else:
         pending.append("obsidian_vault")
     changed = [path for path, cfg in configs.items()

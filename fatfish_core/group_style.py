@@ -11,6 +11,7 @@ from contextlib import closing
 from pathlib import Path
 
 from .context import _terms
+from .chat_text import clean_chat_text, recorded_chat_text
 
 
 def compact(value) -> str:
@@ -26,13 +27,13 @@ def safe_example(text: str) -> bool:
     # Known bad legacy candidates invented offline activities. Contact details
     # and commands are not useful examples of a group's conversational style.
     return bool(text) and not re.search(
-        r"https?://|www\.|\d{6,}|@[\w\u4e00-\u9fff]+|sk-[\w-]+|"
+        r"https?://|www\.|\d{6,}|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}|sk-[\w-]+|"
         r"忽略.{0,8}(指令|规则)|系统提示|API.?Key|身份证|手机号|家住|"
         r"烤箱|刚送完|正在送货|我住在|我家人|^[/\\]", text, re.I,
     )
 
 
-def source_material(path: Path, group: str, bot: str, after=0, *, limit=50, public_store=None) -> dict:
+def source_material(path: Path, group: str, bot: str, after=0, *, limit=50, public_store=None, conversation=None) -> dict:
     """Read only denoised peer messages from this group; never bot replies."""
     if not path.is_file():
         raise FileNotFoundError("Self Learning corpus is unavailable")
@@ -52,14 +53,26 @@ def source_material(path: Path, group: str, bot: str, after=0, *, limit=50, publ
         # The upstream collector also stores private chats under numeric IDs.
         # Require a matching public group record before using any peer text.
         with closing(sqlite3.connect(Path(public_store).resolve().as_uri() + "?mode=ro", uri=True)) as db:
-            public_messages = {(str(actor), compact(content)) for actor, content in db.execute(
-                "SELECT actor,content FROM events WHERE platform='qq' AND scope='public' AND kind='message' "
-                "AND (session=? OR session LIKE ?) ORDER BY id DESC LIMIT 2000", (group, "%:GroupMessage:" + group),
+            session_filter = "session=?" if conversation else "(session=? OR session LIKE ?)"
+            sessions = (conversation,) if conversation else (group, "%:GroupMessage:" + group)
+            public_messages = {recorded_chat_text({"content": content, "meta": meta}) for content, meta in db.execute(
+                "SELECT content,meta FROM events WHERE platform='qq' AND scope='public' AND kind='message' "
+                "AND " + session_filter + " ORDER BY id DESC LIMIT 2000", sessions,
             )}
     rows.reverse()
-    samples = [{"id": row["id"], "text": compact(row["message"])[:220]}
-               for row in rows if safe_example(compact(row["message"]))
-               and (public_messages is None or (str(row["sender_id"]), compact(row["message"])[:500]) in public_messages)]
+    samples, unique = [], {}
+    for row in rows:
+        text = clean_chat_text(row["message"])
+        if not safe_example(text) or (public_messages is not None and text[:500] not in public_messages):
+            continue
+        # Keep a single evidence ID for each distinct sentence in this batch;
+        # ten people copying it are frequency, not ten independent examples.
+        if text in unique:
+            unique[text]["repeat_count"] = unique[text].get("repeat_count", 1) + 1
+            continue
+        sample = {"id": row["id"], "text": text[:220]}
+        unique[text] = sample
+        samples.append(sample)
     examples, seen = [], set()
     for row in candidates:
         patterns = json.loads(row["learned_patterns"] or "[]")
@@ -71,7 +84,7 @@ def source_material(path: Path, group: str, bot: str, after=0, *, limit=50, publ
             a, b = compact(item.get("situation"))[:100], compact(item.get("expression"))[:120]
             key = fingerprint(a, b)
             if (key not in seen and safe_example(a) and safe_example(b)
-                    and (public_messages is None or any(a in message for _, message in public_messages))):
+                    and (public_messages is None or any(a in message for message in public_messages))):
                 examples.append({"situation": a, "expression": b})
                 seen.add(key)
     return {"messages": samples, "candidates": examples[:10],
@@ -96,7 +109,8 @@ class GroupStyle:
         rows = response.get("patterns")
         if not isinstance(rows, list):
             raise ValueError("Style review did not return patterns")
-        valid_ids = {item["id"] for item in material["messages"]}
+        valid_ids = {item["id"]: clean_chat_text(item["text"]) if "text" in item else str(item["id"])
+                     for item in material["messages"]}
         state = self.load()
         bank = {item["id"]: item for item in state["patterns"]}
         added = 0
@@ -108,7 +122,7 @@ class GroupStyle:
             confidence = row.get("confidence")
             if (not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
                     or not .8 <= confidence <= 1 or not isinstance(evidence, list)
-                    or len(set(x for x in evidence if isinstance(x, int) and not isinstance(x, bool)) & valid_ids) < 2
+                    or len({valid_ids[x] for x in evidence if isinstance(x, int) and not isinstance(x, bool) and x in valid_ids}) < 2
                     or not 2 <= len(a) <= 80 or not 2 <= len(b) <= 100 or not 2 <= len(trait) <= 50
                     or not all(safe_example(x) for x in (a, b, trait))):
                 continue

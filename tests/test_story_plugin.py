@@ -72,7 +72,7 @@ class StoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.event.send.await_count, 3)
         self.assertEqual(self.event.send.call_args_list[0].args[0][0]["image"], self.row["cover"])
         self.assertEqual(self.event.send.call_args_list[1].args[0][0]["video"], self.row["video"])
-        self.assertIn("/视频 确认 " + self.row["id"], self.event.send.call_args_list[2].args[0])
+        self.assertIn("/video approve " + self.row["id"], self.event.send.call_args_list[2].args[0])
         self.assertEqual(self.plugin.queue.get(self.row["id"], **self.plugin._identity(self.event))["status"], "awaiting_approval")
         self.plugin._growth.assert_called_with("review", "success")
 
