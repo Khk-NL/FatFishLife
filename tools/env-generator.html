@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>FatFishLife · 配置文件生成器</title>
+  <style>
+    :root { color-scheme: light; font-family: "Segoe UI", "Microsoft YaHei", sans-serif; color: #24312c; background: #f4f6f3; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { width: min(900px, 100%); margin: 0 auto; padding: 48px 24px 72px; }
+    h1 { font-size: clamp(24px, 4vw, 32px); letter-spacing: -.6px; margin: 10px 0 12px; }
+    .brand { color: #52705d; font-size: 12px; letter-spacing: 2px; font-weight: 700; }
+    p { color: #607068; font-size: 14px; line-height: 1.8; margin: 8px 0; }
+    code { font-family: Consolas, monospace; overflow-wrap: anywhere; }
+    .intro { margin-bottom: 24px; }
+    .card { background: white; border: 1px solid #dfe6df; border-radius: 14px; padding: 24px; margin-top: 18px; }
+    h2 { font-size: 17px; margin: 0 0 6px; }
+    .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 22px; }
+    label { display: block; font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+    input:not([type=checkbox]):not([type=file]), textarea { width: 100%; border: 1px solid #ced9d0; border-radius: 7px; padding: 11px 12px; font: inherit; font-size: 14px; background: #fff; color: #24312c; }
+    input:focus, textarea:focus { outline: 2px solid #a4c9ad; outline-offset: 2px; }
+    .hint { display: block; color: #738079; font-size: 12px; line-height: 1.6; margin-top: 7px; overflow-wrap: anywhere; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    button { border: 1px solid #cad6cc; border-radius: 8px; background: white; color: #2a4935; padding: 11px 16px; font: inherit; font-size: 14px; cursor: pointer; }
+    button:hover { background: #edf4ed; }
+    button.primary { background: #316b46; border-color: #316b46; color: white; font-weight: 600; }
+    button.primary:hover { background: #255638; }
+    .check { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-size: 13px; font-weight: 400; }
+    .check input { accent-color: #316b46; }
+    textarea { margin-top: 16px; min-height: 220px; background: #f8faf7; line-height: 1.7; font-family: Consolas, monospace; resize: vertical; }
+    #status { min-height: 24px; margin: 12px 0 0; color: #316b46; overflow-wrap: anywhere; }
+    #status.error { color: #a33426; }
+    .footnote { font-size: 12px; margin-top: 16px; }
+    [hidden] { display: none !important; }
+    @media (max-width: 600px) { main { padding: 28px 16px 48px; } .card { padding: 20px 16px; } .fields { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<main>
+  <header class="intro">
+    <div class="brand">FATFISHLIFE / LOCAL SETUP</div>
+    <h1>填好信息，下载 .env</h1>
+    <p>已有配置？先导入原来的 <code>.env</code>，再补充新内容。已有字段会填回，其他配置项也会保留。</p>
+    <p>页面离线可用，所有信息只在当前浏览器处理，关闭后不保存。</p>
+  </header>
+  <section class="card" aria-label="导入已有配置">
+    <div class="actions">
+      <button id="import" type="button">导入已有 .env</button>
+      <input id="env-file" type="file" hidden>
+      <label class="check"><input id="show-secrets" type="checkbox">显示密钥与 Token</label>
+    </div>
+    <p id="import-info">可以直接填写；留空的字段不写入，导入过的值会保留。</p>
+  </section>
+  <form id="settings" autocomplete="off"></form>
+  <section class="card" aria-labelledby="export-title">
+    <h2 id="export-title">生成文件</h2>
+    <p>下载后保存到 <code>D:\Code\Apps\.env</code>。这里只生成文件，应用到 AstrBot 需要再执行配置同步。</p>
+    <div class="actions" style="margin-top:16px">
+      <button id="download" class="primary" type="button">下载 .env</button>
+      <button id="preview-button" type="button">预览配置</button>
+    </div>
+    <textarea id="preview" aria-label="配置预览" readonly spellcheck="false" hidden></textarea>
+    <p id="status" role="status" aria-live="polite"></p>
+  </section>
+  <p class="footnote">密钥不会自动填入页面，也不会发送到网站。可反复导入、修改和下载；下载文件包含你填写的真实密钥。</p>
+</main>
+<script>
+  'use strict';
+  const groups = [
+    { title: '模型与搜索', note: '填入对应服务的 API Key。已有可用配置可以导入保留。', fields: [
+      ['FATFISH_DEEPSEEK_KEY', 'DeepSeek Key', 'DeepSeek 控制台的 API Key', true],
+      ['FATFISH_SILICONFLOW_KEY', '硅基流动 Key', '用于语音、转写与向量检索', true],
+      ['FATFISH_ANYSEARCH_KEY', 'AnySearch Key', '搜索插件使用的 Key', true]
+    ]},
+    { title: '账号与 B 站学习', note: '主人账号指你自己的账号，机器人账号指苹果乐的账号。', fields: [
+      ['FATFISH_QQ_OWNER', '你的 QQ 号（老大）', '你的 QQ 号', false, 'id'],
+      ['FATFISH_QQ_BOT', '机器人 QQ 号', '苹果乐的 QQ 号', false, 'id'],
+      ['FATFISH_BILI_OWNER_UID', '你的 B 站 UID（老大）', '个人主页中的 UID', false, 'id'],
+      ['FATFISH_BILI_BOT_UID', '机器人 B 站 UID', '机器人账号的 UID', false, 'id'],
+      ['FATFISH_STUDY_TAGS', 'B 站学习标签', '例如：明日方舟,能天使；多个用英文逗号分隔'],
+      ['FATFISH_STUDY_TIME', '每天学习时间（北京时间）', '21:00', false, 'time'],
+      ['FATFISH_STUDY_TOP_N', '每次学习视频数', '1～20', false, 'count']
+    ]},
+    { title: 'Pixiv 与私人知识库', note: 'Pixiv 沿用现有 refresh token。Obsidian 填电脑上的 vault 文件夹路径。', fields: [
+      ['FATFISH_PIXIV_REFRESH_TOKEN', 'Pixiv refresh token', '已有的 refresh token', true],
+      ['FATFISH_OBSIDIAN_VAULT', 'Obsidian vault 路径', '例如：D:\\Notes\\MyVault']
+    ]},
+    { title: 'MiniMax 音色（可选）', note: '暂时不用可以留空。音色 ID 填克隆成功后使用的 ID。', fields: [
+      ['FATFISH_MINIMAX_KEY', 'MiniMax Key', 'MiniMax 控制台的 API Key', true],
+      ['FATFISH_MINIMAX_VOICE_ID', 'MiniMax 音色 ID', '克隆成功的 voice_id']
+    ]}
+  ];
+  const fields = groups.flatMap(group => group.fields);
+  const byName = new Map(fields.map(field => [field[0], field]));
+  const imported = new Map();
+  const form = document.getElementById('settings');
+  const preview = document.getElementById('preview');
+  const status = document.getElementById('status');
+  function setStatus(message, error = false) {
+    status.textContent = message;
+    status.classList.toggle('error', error);
+  }
+  for (const group of groups) {
+    const section = document.createElement('section'); section.className = 'card';
+    const title = document.createElement('h2'); title.textContent = group.title; section.append(title);
+    const note = document.createElement('p'); note.textContent = group.note; section.append(note);
+    const grid = document.createElement('div'); grid.className = 'fields';
+    for (const [name, labelText, placeholder, secret, kind] of group.fields) {
+      const container = document.createElement('div');
+      const label = document.createElement('label'); label.htmlFor = name; label.textContent = labelText;
+      const input = document.createElement('input');
+      input.id = input.name = name; input.type = secret ? 'password' : kind === 'time' ? 'time' : kind === 'count' ? 'number' : 'text';
+      input.placeholder = placeholder; input.spellcheck = false; input.autocomplete = 'off';
+      if (kind === 'id') input.inputMode = 'numeric';
+      if (kind === 'count') { input.min = '1'; input.max = '20'; input.step = '1'; }
+      const hint = document.createElement('span'); hint.className = 'hint'; hint.textContent = name;
+      container.append(label, input, hint); grid.append(container);
+    }
+    section.append(grid); form.append(section);
+  }
+  form.addEventListener('submit', event => event.preventDefault());
+  function parseEnv(text) {
+    const values = new Map();
+    for (const [index, raw] of text.replace(/^\uFEFF/, '').split(/\r?\n/).entries()) {
+      const line = raw.trim();
+      if (!line || line.startsWith('#')) continue;
+      const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+      if (!match) throw new Error(`第 ${index + 1} 行格式不正确，应为 名称=内容。`);
+      let value = match[2].trim();
+      if (value.length >= 2 && (value[0] === "'" || value[0] === '"') && value.at(-1) === value[0]) value = value.slice(1, -1);
+      values.set(match[1], value);
+    }
+    return values;
+  }
+  function encodeValue(value, name) {
+    if (/[\r\n\0]/.test(value)) throw new Error(`${name} 请填写单行内容。`);
+    if (!value.includes("'")) return "'" + value + "'";
+    if (!value.includes('"') && !/[\\$`]/.test(value)) return '"' + value + '"';
+    if (!/[\s#]/.test(value) && !/^["']/.test(value)) return value;
+    throw new Error(`${name} 含有无法直接写入的引号组合，请检查内容。`);
+  }
+  function valuesForExport() {
+    const values = new Map(imported);
+    for (const [name, , , , kind] of fields) {
+      const input = document.getElementById(name);
+      const value = input.value.trim();
+      if (!value) continue;
+      if (kind === 'id' && !/^[1-9]\d*$/.test(value)) throw new Error(`${byName.get(name)[1]} 请填写正确的数字账号。`);
+      if (kind === 'count' && (!/^\d+$/.test(value) || +value < 1 || +value > 20)) throw new Error('每次学习视频数请填 1～20 的整数。');
+      if (kind === 'time' && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new Error('学习时间请填写 HH:MM。');
+      if (!input.validity.valid) throw new Error(`请检查${byName.get(name)[1]}。`);
+      encodeValue(value, name);
+      values.set(name, value);
+    }
+    if (!values.size) throw new Error('先填写至少一项，或导入已有 .env。');
+    return values;
+  }
+  function buildEnv(maskSecrets = false) {
+    const values = valuesForExport();
+    const lines = ['# FatFishLife 本地配置，请妥善保管', '# 留空且未导入的字段不写入', ''];
+    for (const [name, value] of values) {
+      const secret = byName.get(name)?.[3] || /KEY|TOKEN|PASSWORD|SECRET|COOKIE/i.test(name);
+      lines.push(name + '=' + (maskSecrets && secret && value ? "'[已隐藏]'" : encodeValue(value, name)));
+    }
+    return lines.join('\r\n') + '\r\n';
+  }
+  function updatePreview() {
+    if (preview.hidden) return;
+    try { preview.value = buildEnv(!document.getElementById('show-secrets').checked); setStatus('预览已更新。'); }
+    catch (error) { preview.value = ''; setStatus(error.message, true); }
+  }
+  document.getElementById('import').addEventListener('click', () => document.getElementById('env-file').click());
+  document.getElementById('env-file').addEventListener('change', async event => {
+    const file = event.target.files[0]; if (!file) return;
+    try {
+      const values = parseEnv(await file.text());
+      imported.clear(); for (const entry of values) imported.set(...entry);
+      for (const [name] of fields) document.getElementById(name).value = imported.get(name) || '';
+      document.getElementById('import-info').textContent = `已导入 ${values.size} 项配置。未展示的字段也会保留；留空会保留导入值。`;
+      setStatus('导入完成，补填需要更新的项目即可。'); updatePreview();
+    } catch (error) { setStatus(error.message, true); }
+    event.target.value = '';
+  });
+  document.getElementById('show-secrets').addEventListener('change', event => {
+    for (const [name, , , secret] of fields) if (secret) document.getElementById(name).type = event.target.checked ? 'text' : 'password';
+    updatePreview();
+  });
+  form.addEventListener('input', updatePreview);
+  document.getElementById('preview-button').addEventListener('click', () => { preview.hidden = !preview.hidden; updatePreview(); });
+  document.getElementById('download').addEventListener('click', () => {
+    try {
+      const content = buildEnv();
+      const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+      const link = document.createElement('a'); link.href = url; link.download = '.env';
+      document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setStatus('已开始下载 .env，请将文件保存到 D:\\Code\\Apps\\.env。');
+    } catch (error) { setStatus(error.message, true); }
+  });
+</script>
+</body>
+</html>
