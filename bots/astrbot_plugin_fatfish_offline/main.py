@@ -81,9 +81,9 @@ HELP_TEXT = """苹果乐能用的命令（发 <命令> help 看细节）
 /life  /生活     日记、成长、草稿、预览
 /video  /视频    Updream 视频草稿与审核
 /steam           Steam 价格查询
-/song  /点歌     点歌
-/jms             JM 关键词搜索；/jmrank 看榜单
-/annas           电子书搜索
+/song  /songp   点歌
+/jms  /jmrank    JM 搜索与榜单（/jm <ID> 看详情）
+/ebooks         电子书搜索（archive / libgen / calibre）
 /搜索            联网实时搜索
 
 【语音与其他】
