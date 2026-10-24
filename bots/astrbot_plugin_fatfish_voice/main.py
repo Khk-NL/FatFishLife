@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import math
+import re
 from pathlib import Path
 from uuid import uuid4
 import wave
@@ -62,6 +63,7 @@ class FatfishSiliconFlowTTS(TTSProvider):
         self.api_base = str(provider_config.get("api_base") or DEFAULT_CONFIG["api_base"]).rstrip("/")
         self.set_model(str(provider_config.get("model") or DEFAULT_MODEL))
         self.voice = str(provider_config.get("voice") or self.model_name + ":diana")
+        self.emotion_voices = provider_config.get("emotion_voices") or {}
         self.speed = float(provider_config.get("speed", 1.1))
         if not math.isfinite(self.speed) or not 0.25 <= self.speed <= 4.0:
             raise ValueError("语速 speed 需在 0.25～4.0 之间")
@@ -73,10 +75,21 @@ class FatfishSiliconFlowTTS(TTSProvider):
     async def get_audio(self, text: str) -> str:
         if not str(text).strip():
             raise ValueError("语音文本不能为空")
+        text = str(text).strip()
+        marker = re.match(r"^\[EMO:([a-z_]+)\]\s*", text, re.I)
+        emotion = marker.group(1).lower() if marker else (
+            "happy" if re.search(r"哈哈|好耶|太好啦|出发|啊噗噜派|嘿嘿", text) else
+            "soft" if re.search(r"晚安|别难过|休息|困了|没关系", text) else "neutral"
+        )
+        if marker:
+            text = text[marker.end():].strip()
+        if not text:
+            raise ValueError("语音文本不能为空")
+        voice = str(self.emotion_voices.get(emotion) or self.voice)
         response = await self.client.post(
             self.api_base + "/audio/speech",
             headers={**self.request_headers, "Authorization": "Bearer " + self.api_key},
-            json={"model": self.model_name, "voice": self.voice, "speed": self.speed,
+            json={"model": self.model_name, "voice": voice, "speed": self.speed,
                   "input": text, "response_format": "wav"},
         )
         response.raise_for_status()

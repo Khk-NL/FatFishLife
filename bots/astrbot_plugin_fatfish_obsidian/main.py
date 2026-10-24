@@ -15,6 +15,9 @@ from astrbot.core.star.filter.command import GreedyStr
 
 from fatfish_core import MemoryStore, RuntimeStore, resolve_shared_db
 from fatfish_core.growth import record_capability
+from fatfish_core.knowledge_graph import KnowledgeGraph
+from fatfish_core.graph_build import file_documents, build_graph
+from fatfish_core.usage import record_usage
 from .sync import sync_vault
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_obsidian"
@@ -28,6 +31,7 @@ class Main(Star):
         db_path = resolve_shared_db(StarTools.get_data_dir(PLUGIN_NAME).parent.parent)
         self.store = MemoryStore(db_path)
         self.runtime = RuntimeStore(db_path)
+        self.graph = KnowledgeGraph(db_path)
         self._lock = asyncio.Lock()
         self._clock = datetime.strptime(str(self.config.get("sync_time") or "03:00"), "%H:%M")
         self._task = asyncio.create_task(self._loop()) if self.config.get("enabled", True) else None
@@ -67,12 +71,21 @@ class Main(Star):
                 helper = await self._helper()
                 result = await sync_vault(helper, self.runtime, Path(configured).expanduser(),
                                           limit=max(1, min(200, int(self.config.get("max_files_per_sync", 25)))))
+                async def generate(system, text):
+                    provider = await self.context.get_using_provider_async()
+                    if provider is None:
+                        raise RuntimeError("No graph extraction provider")
+                    response = await asyncio.wait_for(provider.text_chat(system_prompt=system, prompt=text), timeout=90)
+                    await record_usage(self.context, provider, response, umo="fatfish:Internal:private_graph", agent_type="fatfish_graph")
+                    return response.completion_text
+                result["graph"] = await build_graph(self.graph, list(file_documents(Path(configured).expanduser(), "private_obsidian")), generate,
+                                                   complete_collections=["private_obsidian"])
             except asyncio.CancelledError:
                 raise
             except Exception:
                 record_capability(self.store, "obsidian", "failed", stage="sync", error_code="service_error")
                 raise
-            record_capability(self.store, "obsidian", "failed" if result["failed"] else "success", stage="sync")
+            record_capability(self.store, "obsidian", "failed" if result["failed"] or result.get("graph", {}).get("failed") else "success", stage="sync")
             self.runtime.set(PLUGIN_NAME, "last_result", result)
             return result
 
@@ -80,7 +93,8 @@ class Main(Star):
         # Never register this KB globally or retrieve from other knowledge bases.
         result = await self.context.kb_manager.retrieve(query=text, kb_names=[self.kb_name], top_m_final=3)
         record_capability(self.store, "obsidian", "success", stage="search")
-        return str((result or {}).get("context_text") or "没有检索到相关笔记。")[:6000]
+        graph = self.graph.context(text, collection="private_obsidian", max_chars=2200) if hasattr(self, "graph") else ""
+        return (graph + ("\n【私人原文补充】\n" if graph else "") + str((result or {}).get("context_text") or "没有检索到相关笔记。"))[:6000]
 
     @filter.llm_tool(name="fatfish_private_knowledge")
     async def knowledge_tool(self, event: AstrMessageEvent, query: str):

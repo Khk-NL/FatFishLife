@@ -29,6 +29,7 @@ services:
       - ../bots/astrbot_plugin_fatfish_obsidian:/AstrBot/data/plugins/astrbot_plugin_fatfish_obsidian:ro
       - ../bots/astrbot_plugin_fatfish_steam:/AstrBot/data/plugins/astrbot_plugin_fatfish_steam:ro
       - ../bots/astrbot_plugin_fatfish_voice:/AstrBot/data/plugins/astrbot_plugin_fatfish_voice:ro
+      - ../bots/astrbot_plugin_fatfish_style:/AstrBot/data/plugins/astrbot_plugin_fatfish_style:ro
       - ../assets:/opt/fatfish/assets:ro
       - ../examples:/opt/fatfish/examples:ro
       - ../docs/persona:/opt/fatfish/docs/persona:ro

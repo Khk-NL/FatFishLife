@@ -97,6 +97,18 @@ class VoiceProviderTests(unittest.IsolatedAsyncioTestCase):
         await provider.terminate()
         self.client.aclose.assert_awaited_once()
 
+    async def test_emotion_reference_is_selected_and_internal_marker_is_not_spoken(self):
+        async def convert(source, target, *, timeout):
+            target.write_bytes(b"validated_by_converter")
+        provider = self.provider(voice="neutral", emotion_voices={"happy": "happy-reference"})
+        with patch.object(PLUGIN, "normalize_wav", side_effect=convert):
+            await provider.get_audio("[EMO:happy] 好耶，出发！")
+        sent = self.client.post.await_args.kwargs["json"]
+        self.assertEqual(sent["voice"], "happy-reference")
+        self.assertEqual(sent["input"], "好耶，出发！")
+        self.assertEqual(sent["speed"], 1.1)
+        await provider.terminate()
+
     async def test_normalizes_streaming_wav_placeholder_lengths_to_actual_frame_count(self):
         try:
             PLUGIN._resolve_tool("ffmpeg")

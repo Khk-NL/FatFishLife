@@ -83,6 +83,19 @@ def configure(env_file: Path, astrbot: Path, *, apply: bool = False) -> dict:
     if not silicon.get("default_voice"):
         silicon["default_voice"] = "FunAudioLLM/CosyVoice2-0.5B:diana"
     silicon["format"] = "mp3"
+    # Prepare MiniMax without changing the working engine before voice validation.
+    if env.get("FATFISH_MINIMAX_KEY"):
+        minimax = router["tts_engine"].setdefault("minimax", {})
+        minimax["key"] = env["FATFISH_MINIMAX_KEY"]
+        minimax.setdefault("url", "https://api.minimaxi.com/v1/t2a_v2")
+        minimax.setdefault("model", "speech-2.8-hd")
+        minimax["speed"] = 1.1
+        if env.get("FATFISH_MINIMAX_VOICE_ID"):
+            minimax["voice_id"] = env["FATFISH_MINIMAX_VOICE_ID"]
+        else:
+            pending.append("minimax_voice_clone")
+    else:
+        pending.append("minimax_key")
     vault = env.get("FATFISH_OBSIDIAN_VAULT", "")
     if vault and Path(vault).is_dir():
         obsidian = load("config/astrbot_plugin_obsidian_sync_config.json")

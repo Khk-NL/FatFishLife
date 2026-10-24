@@ -27,7 +27,7 @@ class GrowthTests(unittest.TestCase):
         for capability in CAPABILITIES:
             record_capability(self.store, capability, "failed", stage="use", error_code="SECRET_TOKEN_AND_PRIVATE_CHAT")
         rows = self.rows()
-        self.assertEqual(len(rows), 9)
+        self.assertEqual(len(rows), len(CAPABILITIES))
         self.assertTrue(all(row["scope"] == "private" and row["actor"] == "bot" for row in rows))
         self.assertNotIn("SECRET_TOKEN", json.dumps(rows))
         self.assertEqual(self.store.recent(scopes=("public",)), [])

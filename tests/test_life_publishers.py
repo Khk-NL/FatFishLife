@@ -15,15 +15,17 @@ from astrbot_plugin_fatfish_life import publishers  # noqa: E402
 class QzonePublisherTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.bot = Mock()
-        self.bot.call_action = AsyncMock(side_effect=[
-            {"user_id": 1670515707}, {"tid": "abc123_456-def"},
-        ])
+        self.bot.call_action = AsyncMock(return_value={"user_id": 1670515707})
+        self.controller = Mock()
+        self.controller.get_status = AsyncMock(return_value={"cookie_count": 4, "login_uin": 1670515707, "daemon_state": "ready"})
+        self.controller.publish_post = AsyncMock(return_value={"fid": "abc123_456-def"})
         self.platform = Mock()
         self.platform.meta.return_value = Mock(name="QQ")
         self.platform.meta.return_value.name = "aiocqhttp"
         self.platform.get_client.return_value = self.bot
         self.context = Mock()
         self.context.get_platform_inst.return_value = self.platform
+        self.context.get_registered_star.return_value = Mock(star_cls=Mock(controller=self.controller), activated=True)
 
     async def publish(self, text="今天遇到了有趣的事。", platform="napcat", account="1670515707"):
         return await publishers.publish_qzone(self.context, text, platform, account)
@@ -33,12 +35,8 @@ class QzonePublisherTests(unittest.IsolatedAsyncioTestCase):
 
         self.context.get_platform_inst.assert_called_once_with("napcat")
         self.platform.get_client.assert_called_once_with()
-        self.assertEqual(self.bot.call_action.await_args_list, [
-            call("get_login_info", self_id="1670515707"),
-            call("send_qzone_msg", self_id="1670515707",
-                 content="今天 ＠老板 讲了个笑话。", images=[], ugc_right=1,
-                 target_uins=[]),
-        ])
+        self.bot.call_action.assert_awaited_once_with("get_login_info", self_id="1670515707")
+        self.controller.publish_post.assert_awaited_once_with(content="今天 ＠老板 讲了个笑话。", sync_weibo=False, media=[], content_sanitized=True)
         self.assertEqual(result, {
             "ok": True, "status": "sent", "id": "abc123_456-def",
             "url": "https://user.qzone.qq.com/1670515707/mood/abc123_456-def",
@@ -106,28 +104,26 @@ class QzonePublisherTests(unittest.IsolatedAsyncioTestCase):
                 self.bot.call_action.assert_awaited_once_with("get_login_info", self_id="1670515707")
 
     async def test_publish_failure_is_uncertain_and_not_retried(self):
-        self.bot.call_action.side_effect = [
-            {"user_id": "1670515707"}, RuntimeError("secret send response"),
-        ]
+        self.controller.publish_post.side_effect = RuntimeError("secret send response")
         result = await self.publish()
 
         self.assertEqual(result["error"]["code"], "publish_unconfirmed")
         self.assertEqual(result["status"], "uncertain")
         self.assertNotIn("secret", str(result))
-        self.assertEqual(self.bot.call_action.await_count, 2)
+        self.assertEqual(self.controller.publish_post.await_count, 1)
 
     async def test_only_a_valid_tid_confirms_delivery(self):
         for response in (None, {}, {"tid": ""}, {"tid": True}, {"tid": 123},
                          {"tid": "../bad"}, {"tid": "a" * 129},
                          {"data": {"tid": "abc123"}}):
             with self.subTest(response=response):
-                self.bot.call_action.reset_mock()
-                self.bot.call_action.side_effect = [{"user_id": 1670515707}, response]
+                self.controller.publish_post.reset_mock()
+                self.controller.publish_post.return_value = response
                 result = await self.publish()
                 self.assertEqual(result["status"], "uncertain")
                 self.assertFalse(result["ok"])
                 self.assertEqual(result["error"]["code"], "missing_receipt")
-                self.assertEqual(self.bot.call_action.await_count, 2)
+                self.assertEqual(self.controller.publish_post.await_count, 1)
 
     async def test_cancel_during_identity_check_propagates_without_sending(self):
         self.bot.call_action.side_effect = asyncio.CancelledError
@@ -136,10 +132,10 @@ class QzonePublisherTests(unittest.IsolatedAsyncioTestCase):
         self.bot.call_action.assert_awaited_once_with("get_login_info", self_id="1670515707")
 
     async def test_cancel_during_publish_propagates_without_retry(self):
-        self.bot.call_action.side_effect = [{"user_id": 1670515707}, asyncio.CancelledError]
+        self.controller.publish_post.side_effect = asyncio.CancelledError
         with self.assertRaises(asyncio.CancelledError):
             await self.publish()
-        self.assertEqual(self.bot.call_action.await_count, 2)
+        self.assertEqual(self.controller.publish_post.await_count, 1)
 
     async def test_identity_timeout_is_bounded_and_does_not_publish(self):
         async def delayed(*args, **kwargs):
@@ -157,12 +153,20 @@ class QzonePublisherTests(unittest.IsolatedAsyncioTestCase):
                 return {"user_id": 1670515707}
             await asyncio.sleep(30)
 
-        self.bot.call_action.side_effect = delayed
+        self.controller.publish_post.side_effect = delayed
         with patch.object(publishers, "ACTION_TIMEOUT_SECONDS", 0.001):
             result = await self.publish()
         self.assertEqual(result["status"], "uncertain")
         self.assertEqual(result["error"]["code"], "publish_unconfirmed")
-        self.assertEqual(self.bot.call_action.await_count, 2)
+        self.assertEqual(self.controller.publish_post.await_count, 1)
+
+    async def test_unbound_or_other_qzone_account_is_blocked_before_publish(self):
+        for status in [{"cookie_count":0}, {"cookie_count":3,"needs_rebind":True}, {"cookie_count":3,"login_uin":3124904460}]:
+            self.controller.get_status.return_value = status
+            result = await self.publish()
+            self.assertEqual(result["status"], "blocked")
+            self.controller.publish_post.assert_not_awaited()
+
 
 
 if __name__ == "__main__":

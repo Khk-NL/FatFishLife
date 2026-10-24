@@ -1,5 +1,5 @@
 name: astrbot_plugin_fatfish_lore
-desc: /设定命令兼容入口，直接使用AstrBot原生知识库
+desc: 有来源的公开知识图谱、原文检索与真实剧情章节核对
 author: Kongb
-version: 0.2.0
+version: 0.3.0
 repo: https://github.com/Khk-NL/FatFishLife

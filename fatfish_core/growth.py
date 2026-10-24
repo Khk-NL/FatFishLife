@@ -10,6 +10,7 @@ import json
 from collections import Counter
 
 CAPABILITIES = {
+    "group_style": "群聊表达学习",
     "tts": "语音表达", "stt": "语音理解", "bili_learning": "B站标签学习",
     "pixiv": "插画检索", "anysearch": "资料检索", "video_review": "视频创作与审核",
     "obsidian": "独立知识库", "meme_semantics": "表情语义", "steam": "游戏价格查询",

@@ -201,6 +201,8 @@ class ObsidianPluginTests(unittest.IsolatedAsyncioTestCase):
         self.plugin = PLUGIN.Main.__new__(PLUGIN.Main)
         self.plugin.store = MemoryStore(Path(directory.name) / "memory.db")
         self.plugin.runtime = RuntimeStore(self.plugin.store.path)
+        from fatfish_core.knowledge_graph import KnowledgeGraph
+        self.plugin.graph = KnowledgeGraph(self.plugin.store.path)
         self.plugin.config = {"vault_path": str(self.root), "owner_ids": "qq:owner"}
         self.plugin._lock = asyncio.Lock()
         self.plugin._clock = datetime.strptime("03:00", "%H:%M")

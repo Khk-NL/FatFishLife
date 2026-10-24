@@ -382,6 +382,10 @@ class Main(Star):
             if memory:
                 persona += "\n\n[共享记忆参考]\n" + memory
         context = f"视频《{title}》。" if title else ""
+        from fatfish_core.knowledge_graph import KnowledgeGraph
+        graph = KnowledgeGraph(self.memory_db).context(text, collection="lore", max_chars=1200)
+        if graph:
+            persona += "\n\n" + graph
         material = wrap_untrusted(text, "评论" if kind == "comment" else "私信")
         prompt = (
             f"{context}{material}\n"

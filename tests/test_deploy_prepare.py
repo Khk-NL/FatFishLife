@@ -29,7 +29,7 @@ class DeploymentPreparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "state"
             result = prepare(state_dir=destination, write=True)
-            self.assertEqual(len(result["written"]), 8)
+            self.assertEqual(len(result["written"]), 9)
             config = destination / "astrbot/config/astrbot_plugin_fatfish_bili_config.json"
             bili = json.loads(config.read_text(encoding="utf-8"))
             self.assertTrue(bili["dry_run_writes"])

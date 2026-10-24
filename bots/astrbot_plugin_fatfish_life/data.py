@@ -9,6 +9,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from fatfish_core.usage import record_usage  # Public compatibility export.
+
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 
@@ -161,24 +163,3 @@ def read_usage(db_path: str | Path, start: datetime, end: datetime) -> dict:
     result["available"] = True
     result["total"] = result["input_other"] + result["input_cached"] + result["output"]
     return result
-
-
-async def record_usage(context, provider, response, *, umo: str, agent_type: str) -> None:
-    """Persist provider-reported tokens for a direct call outside AstrBot's agent runner."""
-    usage = response.usage
-    if usage is None:
-        return
-    await context.get_db().insert_provider_stat(
-        umo=umo,
-        provider_id=provider.meta().id,
-        provider_model=provider.get_model(),
-        status="error" if response.role == "err" else "completed",
-        stats={
-            "token_usage": {
-                "input_other": usage.input_other,
-                "input_cached": usage.input_cached,
-                "output": usage.output,
-            }
-        },
-        agent_type=agent_type,
-    )

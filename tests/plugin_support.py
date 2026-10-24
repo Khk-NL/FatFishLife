@@ -18,13 +18,15 @@ def load_plugin(plugin_name: str, *, module_overrides: dict | None = None):
             "astrbot", "astrbot.api", "astrbot.api.event", "astrbot.api.star", "astrbot.api.message_components", "astrbot.api.provider",
             "astrbot.core", "astrbot.core.star", "astrbot.core.star.filter",
             "astrbot.core.star.filter.command",
+            "astrbot.core.agent", "astrbot.core.agent.message",
         )
     }
 
     def decorator(*args, **kwargs):
         return lambda function: function
 
-    modules["astrbot.api"].logger = types.SimpleNamespace(info=lambda *args: None, warning=lambda *args: None)
+    modules["astrbot.api"].logger = types.SimpleNamespace(info=lambda *args: None, warning=lambda *args: None,
+                                                        exception=lambda *args: None)
     modules["astrbot.api.event"].AstrMessageEvent = object
     modules["astrbot.api.event"].filter = types.SimpleNamespace(
         EventMessageType=types.SimpleNamespace(ALL="all"),
@@ -37,6 +39,7 @@ def load_plugin(plugin_name: str, *, module_overrides: dict | None = None):
     modules["astrbot.api.star"].StarTools = object
     modules["astrbot.api.provider"].ProviderRequest = object
     modules["astrbot.core.star.filter.command"].GreedyStr = str
+    modules["astrbot.core.agent.message"].TextPart = lambda **kwargs: types.SimpleNamespace(**kwargs)
     modules["astrbot.api.message_components"].Image = types.SimpleNamespace(fromFileSystem=lambda path: path)
     modules["astrbot.api.message_components"].Plain = lambda text: text
     parent = types.ModuleType("_fatfish_plugin_test")
