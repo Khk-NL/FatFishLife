@@ -1,4 +1,4 @@
-"""Create a video, show it to its owner, and submit only that approved revision."""
+"""Updream creation briefs, exported-video verification and explicit owner approval."""
 
 from __future__ import annotations
 
@@ -12,41 +12,12 @@ from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
 from fatfish_bili.publisher import PublishError
-from fatfish_story.client import ProviderError, ProviderOutputError, _loads_json_object
-from fatfish_story.options import StoryOptions
-from fatfish_story.pipeline import StoryError, generate_project
+from fatfish_story.client import _loads_json_object
+from fatfish_story.updream import BRIEF_PROMPT, save_brief, import_export
+from fatfish_core.usage import record_usage
 from fatfish_story.review import ReviewError, ReviewQueue
-from fatfish_video.renderer import render_project
 
 PLUGIN_NAME = "astrbot_plugin_fatfish_story"
-
-
-class _ProviderBridge:
-    """Run the existing synchronous story pipeline with AstrBot's async provider."""
-
-    name = "astrbot"
-
-    def __init__(self, provider, loop, persona):
-        self.provider, self.loop, self.persona = provider, loop, persona
-
-    def complete_json(self, system: str, user: str) -> dict:
-        async def request():
-            response = await self.provider.text_chat(
-                prompt=user, system_prompt=system + "\n创作者人设：" + self.persona,
-                contexts=[],
-            )
-            return _loads_json_object(response.completion_text)
-
-        future = asyncio.run_coroutine_threadsafe(request(), self.loop)
-        try:
-            return future.result(timeout=135)
-        except TimeoutError as exc:
-            future.cancel()
-            raise ProviderError("分镜模型调用超时") from exc
-        except ProviderOutputError:
-            raise
-        except Exception as exc:
-            raise ProviderError("分镜模型调用失败：" + type(exc).__name__) from exc
 
 
 class Main(Star):
@@ -108,22 +79,27 @@ class Main(Star):
         home = str(self.config.get("bili_home") or "").strip()
         return {"bili_exe": str(self.config.get("bili_exe") or "bili"), "bili_home": Path(home) if home else None}
 
-    async def _create(self, topic, event):
+    async def _prepare_updream(self, topic, event):
         provider = await self.context.get_using_provider_async(umo=event.unified_msg_origin)
         if provider is None:
-            raise StoryError("请先配置 AstrBot 对话模型")
-        options = StoryOptions(
-            topic=topic, duration=max(3, min(120, int(self.config.get("duration") or 30))),
-            tone=str(self.config.get("persona") or "苹果乐，以能天使为基础，称呼老板，爽朗有点嘴硬，短句自然"),
-            template="single", config_dir=self.directory / "videos",
-        )
-        bridge = _ProviderBridge(provider, asyncio.get_running_loop(), options.tone)
-        generated = await asyncio.to_thread(generate_project, options, bridge)
-        rendered = await asyncio.to_thread(render_project, generated.project, output=generated.project.output)
-        row = await asyncio.to_thread(
-            self.queue.create, rendered.video, self._metadata(topic=topic, title=generated.project.title),
-            report=rendered.report, topic=topic, **self._identity(event),
-        )
+            raise ValueError("请先配置创作模型")
+        prompt = f"公开选题：{topic}\n目标时长：{max(15, min(180, int(self.config.get('duration') or 30)))}秒。"
+        lore = self._instance("astrbot_plugin_fatfish_lore")
+        if lore:
+            prompt += "\n公开设定参考：\n" + lore.graph.context(topic, max_chars=2500)
+        response = await asyncio.wait_for(provider.text_chat(prompt=prompt, system_prompt=BRIEF_PROMPT + "\n角色语气：" + str(self.config.get("persona") or "苹果乐，以能天使为基础"),
+                                           contexts=[], response_format={"type":"json_object"}), timeout=135)
+        await record_usage(self.context, provider, response, umo=event.unified_msg_origin, agent_type="fatfish_updream_plan")
+        job = await asyncio.to_thread(save_brief, self.directory / "updream", topic,
+                                      _loads_json_object(response.completion_text), **self._identity(event))
+        self._growth("plan", "success")
+        return job
+
+    async def _import_updream(self, path, event):
+        media = await asyncio.to_thread(import_export, Path(path.strip().strip('"')).expanduser(), self.directory / "updream_exports")
+        row = await asyncio.to_thread(self.queue.create, media["video"],
+                                      self._metadata(topic="Updream制作成片", title=Path(path).stem[:80]),
+                                      report=media["report"], topic="Updream制作成片", **self._identity(event))
         self._growth("generate", "success")
         return row
 
@@ -155,7 +131,7 @@ class Main(Star):
         action, body = str(action).strip(), str(text).strip()
         if action in ("", "帮助", "help"):
             yield event.plain_result(
-                "/视频 选题：从最近公开候选中选话题\n/视频 制作 <话题>：生成并私聊发来成片\n"
+                "/视频 选题：从最近公开候选中选话题\n/视频 制作 <话题>：准备Updream叙事方案\n/视频 导入 <本机成片路径>：核验Updream导出并私聊看片\n"
                 "/视频 预览 <编号>：重发成片，更新投稿配置时需重新审阅\n"
                 "/视频 确认 <编号>：只投稿该次预览\n/视频 取消 <编号>\n/视频 状态 <编号>"
             )
@@ -166,20 +142,23 @@ class Main(Star):
             yield event.plain_result("最近公开选题候选：\n" + "\n".join(str(row["content"]) for row in rows) if rows else
                                      "还没有公开选题候选。可以先用 /bili 发现，或直接 /视频 制作 <话题>。")
             return
-        if action not in ("制作", "预览", "确认", "取消", "状态") or not body:
+        if action not in ("制作", "导入", "预览", "确认", "取消", "状态") or not body:
             yield event.plain_result("发送 /视频 帮助 查看用法。")
             return
         if self._lock.locked():
             yield event.plain_result("上一条视频操作还在处理，完成后再来。")
             return
         async with self._lock:
-            stage = "generate" if action == "制作" else "publish" if action == "确认" else "review"
+            stage = "generate" if action in ("制作", "导入") else "publish" if action == "确认" else "review"
             try:
                 if action == "制作":
                     if len(body) > 1000:
                         raise ReviewError("话题请控制在 1000 字内")
-                    yield event.plain_result("收到，先做成片，完成后发给老板看片。")
-                    row = await self._create(body, event)
+                    job = await self._prepare_updream(body, event)
+                    yield event.plain_result(f"Updream创作方案 {job['id']} 已准备：{job['brief']['title']}\n{job['path']}\n"
+                                             "视频统一在Updream制作；平台生成和导出完成后，用 /视频 导入 <本机成片路径> 发给老板看片。")
+                elif action == "导入":
+                    row = await self._import_updream(body, event)
                     stage = "review"
                     await self._preview(row, event)
                 elif action == "预览":
@@ -209,6 +188,6 @@ class Main(Star):
                 if isinstance(exc, (ReviewError, PublishError)):
                     message = str(exc)
                 else:
-                    message = "本次视频处理失败，请在本机检查模型、素材和媒体工具配置。"
+                    message = "本次Updream方案或导出处理未完成，请在本机检查创作模型、成片路径和媒体工具。"
                 logger.warning(f"视频 {stage} 失败：{type(exc).__name__}")
                 yield event.plain_result(message)

@@ -1,5 +1,5 @@
 name: astrbot_plugin_fatfish_story
-desc: 公开选题到视频成片，老板私聊看片并明确确认后投稿
+desc: Updream创作方案、导出成片核验与老板私聊审阅投稿
 author: Kongb
-version: 0.1.0
+version: 0.2.0
 repo: https://github.com/Khk-NL/FatFishLife

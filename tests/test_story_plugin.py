@@ -79,7 +79,7 @@ class StoryPluginTests(unittest.IsolatedAsyncioTestCase):
     async def test_failed_send_never_enables_approval(self):
         self.event.send.side_effect = RuntimeError("platform send failed")
         result = await self.invoke("预览", self.row["id"])
-        self.assertIn("失败", result[0])
+        self.assertIn("未完成", result[0])
         self.assertEqual(self.plugin.queue.get(self.row["id"], **self.plugin._identity(self.event))["status"], "pending_preview")
         self.plugin._growth.assert_called_with("review", "failed", "service_error")
 
@@ -109,10 +109,26 @@ class StoryPluginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_concurrent_work_returns_busy_without_spawning_another_render(self):
         async with self.plugin._lock:
-            with patch.object(self.plugin, "_create", new_callable=AsyncMock) as create:
+            with patch.object(self.plugin, "_prepare_updream", new_callable=AsyncMock) as create:
                 result = await self.invoke("制作", "公开话题")
                 create.assert_not_awaited()
         self.assertIn("还在处理", result[0])
+
+    async def test_creation_prepares_updream_without_template_video_or_approval(self):
+        with patch.object(self.plugin, "_prepare_updream", new_callable=AsyncMock,
+                          return_value={"id":"updreamjob", "path":"brief.md", "brief":{"title":"叙事短片"}}) as prepare:
+            output = await self.invoke("制作", "公开选题")
+        prepare.assert_awaited_once()
+        self.assertIn("Updream", output[0])
+        self.event.send.assert_not_awaited()
+        self.assertFalse(hasattr(PLUGIN, "render_project"))
+        self.assertFalse(hasattr(PLUGIN, "generate_project"))
+
+    async def test_export_import_uses_existing_preview_approval_flow(self):
+        with patch.object(self.plugin, "_import_updream", new_callable=AsyncMock, return_value=self.row) as imported:
+            await self.invoke("导入", "D:/export.mp4")
+        imported.assert_awaited_once()
+        self.assertEqual(self.plugin.queue.get(self.row["id"], **self.plugin._identity(self.event))["status"], "awaiting_approval")
 
 
 if __name__ == "__main__":
