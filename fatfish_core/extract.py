@@ -36,8 +36,13 @@ def extract_candidates(store: MemoryStore, *, since_id: int = 0, limit: int = SC
     for row in rows:
         stats["scanned"] += 1
         stats["last_id"] = int(row["id"])
+        text = str(row["content"] or "")
+        # 长段落多半是复制、转述或引用 bot 的话，不适合做记忆
+        if len(text) > 120:
+            stats["skipped"] += 1
+            continue
         verdict = classify(
-            row["content"],
+            text,
             speaker=str(row["actor"] or ""),
             group=str(row["session"] or ""),
         )

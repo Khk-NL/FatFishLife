@@ -13,14 +13,19 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-# 称呼/自我声明：第一人称 + 关系词
+# 称呼/自我声明：必须是明确的称呼请求，不包括「我是谁」「我是菜逼」这类
 SELF_DECLARATION = re.compile(
-    r"(以后|今后|就)?(叫我|喊我|称呼我)"
-    r"|我(的名字)?叫[^\s，。！？]{1,8}"
-    r"|我是[^\s，。！？]{1,10}(本人)?"
-    r"|记住我"
-    r"|别叫我"
-    r"|(可以|请)叫我"
+    r"(以后|今后|就|只)?(叫我|喊我|称呼我)"
+    r"|我(的名字)?叫[^\s，。！？]{1,6}(就行|就好|吧|哦|啦)?"
+    r"|记住我(叫|是)"
+)
+
+# 自我声明里的排除项：自嘲、疑问、角色名、操作描述
+SELF_DECLARATION_REJECT = re.compile(
+    r"菜|废物|垃圾|傻|蠢|笨|弱|萌新|新手"
+    r"|我是谁|我是啥|[?？]$"
+    r"|什么叫|怎么叫|谁说叫我"
+    r"|(冰主|奥黛塔|boss|干员|先锋|术师|狙击|重装|医疗|辅助|特种)"
 )
 
 # 传述/断言：转述别人的说法
@@ -92,6 +97,14 @@ def classify(text: str, *, speaker: str = "", group: str = "") -> Admission | No
         )
 
     if SELF_DECLARATION.search(body):
+        if SELF_DECLARATION_REJECT.search(body):
+            return Admission(
+                kind="chat",
+                content=body,
+                confident=False,
+                reason="像自嘲或疑问，不算称呼声明",
+                meta={"speaker": speaker, "group": group},
+            )
         who = speaker or "某群友"
         return Admission(
             kind="preference",
