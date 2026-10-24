@@ -137,7 +137,7 @@ class EnglishMemoryCommandTests(unittest.IsolatedAsyncioTestCase):
             rows=fixture.plugin.store.recall(text,scopes=('private',),conversation=('qq',event.unified_msg_origin),conversation_only=True)
             self.assertEqual(len(rows),1)
         help_text=await memory_fixture.collect(fixture.plugin.memory(event,'help'))
-        for command in ('/memory search', '/memory add', '/memory pending'):
+        for command in ('/memory status', '/memory add', '/memory pending', '/memory approve'):
             self.assertIn(command, help_text)
 
 
