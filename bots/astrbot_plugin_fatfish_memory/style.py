@@ -27,7 +27,40 @@ def _connect(path: Path) -> sqlite3.Connection | None:
         return None
 
 
-def expression_patterns(limit: int = 6) -> list[tuple[str, str]]:
+STOP_GRAMS = {
+    "什么", "怎么", "这个", "那个", "就是", "不是", "可以", "一个", "现在", "还是",
+    "已经", "因为", "所以", "但是", "如果", "然后", "这样", "那样", "我们", "你们",
+    "他们", "自己", "知道", "觉得", "应该", "可能", "真的", "有点", "时候", "地方",
+    "东西", "事情", "问题", "感觉", "一样", "这么", "那么", "多少", "为什", "么样",
+    "么办", "有没", "没有", "是不", "不能", "不会", "不要", "能不", "我就", "你了",
+}
+
+
+def _bigrams(text: str) -> set[str]:
+    clean = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]+", "", str(text or ""))
+    if len(clean) < 2:
+        return {clean} if clean and clean not in STOP_GRAMS else set()
+    return {
+        clean[i : i + 2]
+        for i in range(len(clean) - 1)
+        if clean[i : i + 2] not in STOP_GRAMS
+    }
+
+
+def _score(query_grams: set[str], text: str) -> float:
+    """重合度打分，除以长度平方根避免长句占便宜。"""
+    if not query_grams:
+        return 0.0
+    grams = _bigrams(text)
+    if not grams:
+        return 0.0
+    shared = len(query_grams & grams)
+    if shared < 2:
+        return 0.0
+    return shared / (len(grams) ** 0.5 + 1)
+
+
+def expression_patterns(limit: int = 200) -> list[tuple[str, str]]:
     """self_learning 提炼的「场景 → 表达」对。"""
     conn = _connect(SELF_LEARNING_DB)
     if conn is None:
@@ -79,27 +112,45 @@ def _strip_label(text: str) -> str:
     return (match.group(1) if match else text).strip()
 
 
-def build_style_block(memory_db: Path, pairs_limit: int = 5, phrase_limit: int = 8) -> str:
-    """拼成一段可直接追加到 system prompt 的文本，空则返回空串。"""
-    lines: list[str] = []
+def build_style_block(
+    memory_db: Path,
+    query: str = "",
+    *,
+    max_items: int = 6,
+) -> str:
+    """按当前消息挑最相关的几条说法；query 为空时取最近两条。"""
+    query_grams = _bigrams(query)
     seen: set[str] = set()
-    for situation, expression in expression_patterns(pairs_limit):
+    scored: list[tuple[float, str]] = []
+
+    for situation, expression in expression_patterns():
         key = f"{situation[:20]}|{expression[:20]}"
         if key in seen:
             continue
         seen.add(key)
-        lines.append(f"- 对方说「{situation[:30]}」，可以接「{expression[:40]}」")
-    for phrase in style_phrases(memory_db, "style", phrase_limit):
-        if len(phrase) <= 30 and phrase not in seen:
-            seen.add(phrase)
-            lines.append(f"- 群里常出现：{phrase}")
-    for phrase in style_phrases(memory_db, "bili_style", phrase_limit):
-        if len(phrase) <= 30 and phrase not in seen:
-            seen.add(phrase)
-            lines.append(f"- 评论区常出现：{phrase}")
-    if not lines:
+        # 场景和表达都参与匹配：对方原话可能只命中回复里的词
+        score = max(_score(query_grams, situation), _score(query_grams, expression) * 0.8)
+        scored.append(
+            (score, f"- 对方说「{situation[:30]}」，可以接「{expression[:40]}」")
+        )
+
+    chat_phrases = style_phrases(memory_db, "style", 20)
+    bili_phrases = style_phrases(memory_db, "bili_style", 20)
+    tagged = [(p, "群里常出现") for p in chat_phrases] + [(p, "评论区常出现") for p in bili_phrases]
+    for phrase, label in tagged:
+        if len(phrase) > 30 or phrase in seen:
+            continue
+        seen.add(phrase)
+        scored.append((_score(query_grams, phrase), f"- {label}：{phrase}"))
+
+    if not scored:
         return ""
-    return HEADER + "\n".join(lines[:16])
+
+    hits = [text for score, text in sorted(scored, key=lambda x: -x[0]) if score > 0][:max_items]
+    if not hits:
+        # 没有相关说法就不注入，避免硬塞不相干的内容带偏语气
+        return ""
+    return HEADER + "\n".join(hits)
 
 
 def stats(memory_db: Path) -> dict[str, Any]:

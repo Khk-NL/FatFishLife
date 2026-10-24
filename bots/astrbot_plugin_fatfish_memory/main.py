@@ -131,7 +131,7 @@ class Main(Star):
         if not self.config.get("style_inject_enabled", True):
             return
         try:
-            block = build_style_block(Path(self.db_path))
+            block = build_style_block(Path(self.db_path), query=str(event.message_str or ""))
         except Exception as exc:
             logger.debug(f"表达方式注入跳过：{exc}")
             return

@@ -63,6 +63,16 @@ CREATE TABLE IF NOT EXISTS journals (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_journals_day ON journals(day);
+
+-- Letta 风格的 memory block：label / value / limit / read_only
+CREATE TABLE IF NOT EXISTS blocks (
+    label TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    char_limit INTEGER,
+    read_only INTEGER NOT NULL DEFAULT 0,
+    description TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -91,6 +101,66 @@ class MemoryStore:
             conn.commit()
         finally:
             conn.close()
+
+    def get_block(self, label: str) -> dict | None:
+        """读取一个 memory block（Letta 风格）。"""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT label, value, char_limit, read_only, description, updated_at FROM blocks WHERE label=?",
+                (label,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def set_block(
+        self,
+        label: str,
+        value: str,
+        *,
+        char_limit: int | None = None,
+        read_only: bool = False,
+        description: str | None = None,
+        force: bool = False,
+    ) -> bool:
+        """写入 memory block。read_only 的块只有 force=True 才能改。"""
+        text = str(value or "")
+        if not text.strip():
+            raise ValueError("block 内容不能为空")
+        if char_limit:
+            text = text[:char_limit]
+        with self._lock, self._connect() as conn:
+            current = conn.execute(
+                "SELECT read_only FROM blocks WHERE label=?", (label,)
+            ).fetchone()
+            if current and int(current["read_only"]) and not force:
+                raise PermissionError(f"block `{label}` 是只读的，需要 force=True 才能修改")
+            conn.execute(
+                """
+                INSERT INTO blocks(label, value, char_limit, read_only, description, updated_at)
+                VALUES (?,?,?,?,?,?)
+                ON CONFLICT(label) DO UPDATE SET
+                    value=excluded.value,
+                    char_limit=excluded.char_limit,
+                    read_only=excluded.read_only,
+                    description=COALESCE(excluded.description, blocks.description),
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    label,
+                    text,
+                    char_limit,
+                    1 if read_only else 0,
+                    description,
+                    now(),
+                ),
+            )
+            return True
+
+    def list_blocks(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT label, length(value) AS chars, char_limit, read_only FROM blocks ORDER BY label"
+            ).fetchall()
+            return [dict(r) for r in rows]
 
     def remember(
         self,
