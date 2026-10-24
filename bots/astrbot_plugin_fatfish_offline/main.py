@@ -22,6 +22,7 @@ from fatfish_core import StateStore, resolve_shared_db
 from .engagement import GroupConfig, GroupEngagement, GroupMessage
 from .daily_apple_pie import DailyApplePie
 from .local_model import LocalModel
+from .meme_collection import MemeCollection
 from .logic import Decision, Scheduler, format_resume
 from .templates import OfflineConfig, OfflineReplyEngine, detect_intent
 
@@ -58,24 +59,37 @@ EMPTY_MENTION_REPLIES = [
     "嗯？老板找我什么事呀",
     "我来啦，老板",
 ]
-LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/帮助", "/表情", "/sid", "/离线",
+LOCAL_COMMANDS = ("/记忆", "/bili", "/设定", "/重置", "/reset", "/help", "/帮助", "/命令", "/菜单", "/表情", "/sid", "/离线",
                   "/生活", "/视频", "/成本", "/语气", "/知识库", "/steam",
                   "/memory", "/lore", "/offline", "/cost", "/style", "/life", "/video", "/kb")
-HELP_TEXT = """Apple-Le commands:
-/memory help       isolated chat memory
-/lore help         character lore and knowledge graph
-/style help        group speech learning and feedback
-/offline help      schedule, status and manual mode
-/cost              cost report (owner private chat)
-/bili help         Bilibili text reading and account status
-/life help         daily reflection and public posts
-/video help        Updream video workflow
-/kb help           private Obsidian knowledge
-/steam help        public game price lookup
-/reset             clear the current conversation
-/reset group:<id>  clear a group conversation (owner only)
-/reset qq:<id>     clear a private conversation (owner only)
-/help              command help"""
+HELP_TEXT = """苹果乐能用的命令（发 <命令> help 看细节）
+
+【记忆与设定】
+/memory  /记忆   本会话记忆：status recent search add
+/lore  /设定     明日方舟资料库：status list sync query
+/style  /语气    群友说话风格：status samples learn
+/kb  /知识库     私人 Obsidian 笔记：status sync search
+
+【聊天控制】
+/offline  /离线   作息与手动离线：status on off auto
+/reset           清空会话，可带 group:<群号> 或 qq:<号>
+/表情            随机或指定表情包
+/sid             查看当前会话 ID
+
+【内容】
+/bili            B 站：read search feed subscribe status
+/life  /生活     日记、成长、草稿、预览
+/video  /视频    Updream 视频草稿与审核
+/steam           Steam 价格查询
+/song  /点歌     点歌
+/jms             JM 关键词搜索；/jmrank 看榜单
+/annas           电子书搜索
+/搜索            联网实时搜索
+
+【语音与其他】
+/tts_on /tts_off 开关语音
+/obsync          Obsidian 同步
+/help  /帮助  /命令   这份列表"""
 
 
 class Main(Star):
@@ -462,6 +476,11 @@ class Main(Star):
             # Ignore other bots, except friendly ones that explicitly @ this bot.
             event.stop_event()
             return
+        # Explicit media collection must run before off-peak/chat engagement gates.
+        if not hasattr(self, "_meme_collection"):
+            self._meme_collection = MemeCollection(self.context)
+        if await self._meme_collection.handle(event):
+            return
         poke_target = self._poke_target(event)
         if poke_target is not None and (not event.get_self_id() or poke_target != str(event.get_self_id())):
             # A notice about two other users is not a message addressed to this bot.
@@ -542,7 +561,7 @@ class Main(Star):
         if self._has_registered_command(event) and not targeted_reset:
             return
         if text.startswith("/"):
-            if text.startswith(("/help", "/帮助")):
+            if text.startswith(("/help", "/帮助", "/命令", "/菜单")):
                 await self._send_help(event)
                 event.stop_event()
                 return
