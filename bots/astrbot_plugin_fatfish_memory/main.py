@@ -19,6 +19,7 @@ from astrbot.core.star.filter.command import GreedyStr
 from astrbot.core.agent.message import TextPart
 
 from fatfish_core import MemoryStore, build_context, resolve_shared_db
+from .style import build_style_block
 from fatfish_core.mood import MoodStore, react_to
 from fatfish_core.chat_text import event_chat_text
 from fatfish_core.context_policy import normalize_history
@@ -70,6 +71,7 @@ class Main(Star):
         # Retain the previous report location after absorbing the context plugin.
         self.directory = self.data / "plugin_data" / "astrbot_plugin_fatfish_context"
         path = resolve_shared_db(self.data, configured)
+        self.db_path = path
         self.store = MemoryStore(path)
         self.mood = MoodStore(path)
         self._last_pruned_day: date | None = None
@@ -122,6 +124,20 @@ class Main(Star):
             if hasattr(item, "content") or isinstance(item, dict) and "content" in item:
                 result = item
         return result
+
+    @filter.on_llm_request(priority=-550)
+    async def inject_style_examples(self, event: AstrMessageEvent, req):
+        """把学到的表达方式拼到 prompt 末尾；只读，不写人设也不落库。"""
+        if not self.config.get("style_inject_enabled", True):
+            return
+        try:
+            block = build_style_block(Path(self.db_path))
+        except Exception as exc:
+            logger.debug(f"表达方式注入跳过：{exc}")
+            return
+        if not block:
+            return
+        req.system_prompt = (str(req.system_prompt or "") + block)[:20000]
 
     @filter.on_llm_request(priority=-600)
     async def prepare_public_lookup(self, event: AstrMessageEvent, req):

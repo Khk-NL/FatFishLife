@@ -32,4 +32,3 @@ def verify_export(video_path: str | Path, report_path: str | Path) -> dict:
         json.dump(payload, stream, ensure_ascii=False, indent=2)
         stream.write("\n")
     return payload
-

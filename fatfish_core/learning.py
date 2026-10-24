@@ -43,9 +43,15 @@ def extract_terms(texts, *, min_count: int = MIN_COUNT, max_terms: int = MAX_TER
     return keep
 
 
-def save_style(store, terms: list[str]) -> int:
+def save_style(store, terms: list[str], *, kind: str = "style", label: str = "群友最近常这样说") -> int:
+    """把提炼出的说法写进共享记忆，独立于人设。"""
     if not terms:
         return 0
-    content = "群友最近常这样说：" + "、".join(terms)
-    store.remember(content, platform="system", scope="public", kind="style", actor="bot")
+    content = f"{label}：" + "、".join(terms)
+    store.remember(content, platform="system", scope="public", kind=kind, actor="bot")
     return len(terms)
+
+
+def save_bili_style(store, terms: list[str]) -> int:
+    """B 站评论区学到的说法，单独一类，方便排查来源。"""
+    return save_style(store, terms, kind="bili_style", label="评论区最近常这样说")

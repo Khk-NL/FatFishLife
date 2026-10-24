@@ -201,6 +201,14 @@ class Main(Star):
                 lines.extend(f"- {video['title']} {video['url']}" for video in result["videos"])
             if result["terms"]:
                 lines.append(f"  评论区常说：{'、'.join(result['terms'][:10])}")
+                # 评论区表达单独入库，供 prompt 注入时参考，不写人设
+                try:
+                    from fatfish_core.learning import save_bili_style
+                    store = self._get_memory()
+                    saved = save_bili_style(store, result["terms"][:20])
+                    logger.info(f"B 站评论表达入库 {saved} 条（标签 {tag}）")
+                except Exception as exc:
+                    logger.warning(f"B 站评论表达入库失败：{exc}")
         if not lines:
             return
         logger.info(f"B 站标签学习：{learned}/{len(tags)} 个标签读到文字资料")
