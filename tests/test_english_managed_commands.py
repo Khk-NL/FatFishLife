@@ -154,8 +154,10 @@ class EnglishCoreHelpTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(text.isascii(),name)
             self.assertIn('/'+name,text)
         offline=offline_fixture.PLUGIN
-        self.assertTrue(offline.HELP_TEXT.isascii())
-        self.assertNotIn('subscriptions',offline.HELP_TEXT)
+        # 顶层帮助是中文分类版，只校验关键命令都在，内容留给人工维护
+        for command in ('/memory', '/lore', '/offline', '/bili', '/reset', '/help'):
+            self.assertIn(command, offline.HELP_TEXT)
+        self.assertNotIn('subscriptions', offline.HELP_TEXT)
 
     def test_native_greedy_defaults_preserve_multiword_body_contract(self):
         from plugin_support import load_plugin

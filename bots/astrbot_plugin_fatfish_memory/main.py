@@ -33,6 +33,8 @@ PLUGIN_NAME = "astrbot_plugin_fatfish_memory"
 MEMORY_HELP = """Memory commands:
 /memory help
 /memory status | recent | search <keywords>
+/memory pending                    待审候选（owner）
+/memory approve <id> | reject <id>  审核候选（owner）
 /memory add <text> | public <text>             owner only
 /memory persona [text]                       owner can update
 /memory import <daily-summary> | summary      owner only
@@ -43,6 +45,7 @@ MEMORY_ACTIONS = {
     "help": "帮助", "status": "状态", "search": "搜索", "recent": "最近",
     "add": "记住", "public": "公开", "persona": "人设", "import": "导入",
     "summary": "总结", "journal": "札记", "distill": "提炼", "bind": "绑定",
+    "pending": "待审", "approve": "通过", "reject": "拒绝",
 }
 PLATFORM_ALIASES = {
     "aiocqhttp": "qq",
@@ -304,7 +307,29 @@ class Main(Star):
         await asyncio.sleep(45)
         while True:
             await self._maintenance_once()
+            try:
+                await self._extract_once()
+            except Exception as exc:
+                logger.warning(f"候选记忆提取失败：{exc}")
             await asyncio.sleep(max(300, int(self.config.get("monitor_interval_seconds", 3600))))
+
+    async def _extract_once(self) -> None:
+        """从聊天记录里提取候选，只在配置开启时跑。"""
+        if not bool(self.config.get("admission_enabled", True)):
+            return
+        from fatfish_core.extract import extract_candidates, promote_repeated, stats
+
+        state = getattr(self, "_extract_state", None)
+        if state is None:
+            state = self._extract_state = {"last_id": 0}
+        result = await asyncio.to_thread(extract_candidates, self.store, since_id=int(state.get("last_id", 0)))
+        state["last_id"] = result.get("last_id", state.get("last_id", 0))
+        if result.get("preference") or result.get("claim"):
+            promoted = await asyncio.to_thread(promote_repeated, self.store)
+            logger.info(
+                f"候选记忆提取：新增 {result['preference']} 条自述、{result['claim']} 条转述，晋升 {promoted} 条，"
+                f"当前 {stats(self.store)}"
+            )
 
     @filter.on_llm_request()
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
@@ -391,9 +416,46 @@ class Main(Star):
         if command in ("", "帮助", "help"):
             yield event.plain_result(MEMORY_HELP)
             return
+        if command in ("待审", "pending"):
+            if not owner:
+                yield event.plain_result("只有主人能看候选记忆。")
+                return
+            rows = self.store.list_candidates("candidate", limit=15)
+            if not rows:
+                yield event.plain_result("没有待审的记忆。")
+                return
+            lines = [
+                f"{row['id']}. [{row['kind']}] ×{row['hits']} {str(row['content'])[:80]}"
+                for row in rows
+            ]
+            yield event.plain_result(
+                "待审记忆（/记忆 通过 <id> 或 /记忆 拒绝 <id>）：\n" + "\n".join(lines)
+            )
+            return
+        if command in ("通过", "approve", "拒绝", "reject"):
+            if not owner:
+                yield event.plain_result("只有主人能审核记忆。")
+                return
+            target = "".join(ch for ch in body if ch.isdigit())
+            if not target:
+                yield event.plain_result("需要候选编号，例如 /记忆 通过 3。")
+                return
+            status = "verified" if command in ("通过", "approve") else "rejected"
+            ok = self.store.review_candidate(int(target), status, f"owner {status}")
+            label = "已通过" if status == "verified" else "已拒绝"
+            yield event.plain_result(f"{label}候选 {target}。" if ok else f"没有编号为 {target} 的候选。")
+            return
         if command == "搜索":
             if not body:
                 yield event.plain_result("Usage: /memory search <keywords>")
+                return
+            # 先走长期记忆（FTS5 / LIKE），没命中再回落到本会话原文
+            hits = self.store.search(body, group_id=self._conversation(event)[1], limit=6)
+            if hits:
+                lines = [
+                    f"[{row['kind']}] {row['content'][:120]}" for row in hits
+                ]
+                yield event.plain_result("长期记忆：\n" + "\n".join(lines))
                 return
             rows = self.store.recall(body, scopes=self._scopes(event), limit=10, conversation=self._conversation(event), conversation_only=True)
             if not rows:

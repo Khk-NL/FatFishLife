@@ -51,7 +51,7 @@ def build_context(
     terms = _terms(query)
     private = "private" in scopes
     # Events and journals together contribute at most 40 candidates / 6 items.
-    kinds = ("note", "summary", "video", "style")
+    kinds = ("note", "summary", "video", "style", "preference", "claim", "culture")
     if conversation is not None:
         kinds += ("message", "reply")
     candidates = store.recent(
@@ -87,8 +87,14 @@ def build_context(
     persona = _compact(store.get_persona()) if include_persona else ""
     if persona:
         blocks.append("【共享人设参考】" + _clip(persona, 500))
+    kind_labels = {
+        "preference": "确定的事",
+        "claim": "群友说过，真伪未证",
+        "culture": "群里的梗",
+        "journal": "私人札记参考",
+    }
     for _, row in ranked[:6]:
-        label = "私人札记参考" if row["kind"] == "journal" else "历史记忆参考"
+        label = kind_labels.get(row["kind"], "历史记忆参考")
         source = f"{row['created_at'][:16]} {row['platform']}/{row['scope']}/{row['kind']}"
         content = _clip(_compact(row["content"]), 200)
         if row.get("repeat_count", 1) > 1:

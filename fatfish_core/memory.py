@@ -13,6 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from .chat_text import clean_chat_text
+from .admission import classify
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -72,6 +73,32 @@ CREATE TABLE IF NOT EXISTS blocks (
     read_only INTEGER NOT NULL DEFAULT 0,
     description TEXT,
     updated_at TEXT NOT NULL
+);
+
+-- 候选记忆：先入库待审，通过后才算长期记忆
+CREATE TABLE IF NOT EXISTS candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id TEXT,
+    speaker TEXT,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'candidate',
+    confidence REAL NOT NULL DEFAULT 0,
+    hits INTEGER NOT NULL DEFAULT 1,
+    first_seen TEXT NOT NULL,
+    last_seen TEXT NOT NULL,
+    review_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status, kind);
+CREATE INDEX IF NOT EXISTS idx_candidates_dedupe ON candidates(group_id, kind, content);
+
+-- 中文检索：trigram 支持 3 字以上子串匹配，2 字靠 LIKE/别名兜底
+CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
+    content,
+    kind UNINDEXED,
+    group_id UNINDEXED,
+    ref_id UNINDEXED,
+    tokenize='trigram'
 );
 """
 
@@ -162,6 +189,122 @@ class MemoryStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
+    # ---------- 候选记忆：candidate → verified ----------
+
+    def add_candidate(
+        self,
+        content: str,
+        *,
+        kind: str,
+        group_id: str = "",
+        speaker: str = "",
+        confidence: float = 0.0,
+    ) -> int:
+        """写入候选；同一群同类型同内容只累加命中次数。返回记录 id（0 表示忽略）。"""
+        text = " ".join(str(content or "").split())[:300]
+        if not text:
+            return 0
+        stamp = now()
+        with self._lock, self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, hits FROM candidates WHERE group_id=? AND kind=? AND content=?",
+                (group_id, kind, text),
+            ).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE candidates SET hits=hits+1, last_seen=?, confidence=MAX(confidence,?) WHERE id=?",
+                    (stamp, confidence, row["id"]),
+                )
+                return int(row["id"])
+            cursor = conn.execute(
+                """
+                INSERT INTO candidates(group_id, speaker, kind, content, status, confidence, hits, first_seen, last_seen)
+                VALUES (?,?,?,?,'candidate',?,1,?,?)
+                """,
+                (group_id, speaker, kind, text, confidence, stamp, stamp),
+            )
+            return int(cursor.lastrowid or 0)
+
+    def review_candidate(self, candidate_id: int, status: str, note: str = "") -> bool:
+        if status not in ("verified", "rejected", "candidate"):
+            raise ValueError("status 必须是 candidate / verified / rejected")
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE candidates SET status=?, review_note=? WHERE id=?",
+                (status, note, candidate_id),
+            )
+            if status == "verified" and cur.rowcount:
+                row = conn.execute(
+                    "SELECT group_id, kind, content, speaker FROM candidates WHERE id=?",
+                    (candidate_id,),
+                ).fetchone()
+                if row:
+                    self._index(row["content"], row["kind"], row["group_id"], candidate_id)
+            return bool(cur.rowcount)
+
+    def list_candidates(self, status: str = "candidate", limit: int = 20) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, group_id, speaker, kind, content, confidence, hits, first_seen, status
+                FROM candidates WHERE status=? ORDER BY hits DESC, last_seen DESC LIMIT ?
+                """,
+                (status, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def _index(self, content: str, kind: str, group_id: str, ref_id: int) -> None:
+        try:
+            conn = sqlite3.connect(self.path, timeout=10)
+            try:
+                conn.execute(
+                    "INSERT INTO memory_fts(content, kind, group_id, ref_id) VALUES (?,?,?,?)",
+                    (content, kind, group_id, ref_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        except sqlite3.Error:
+            pass
+
+    def search(
+        self,
+        query: str,
+        *,
+        group_id: str = "",
+        limit: int = 5,
+    ) -> list[dict]:
+        """FTS5 检索；查询不足 3 字时退化为 LIKE。"""
+        text = " ".join(str(query or "").split())
+        if not text:
+            return []
+        with self._connect() as conn:
+            if len(text) >= 3:
+                try:
+                    rows = conn.execute(
+                        """
+                        SELECT content, kind, group_id, ref_id
+                        FROM memory_fts
+                        WHERE memory_fts MATCH ? AND (? = '' OR group_id = ?)
+                        ORDER BY rank LIMIT ?
+                        """,
+                        (text, group_id, group_id, limit),
+                    ).fetchall()
+                    if rows:
+                        return [dict(r) for r in rows]
+                except sqlite3.Error:
+                    pass
+            rows = conn.execute(
+                """
+                SELECT content, kind, group_id, id AS ref_id
+                FROM candidates
+                WHERE status='verified' AND content LIKE ? AND (? = '' OR group_id = ?)
+                ORDER BY hits DESC LIMIT ?
+                """,
+                (f"%{text}%", group_id, group_id, limit),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
     def remember(
         self,
         content: str,
@@ -173,7 +316,38 @@ class MemoryStore:
         actor: str | None = None,
         meta: dict | None = None,
         limit: int = 500,
+        admit: bool = False,
     ) -> int:
+        # 群聊消息先过准入：只有「值得记」的类型才落库，且按来源改写内容
+        if admit and kind == "message" and scope == "public":
+            verdict = classify(content, speaker=str(actor or ""), group=str(session or ""))
+            if verdict is None or verdict.kind in ("banter", "chat"):
+                return 0
+            if verdict.kind == "claim":
+                # 转述只能进候选，等人工审核，不进长期记忆
+                self.add_candidate(
+                    verdict.content,
+                    kind="claim",
+                    group_id=str(session or ""),
+                    speaker=str(actor or ""),
+                    confidence=0.3,
+                )
+                return 0
+            if verdict.kind == "preference":
+                # 本人声明可信度高，直接晋升
+                candidate_id = self.add_candidate(
+                    verdict.content,
+                    kind="preference",
+                    group_id=str(session or ""),
+                    speaker=str(actor or ""),
+                    confidence=0.9,
+                )
+                if candidate_id:
+                    self.review_candidate(candidate_id, "verified", "本人声明")
+            content = verdict.content
+            kind = verdict.kind
+            meta = {**(meta or {}), "admission": verdict.kind, "confident": verdict.confident}
+            actor = None
         if kind == "message":
             # Chat memory is deliberately sender-free. Keep only its cleaned
             # body, time and conversation boundary, even for other adapters.
