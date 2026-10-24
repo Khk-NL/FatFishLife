@@ -1,0 +1,5 @@
+name: astrbot_plugin_fatfish_story
+desc: 公开选题到视频成片，老板私聊看片并明确确认后投稿
+author: Kongb
+version: 0.1.0
+repo: https://github.com/Khk-NL/FatFishLife

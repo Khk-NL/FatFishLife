@@ -1,0 +1,5 @@
+name: astrbot_plugin_fatfish_voice
+desc: 原生硅基流动 TTS 提供商，明确声线、语速与有效 WAV 输出
+author: Kongb
+version: 0.1.0
+repo: https://github.com/Khk-NL/FatFishLife

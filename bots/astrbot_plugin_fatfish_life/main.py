@@ -13,7 +13,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
-from fatfish_core.learning import extract_terms, save_style
+from fatfish_core.growth import TOOL_CAPABILITIES, STATUSES, capability_summary, record_capability, tool_outcome
 from .data import beijing_day_bounds, events_between, read_usage, record_usage, upsert_daily_journal
 from .publishers import publish_qzone
 from .reflection import DailyLifeState, json_object, public_facts
@@ -82,17 +82,22 @@ class Main(Star):
         usage_path = getattr(self.context.get_db(), "db_path", None)
         usage = read_usage(usage_path, start, end) if usage_path else {"available": False}
         rows = events_between(store.path, start, end, scopes=("public", "private"), limit=50)
+        # Keep measured skills visible even when a busy chat fills the message window.
+        skills = capability_summary(events_between(store.path, start, end, scopes=("private",), limit=1000, kinds=("capability",)))
+        record["capabilities"] = skills
         if not record.get("journal"):
             material = [{
                 "scope": row["scope"], "platform": row["platform"],
                 "role": "我" if row.get("actor") == "bot" else "对方", "text": row["content"][:160],
             } for row in rows]
-            if material:
+            if material or skills:
                 result = await self._generate(
                     "用第一人称写一段不超过300字的私人日记，回顾今天我做了什么、别人如何待我、我的感受和想法。"
                     "区分自己回复、别人聊天、发现候选与实际看过；不要编造送货、吃派、见面等现实经历。"
                     "可以保留一点自己的偏好和明天想做什么。只返回 {\"journal\":\"...\"}。\n"
-                    + json.dumps({"day": day, "usage": usage, "experiences": material}, ensure_ascii=False), private=True,
+                    "capabilities是实际使用结果；配置/认证成功不等于会使用，生成语音不等于已发出，审核等待不等于已投稿。"
+                    "失败可总结下次该怎样尝试；这些私人能力记录不授权公开或投稿。\n"
+                    + json.dumps({"day": day, "usage": usage, "experiences": material, "capabilities": skills}, ensure_ascii=False), private=True,
                 )
                 journal = str(result.get("journal") or "").strip()[:1500]
                 if not journal:
@@ -102,16 +107,6 @@ class Main(Star):
             record["journal"] = journal
             self.state.save()
         upsert_daily_journal(store.path, day, record["journal"])
-        try:
-            texts = [
-                row["content"] for row in rows
-                if row.get("scope") == "public" and row.get("actor") != "bot"
-            ]
-            learned = extract_terms(texts)
-            if learned:
-                save_style(store, learned)
-        except Exception as exc:
-            logger.warning(f"学习群友说话方式失败：{exc}")
         if "targets" not in record:
             days = max(1, min(7, int(self.config.get("lookback_days", 3))))
             public_rows = events_between(store.path, start - timedelta(days=days - 1), end, scopes=("public",), limit=60)
@@ -222,15 +217,47 @@ class Main(Star):
         if not platform.startswith(("aiocqhttp", "qq_official")):
             return
         memory = self._instance("astrbot_plugin_fatfish_memory")
-        if memory is None or not memory.config.get("record_all_messages", True):
+        if memory is None:
             return
         result = event.get_result()
+        if any(type(component).__name__ == "Record" for component in getattr(result, "chain", ())):
+            record_capability(memory.store, "tts", "success", stage="delivery")
+        if not memory.config.get("record_all_messages", True):
+            return
         text = result.get_plain_text() if result is not None else ""
         if not text.strip():
             return
         memory.store.remember(text, platform="qq", scope="private" if event.is_private_chat() else "public",
                               kind="message", session=event.get_session_id(), actor="bot",
                               meta={"direction": "outgoing", "delivery": "after_message_sent"})
+
+    @filter.on_llm_tool_respond()
+    async def record_tool(self, event: AstrMessageEvent, tool, tool_args, tool_result):
+        # Deliberately do not read tool_args or persist any part of the result.
+        capability = TOOL_CAPABILITIES.get(str(getattr(tool, "name", "")))
+        if capability is None:
+            return
+        memory = self._instance("astrbot_plugin_fatfish_memory")
+        if memory is not None:
+            status, error_code = tool_outcome(tool_result)
+            record_capability(memory.store, capability[0], status, stage=capability[1], error_code=error_code)
+
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=-90)
+    async def record_transcription(self, event: AstrMessageEvent):
+        # OneBot retains the original segments while AstrBot replaces successful
+        # STT Record components with Plain. Compare types only, never transcript.
+        raw = getattr(getattr(event, "message_obj", None), "raw_message", None)
+        original = raw.get("message") if hasattr(raw, "get") else None
+        if not isinstance(original, list):
+            return
+        indices = [i for i, part in enumerate(original) if isinstance(part, dict) and part.get("type") == "record"]
+        if not indices:
+            return
+        processed = event.get_messages()
+        if all(i < len(processed) and type(processed[i]).__name__ == "Plain" and getattr(processed[i], "text", "").strip() for i in indices):
+            memory = self._instance("astrbot_plugin_fatfish_memory")
+            if memory is not None:
+                record_capability(memory.store, "stt", "success", stage="transcribe")
 
     def _owner_private(self, event):
         if not event.is_private_chat():
@@ -255,6 +282,11 @@ class Main(Star):
             yield event.plain_result(record.get("journal") or "今天还没写日记。")
         elif action == "草稿":
             yield event.plain_result(record.get("text") or "今天还没有公开草稿。")
+        elif action == "成长":
+            start, end = beijing_day_bounds(day)
+            skills = capability_summary(events_between(self._memory().path, start, end, scopes=("private",), limit=1000, kinds=("capability",)))
+            lines = [f"{item['name']}：{STATUSES[item['status']]} {item['count']} 次（{item['stage']}）" for item in skills]
+            yield event.plain_result("今天的能力经历：\n" + ("\n".join(lines) or "还没有实际使用记录。"))
         elif action == "恢复":
             platform = str(text).strip()
             if platform not in {"bilibili", "qzone"}:
@@ -270,7 +302,7 @@ class Main(Star):
                 f"今日：{record.get('status', '等待总结')}；模型想法：{record.get('reason') or '尚未决定'}\n"
                 f"发布记录：{json.dumps(record.get('results', {}), ensure_ascii=False)}\n"
                 f"暂停：{'、'.join(self.state.data.get('paused', {})) or '无'}\n"
-                "/生活 日记、/生活 草稿、/生活 预览、/生活 恢复 <平台>"
+                "/生活 日记、/生活 成长、/生活 草稿、/生活 预览、/生活 恢复 <平台>"
             )
 
     async def terminate(self):

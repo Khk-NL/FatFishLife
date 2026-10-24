@@ -2,6 +2,8 @@
 
 给视觉模型用。目标是让 `meme_manager` 的语义检索能用上这些表情。
 
+当前安装的插件使用 `schema_version: "2.0"` 和内容、分类、路径共同生成的记录 ID。下面的简短提示词可用于人工查看单图；批量生成请使用后面的脚本，它直接复用插件的当前提示词、GIF 抽帧、校验和索引实现。
+
 ## System prompt
 
 ```
@@ -25,48 +27,19 @@
 
 把这三行连同图片一起发给模型。文件名里的关键词能减少幻觉，但不要让模型照抄关键词当 caption。
 
-## 输出汇总格式
+## 自动生成与索引
 
-把每张图的结果拼成下面这个结构，存为资源包里的 `semantic_metadata.json`：
+在项目目录用 AstrBot 自己的 Python 环境执行。脚本从 AstrBot 已保存的 Provider 配置读取凭据，使用 DeepSeek Flash 看图、BGE-M3 建向量；凭据不进入输出文件。
 
-```json
-{
-  "schema_version": 1,
-  "images": {
-    "能天使/web-exusiai-09_乖巧.jpg": {
-      "caption": "能天使双手合十歪头微笑，眼睛亮亮的，看起来在撒娇",
-      "tags": ["乖巧", "撒娇", "能天使", "开心"],
-      "caption_status": "done"
-    }
-  }
-}
+```powershell
+& 'D:\Code\Apps\AstrBot\.venv\Scripts\python.exe' scripts/generate_meme_semantics.py `
+  --astrbot-root 'D:\Code\Apps\AstrBot' `
+  --output-dir 'D:\Code\Codex\2026-10-22\new-chat\outputs\meme-semantics' `
+  --limit 3 --skip-index
 ```
 
-key 必须是 `分类/文件名`，和 `memes/` 下的相对路径一致，否则插件对不上。
+首批成功后，去掉 `--limit 3 --skip-index` 再执行即可处理剩余图片并建索引。默认并发为 4，可用 `--concurrency` 调整。执行期间不要同时从插件控制台开始语义队列。
 
-## 合并脚本
+每张成功后都会原子保存，重新执行时跳过已有完整描述和人工覆盖内容；失败项会记录异常类型，后续执行只补齐缺失项。脚本会保留分类目录和图片文件，模型提出的分类疑问写入 `needs_review`，供控制台查看。
 
-模型按每张图输出一行 JSON 的话，用下面这段合并（把 `results.jsonl` 换成你的输出文件，每行带 `path` 字段）：
-
-```python
-import json, pathlib
-rows = [json.loads(line) for line in pathlib.Path("results.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-images = {
-    row["path"]: {
-        "caption": row["caption"],
-        "tags": row["tags"],
-        "caption_status": "done",
-    }
-    for row in rows
-}
-pathlib.Path("semantic_metadata.json").write_text(
-    json.dumps({"schema_version": 1, "images": images}, ensure_ascii=False, indent=2),
-    encoding="utf-8",
-)
-```
-
-放到 `D:\Code\Apps\AstrBot\data\plugin_data\meme_manager\packs\builtin-default\semantic_metadata.json`，重启 AstrBot，插件会自动建索引。
-
-## 已生成的粗描述
-
-当前这份 `semantic_metadata.json` 是用文件名关键词填的（96 张），插件判定「描述未完成」，没有建索引。用上面的提示词重新生成一遍覆盖掉即可。
+结果保存在资源包的 `semantic_metadata.json`；输出目录的 `semantic-result.json` 提供处理数量、失败数量、分类复核数量及 `index_ready`。只有所有图片描述完整时才开始建立索引。旧版以 `分类/文件名` 作为 key 的 schema 1 文件需要先用 `scripts/migrate_meme_metadata.py` 迁移，不能直接拼接覆盖当前文件。

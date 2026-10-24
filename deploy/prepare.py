@@ -12,7 +12,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DEPLOY = ROOT / "deploy"
-PLUGINS = tuple("astrbot_plugin_fatfish_" + name for name in ("memory", "bili", "offline", "lore"))
+PLUGINS = tuple("astrbot_plugin_fatfish_" + name for name in (
+    "memory", "bili", "offline", "lore", "life", "story", "obsidian", "steam", "voice",
+))
 PACKAGES = ("fatfish_core", "fatfish_video", "fatfish_story", "fatfish_bili")
 
 
@@ -26,6 +28,15 @@ def prepare(*, state_dir: Path | None = None, write: bool = False) -> dict:
     offline = configs["astrbot_plugin_fatfish_offline_config.json"]
     if offline.get("local_model_enabled"):
         raise ValueError("服务器初始配置不应启用本地模型；先验证远程 PC 服务或服务器内存")
+    life = configs["astrbot_plugin_fatfish_life_config.json"]
+    if life.get("publish_enabled"):
+        raise ValueError("部署初始配置必须关闭生活动态发布")
+    obsidian = configs["astrbot_plugin_fatfish_obsidian_config.json"]
+    if obsidian.get("enabled") or obsidian.get("vault_path"):
+        raise ValueError("部署初始配置必须关闭知识库同步，等待主人提供 vault 路径")
+    story = configs["astrbot_plugin_fatfish_story_config.json"]
+    if story.get("zone") or story.get("tid") or story.get("owner_qq"):
+        raise ValueError("部署初始配置必须等待主人填写视频投稿分区和审阅账号")
     required = [ROOT / "pyproject.toml", ROOT / "assets", ROOT / "examples", ROOT / "docs/persona/apple-le-full.md"]
     required.extend(ROOT / package for package in PACKAGES)
     required.extend(ROOT / "bots" / plugin / "main.py" for plugin in PLUGINS)
@@ -52,7 +63,8 @@ def prepare(*, state_dir: Path | None = None, write: bool = False) -> dict:
         "plugins": list(PLUGINS), "default_services": ["astrbot", "napcat"],
         "local_model_enabled": False, "docker_available": shutil.which("docker") is not None,
         "services_started": False,
-        "pending": ["服务器内存容量与 Docker Compose 运行验证", "社区 meme_manager、proactive_chat 的安装与数据迁移", "主人身份、模型及账号登录"],
+        "pending": ["服务器内存容量与 Docker Compose 运行验证", "社区 meme_manager、proactive_chat 的安装与数据迁移", "主人身份、模型及账号登录",
+                    "视频主人看片、明确分区与投稿审核", "Obsidian vault 只读挂载与独立私人检索", "Steam 商店连接与代理、语音及表情语义实测"],
     }
 
 

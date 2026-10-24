@@ -30,6 +30,7 @@ def load_plugin(plugin_name: str, *, module_overrides: dict | None = None):
         EventMessageType=types.SimpleNamespace(ALL="all"),
         event_message_type=decorator, command=decorator, llm_tool=decorator, on_llm_request=decorator,
         after_message_sent=decorator,
+        on_llm_tool_respond=decorator,
     )
     modules["astrbot.api.star"].Context = object
     modules["astrbot.api.star"].Star = type("Star", (), {})

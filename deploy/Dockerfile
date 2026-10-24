@@ -10,6 +10,6 @@ COPY fatfish_core /opt/fatfish/fatfish_core
 RUN python -m venv /opt/bili-venv \
     && /opt/bili-venv/bin/python -m pip install --no-cache-dir "bili-agent==0.6.0" \
     && python -m pip install --no-cache-dir -e /opt/fatfish "chinese-calendar==1.11.0" \
-    && python -c "from fatfish_core import MemoryStore, SeenStore, StateStore, build_context"
+    && python -c "from fatfish_core import MemoryStore, SeenStore, StateStore, build_context; from fatfish_core.growth import record_capability; from fatfish_core.steam import SteamStore; from fatfish_story.review import ReviewQueue"
 
 WORKDIR /AstrBot

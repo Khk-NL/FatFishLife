@@ -1,0 +1,9 @@
+{
+  "enabled": false,
+  "vault_path": "",
+  "owner_ids": "",
+  "kb_name": "FatFish-Obsidian-Private",
+  "embedding_provider_id": "",
+  "sync_time": "03:00",
+  "max_files_per_sync": 25
+}

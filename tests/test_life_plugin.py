@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from fatfish_core.memory import MemoryStore  # noqa: E402
+from fatfish_core.growth import record_capability  # noqa: E402
 
 
 PLUGIN = load_plugin("astrbot_plugin_fatfish_life")
@@ -123,6 +124,65 @@ class LifePluginTests(unittest.IsolatedAsyncioTestCase):
         journals = self.store.journals()
         self.assertEqual(len(journals), 2)
         self.assertIn(JOURNAL_MARKER, [item["content"] for item in journals])
+
+    async def test_capability_results_are_private_reflection_input_but_not_public_material(self):
+        record_capability(self.store, "anysearch", "failed", stage="search", error_code="authorization")
+        with self.store._connect() as connection:
+            connection.execute("UPDATE events SET created_at=? WHERE kind='capability'", (DAY + "T15:00:00+08:00",))
+        await self.plugin._reflect(DAY)
+        private, public = self.provider.text_chat.await_args_list
+        self.assertIn('"capability": "anysearch"', private.kwargs["prompt"])
+        self.assertIn('"status": "failed"', private.kwargs["prompt"])
+        self.assertNotIn('"capabilities"', public.kwargs["prompt"])
+        self.assertNotIn("资料检索", public.kwargs["prompt"])
+        self.assertEqual(self.plugin.state.data["days"][DAY]["capabilities"][0]["stage"], "search")
+
+    async def test_growth_command_has_same_owner_private_boundary(self):
+        for event in (Event(sender="visitor"), Event(private=False)):
+            self.assertEqual(await self.command(event, "成长"), ["日记和生活设置只在老板私聊里看。"])
+        record_capability(self.store, "tts", "success", stage="generate")
+        with self.store._connect() as connection:
+            connection.execute("UPDATE events SET created_at=? WHERE kind='capability'", (DAY + "T15:00:00+08:00",))
+        replies = await self.command(Event(), "成长")
+        self.assertIn("语音表达：成功 1 次（generate）", replies[0])
+
+    async def test_tool_observer_stores_outcome_without_arguments_or_response(self):
+        await self.plugin.record_tool(Event(), types.SimpleNamespace(name="anysearch_batch_search"), {"query": "PRIVATE_QUERY"},
+                                      types.SimpleNamespace(isError=False, content=[types.SimpleNamespace(type="text", text="错误：SECRET_KEY")]))
+        rows = self.store.recent(scopes=("private",), kinds=("capability",))
+        self.assertEqual(len(rows), 1)
+        self.assertIn("失败", rows[0]["content"])
+        self.assertNotIn("SECRET", json.dumps(rows))
+        self.assertNotIn("PRIVATE_QUERY", json.dumps(rows))
+        await self.plugin.record_tool(Event(), types.SimpleNamespace(name="unknown_tool"), {}, None)
+        self.assertEqual(len(self.store.recent(scopes=("private",), kinds=("capability",))), 1)
+
+    async def test_voice_delivery_record_requires_sent_voice_and_does_not_store_voice_url(self):
+        event = Event(sent=True, text="")
+        voice = type("Record", (), {"url": "SECRET_VOICE_URL"})()
+        event.get_result = lambda: types.SimpleNamespace(chain=[voice], get_plain_text=lambda: "")
+        await self.plugin.record_sent(event)
+        rows = self.store.recent(scopes=("private",), kinds=("capability",))
+        self.assertEqual(len(rows), 1)
+        self.assertIn("delivery", rows[0]["content"])
+        self.assertNotIn("SECRET", json.dumps(rows))
+        event._has_send_oper = False
+        await self.plugin.record_sent(event)
+        self.assertEqual(len(self.store.recent(scopes=("private",), kinds=("capability",))), 1)
+
+    async def test_stt_observation_requires_original_audio_replaced_by_text(self):
+        event = Event()
+        event.message_obj = types.SimpleNamespace(raw_message={"message": [{"type": "record", "data": {"file": "SECRET_AUDIO"}}]})
+        plain = type("Plain", (), {"text": "PRIVATE_TRANSCRIPT"})()
+        event.get_messages = lambda: [plain]
+        await self.plugin.record_transcription(event)
+        rows = self.store.recent(scopes=("private",), kinds=("capability",))
+        self.assertEqual(len(rows), 1)
+        self.assertIn("语音理解", rows[0]["content"])
+        self.assertNotIn("PRIVATE", json.dumps(rows))
+        event.get_messages = lambda: [type("Record", (), {})()]
+        await self.plugin.record_transcription(event)
+        self.assertEqual(len(self.store.recent(scopes=("private",), kinds=("capability",))), 1)
 
     async def test_both_platforms_publish_once_and_real_success_resets_probability(self):
         self.proposal["platform_weights"] = {"both": 100}

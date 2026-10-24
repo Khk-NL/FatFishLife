@@ -1,0 +1,10 @@
+{
+  "owner_qq": {"type": "string", "description": "仅此 QQ 号可在私聊中制作、看片和确认投稿。留空沿用 fatfish_bili 的 owner_qq；管理员身份不能代替主人批准。", "default": ""},
+  "duration": {"type": "int", "description": "视频目标秒数，3～120 秒", "default": 30},
+  "persona": {"type": "string", "description": "编剧人设与语气，沿用现有短视频模板素材。", "default": "苹果乐，以能天使为基础，称呼老板，爽朗有点嘴硬，听懂也偶尔故意装傻，短句自然。"},
+  "tags": {"type": "string", "description": "投稿标签，用逗号分隔，1～10 个；会与成片一起给老板审阅。", "default": ""},
+  "zone": {"type": "int", "description": "B站新版分区 ID，请在账号投稿分区中确认；0 时可制作看片，不能投稿。", "default": 0},
+  "tid": {"type": "int", "description": "B站旧版分区 ID，请明确配置；0 时可制作看片，不能投稿。", "default": 0},
+  "bili_exe": {"type": "string", "description": "未启用 fatfish_bili 时使用的 bili-cli 路径；启用时复用其登录环境。", "default": "bili"},
+  "bili_home": {"type": "string", "description": "未启用 fatfish_bili 时使用的 bili-cli 配置目录。", "default": ""}
+}

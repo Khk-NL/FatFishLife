@@ -1,0 +1,4 @@
+{
+  "country": {"type": "string", "description": "Steam 价格区域，使用两位国家代码，如 cn", "default": "cn"},
+  "proxy": {"type": "string", "description": "HTTP代理地址，如 http://127.0.0.1:7890；留空直连", "default": ""}
+}

@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "reflection_time": "23:50",
+  "publish_enabled": false,
+  "lookback_days": 3,
+  "qq_platform_id": "napcat",
+  "qq_bot_id": "",
+  "persona": ""
+}

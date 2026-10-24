@@ -8,6 +8,9 @@ outputs/
 build/
 dist/
 .web-data/
+data/
+logs/
+scripts/.pixiv_verifier
 .env
 *.env
 !*.env.example

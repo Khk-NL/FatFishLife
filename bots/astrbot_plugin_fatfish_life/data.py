@@ -49,6 +49,7 @@ def events_between(
     end: datetime,
     scopes: tuple[str, ...] = ("public",),
     limit: int = 200,
+    kinds: tuple[str, ...] | None = None,
 ) -> list[dict]:
     """Read the latest selected events, in chronological order, with decoded metadata."""
     start_utc, end_utc = _utc(start), _utc(end)
@@ -60,6 +61,11 @@ def events_between(
     if not path.is_file():
         return []
     placeholders = ",".join("?" for _ in scopes)
+    kind_clause = ""
+    if kinds is not None:
+        if not kinds:
+            return []
+        kind_clause = " AND kind IN (" + ",".join("?" for _ in kinds) + ")"
     with closing(_readonly(path)) as connection:
         if not _has_table(connection, "events"):
             return []
@@ -71,9 +77,10 @@ def events_between(
               AND julianday(created_at) < julianday(?)
               AND scope IN ({placeholders})
               AND NOT (platform='bilibili' AND kind='inbox' AND scope='public')
+              {kind_clause}
             ORDER BY julianday(created_at) DESC, id DESC LIMIT ?
             """,
-            (start_utc.isoformat(), end_utc.isoformat(), *scopes, int(limit)),
+            (start_utc.isoformat(), end_utc.isoformat(), *scopes, *(kinds or ()), int(limit)),
         ).fetchall()
     result = []
     for row in reversed(rows):

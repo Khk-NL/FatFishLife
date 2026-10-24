@@ -1,0 +1,10 @@
+{
+  "owner_qq": "",
+  "duration": 30,
+  "persona": "苹果乐，以能天使为基础，称呼老板，爽朗有点嘴硬，听懂也偶尔故意装傻，短句自然。",
+  "tags": "",
+  "zone": 0,
+  "tid": 0,
+  "bili_exe": "/opt/bili-venv/bin/bili",
+  "bili_home": "/AstrBot/data/plugin_data/astrbot_plugin_fatfish_bili/cli"
+}

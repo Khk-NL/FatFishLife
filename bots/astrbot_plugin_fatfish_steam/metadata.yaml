@@ -1,0 +1,5 @@
+name: astrbot_plugin_fatfish_steam
+desc: Steam 公开商店价格查询与成长记录
+author: Kongb
+version: 0.1.0
+repo: https://github.com/Khk-NL/FatFishLife

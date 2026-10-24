@@ -29,7 +29,7 @@ class DeploymentPreparationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             destination = Path(directory) / "state"
             result = prepare(state_dir=destination, write=True)
-            self.assertEqual(len(result["written"]), 4)
+            self.assertEqual(len(result["written"]), 8)
             config = destination / "astrbot/config/astrbot_plugin_fatfish_bili_config.json"
             bili = json.loads(config.read_text(encoding="utf-8"))
             self.assertTrue(bili["dry_run_writes"])
@@ -38,6 +38,19 @@ class DeploymentPreparationTests(unittest.TestCase):
             self.assertFalse(bili["owner_uid"])
             offline = json.loads((config.parent / "astrbot_plugin_fatfish_offline_config.json").read_text(encoding="utf-8"))
             self.assertFalse(offline["local_model_enabled"])
+            life = json.loads((config.parent / "astrbot_plugin_fatfish_life_config.json").read_text(encoding="utf-8"))
+            self.assertFalse(life["publish_enabled"])
+            self.assertFalse(life["qq_bot_id"])
+            obsidian = json.loads((config.parent / "astrbot_plugin_fatfish_obsidian_config.json").read_text(encoding="utf-8"))
+            self.assertFalse(obsidian["enabled"])
+            self.assertFalse(obsidian["vault_path"])
+            self.assertFalse(obsidian["owner_ids"])
+            self.assertEqual(obsidian["kb_name"], "FatFish-Obsidian-Private")
+            story = json.loads((config.parent / "astrbot_plugin_fatfish_story_config.json").read_text(encoding="utf-8"))
+            self.assertEqual((story["zone"], story["tid"]), (0, 0))
+            self.assertFalse(story["owner_qq"])
+            steam = json.loads((config.parent / "astrbot_plugin_fatfish_steam_config.json").read_text(encoding="utf-8"))
+            self.assertEqual(steam, {"country": "cn", "proxy": ""})
             config.write_text("existing configuration", encoding="utf-8")
             repeated = prepare(state_dir=destination, write=True)
             self.assertEqual(repeated["written"], [])
@@ -67,19 +80,25 @@ class DeploymentPreparationTests(unittest.TestCase):
         self.assertNotIn("/AstrBot/data/plugins", targets)
         mounted_plugins = {target.rsplit("/", 1)[1] for target in targets if target.startswith("/AstrBot/data/plugins/")}
         self.assertEqual(mounted_plugins, set(PLUGINS))
-        self.assertNotIn("astrbot_plugin_fatfish_life", mounted_plugins)
+        self.assertTrue({"astrbot_plugin_fatfish_life", "astrbot_plugin_fatfish_story",
+                         "astrbot_plugin_fatfish_obsidian", "astrbot_plugin_fatfish_steam",
+                         "astrbot_plugin_fatfish_voice"}.issubset(mounted_plugins))
+        self.assertTrue(all(volume.endswith(":ro") for volume in services["astrbot"]["volumes"] if ":/AstrBot/data/plugins/" in volume))
         self.assertNotIn("astrbot_plugin_fatfish_stickers", mounted_plugins)
 
-    def test_source_bundle_has_core_and_no_credentials_runtime_or_incomplete_plugins(self):
+    def test_source_bundle_has_all_nine_plugins_without_credentials_runtime_or_legacy_stickers(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             deploy = root / "deploy"
             files = ["pyproject.toml", "deploy/Dockerfile", "deploy/Dockerfile.dockerignore", "deploy/compose.yaml",
                      "deploy/prepare.py", "deploy/README.md", "deploy/.env.example", "fatfish_core/__init__.py",
+                     "fatfish_core/growth.py", "fatfish_core/steam.py", "fatfish_story/review.py",
                      "fatfish_video/web/app.js", "assets/photo.png", "examples/single.json", "docs/persona/apple-le-full.md",
-                     "deploy/config/astrbot_plugin_fatfish_bili_config.json.example", "bots/astrbot_plugin_fatfish_bili/main.py"]
+                     "bots/astrbot_plugin_fatfish_life/publishers.py", "bots/astrbot_plugin_fatfish_obsidian/sync.py"]
+            files.extend("bots/" + plugin + "/main.py" for plugin in PLUGINS)
+            files.extend("deploy/config/" + plugin + "_config.json.example" for plugin in PLUGINS if not plugin.endswith("_voice"))
             excluded = ["deploy/.env", "deploy/state/astrbot/memory.db", "assets/.env", "assets/private.db",
-                        "fatfish_core/__pycache__/state.pyc", "bots/astrbot_plugin_fatfish_life/publishers.py",
+                        "fatfish_core/__pycache__/state.pyc", "bots/astrbot_plugin_fatfish_life/__pycache__/main.pyc",
                         "bots/astrbot_plugin_fatfish_stickers/main.py", "deploy/config/private.json"]
             for relative in files + excluded:
                 path = root / relative

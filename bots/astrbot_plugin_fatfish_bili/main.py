@@ -167,11 +167,13 @@ class Main(Star):
             return
         top_n = int(self.config.get("study_top_n", 3))
         lines = []
+        learned = 0
         for tag in tags:
             result = await study_tag(
                 self._run, self._memory_store, tag, seen=self.seen, top_n=top_n
             )
             self._save_seen()
+            learned += int(bool(result.get("ok") and result.get("comment_count")))
             if result["videos"]:
                 lines.append(f"「{tag}」")
                 lines.extend(f"- {video['title']} {video['url']}" for video in result["videos"])
@@ -179,11 +181,14 @@ class Main(Star):
                 lines.append(f"  评论区常说：{'、'.join(result['terms'][:10])}")
         if not lines:
             return
-        logger.info(f"B 站标签学习完成：{len(tags)} 个标签")
+        logger.info(f"B 站标签学习：{learned}/{len(tags)} 个标签读到评论")
         if owner:
-            await self._run(
-                "dm", "send", owner, "今天刷 B 站学到的：\n" + "\n".join(lines), timeout=90
+            payload = await self._run(
+                "dm", "send", owner, "今天刷 B 站看到的：\n" + "\n".join(lines), timeout=90,
+                dry_run=bool(self.config.get("dry_run_writes", True)),
             )
+            if not payload.get("ok"):
+                await self._pause_for_error(payload)
 
     async def _run(self, *args: str, timeout: float = 180.0, dry_run: bool = False) -> dict:
         command = [self.exe]
