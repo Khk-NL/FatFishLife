@@ -105,7 +105,7 @@ class Main(Star):
 
     def _preview_text(self, row):
         meta = row["metadata"]
-        lines = [f"老板，成片 {row['id']} 先给你看。", f"标题：{meta['title']}",
+        lines = [f"老大，成片 {row['id']} 先给你看。", f"标题：{meta['title']}",
                  f"简介：{meta['description']}", "标签：" + "、".join(meta["tags"]),
                  f"分区：zone={meta['zone']}，tid={meta['tid']}；声明 AI 生成。"]
         if row.get("metadata_error"):
@@ -126,7 +126,7 @@ class Main(Star):
     @filter.command("视频")
     async def video(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
         if not self._owner_private(event):
-            yield event.plain_result("视频制作和投稿只在老板的 QQ 私聊里处理。")
+            yield event.plain_result("视频制作和投稿只在老大的 QQ 私聊里处理。")
             return
         action, body = str(action).strip(), str(text).strip()
         if action in ("", "帮助", "help"):
@@ -156,7 +156,7 @@ class Main(Star):
                         raise ReviewError("话题请控制在 1000 字内")
                     job = await self._prepare_updream(body, event)
                     yield event.plain_result(f"Updream创作方案 {job['id']} 已准备：{job['brief']['title']}\n{job['path']}\n"
-                                             "视频统一在Updream制作；平台生成和导出完成后，用 /视频 导入 <本机成片路径> 发给老板看片。")
+                                             "视频统一在Updream制作；平台生成和导出完成后，用 /视频 导入 <本机成片路径> 发给老大看片。")
                 elif action == "导入":
                     row = await self._import_updream(body, event)
                     stage = "review"

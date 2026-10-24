@@ -55,6 +55,7 @@ PLUGIN = load_plugin(
 class Event:
     def __init__(self, *, group="group", message=(), text="", raw=None):
         self.group = group
+        self.unified_msg_origin = f"test:{group or 'private'}"
         self.message_obj = types.SimpleNamespace(message=list(message), message_str=text, raw_message=raw or {})
         self.message_str = text
         self.is_at_or_wake_command = any(isinstance(component, At) and component.qq == "bot" for component in message)
@@ -88,6 +89,7 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
     def plugin(self, offline=False):
         plugin = PLUGIN.Main.__new__(PLUGIN.Main)
         plugin.config = {}
+        plugin.context = types.SimpleNamespace()
         plugin.enabled = True
         plugin.hourly_model_limit = 0
         plugin.scheduler = types.SimpleNamespace(tz=timezone.utc)
@@ -114,6 +116,22 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         plugin.local_model.unload.assert_awaited_once()
         self.assertFalse(plugin._local_warm)
         self.assertFalse(event.stopped)
+
+    async def test_muted_group_stops_commands_mentions_pokes_and_keywords(self):
+        plugin = self.plugin()
+        plugin.config["mute_groups"] = ["muted"]
+        for event in [Event(group="muted", text="/记忆 状态"), Event(group="muted", message=[At("bot")]),
+                      Event(group="muted", raw=poke_raw("bot")), Event(group="muted", text="能天使")]:
+            await plugin.guard(event)
+            self.assertTrue(event.stopped)
+            event.send.assert_not_awaited()
+
+    def test_owner_is_big_boss_but_npc_title_is_preserved(self):
+        plugin = self.plugin()
+        plugin.context.get_registered_star = lambda _: types.SimpleNamespace(star_cls=types.SimpleNamespace(store=types.SimpleNamespace(is_owner=lambda p, u: u == "visitor")))
+        self.assertEqual(plugin._addressed_reply(Event(), "老板，老板大帝来了"), "老大，老板大帝来了")
+        plugin.context.get_registered_star = lambda _: None
+        self.assertEqual(plugin._addressed_reply(Event(), "老板，怎么啦"), "老板，怎么啦")
 
     async def test_default_offline_message_uses_local_model_and_stops_cloud_path(self):
         plugin = self.plugin(offline=True)

@@ -1,4 +1,6 @@
 {
+  "mute_groups": {"type":"list","description":"完全静音的群号列表，含@、戳一戳、关键词、续聊和命令；请在私聊或控制台解除","default":[]},
+  "local_model_api_key": {"type":"string","description":"本机OpenAI兼容服务的访问密钥，Ollama无需填写","default":""},
   "enabled": {
     "type": "bool",
     "description": "启用离线模式：配置时段内不调用任何云端大模型",

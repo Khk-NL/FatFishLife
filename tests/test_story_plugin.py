@@ -63,7 +63,7 @@ class StoryPluginTests(unittest.IsolatedAsyncioTestCase):
     async def test_only_owner_qq_private_can_operate(self):
         for event in (Event(private=False), Event(sender="stranger", admin=True), Event(platform="telegram")):
             result = await self.invoke("确认", self.row["id"], event)
-            self.assertIn("只在老板", result[0])
+            self.assertIn("只在老大", result[0])
         self.assertEqual(self.plugin.queue.get(self.row["id"], **self.plugin._identity(self.event))["status"], "pending_preview")
 
     async def test_preview_sends_video_and_metadata_then_enables_approval(self):

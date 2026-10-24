@@ -71,7 +71,8 @@ class Main(Star):
                     state["next_check"] = time.time() + 600
                     self._style(group).save(state)
                     return 0
-                provider = await self.context.get_using_provider_async(umo)
+                configured = str(self.config.get("review_provider_id") or "").strip()
+                provider = self.context.get_provider_by_id(configured) if configured else await self.context.get_using_provider_async(umo)
                 if provider is None:
                     raise RuntimeError("No style review provider")
                 response = await asyncio.wait_for(provider.text_chat(
@@ -123,6 +124,9 @@ class Main(Star):
         self._schedule(group, event.unified_msg_origin)
         reference, ids = style.select(text)
         if reference:
+            store = getattr(self, "store", None)
+            if store and store.is_owner("qq", str(event.get_sender_id())):
+                reference = reference.replace("老板", "老大")
             req.extra_user_content_parts.append(TextPart(text=reference))
             event.set_extra("fatfish_style_ids", ids)
 

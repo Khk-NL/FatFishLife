@@ -19,6 +19,7 @@ from astrbot.core.star.filter.command import GreedyStr
 
 from fatfish_core import MemoryStore, SeenStore, build_context, read_offline, resolve_shared_db
 from fatfish_core.safety import wrap_untrusted
+from fatfish_core.usage import record_usage
 from .discovery import DiscoveryStore, discover
 from .study import study_tag
 
@@ -367,31 +368,31 @@ class Main(Star):
         if self._pause_reason is not None:
             return ""
         persona = str(self.config.get("reply_persona") or DEFAULT_REPLY_PERSONA)
+        memory = ""
         if bool(self.config.get("inject_context", True)) and self.memory_db.is_file():
             owner = str(self.config.get("owner_uid") or "").strip()
             scopes = ("public", "private") if kind == "dm" and owner and actor == owner else ("public",)
             try:
                 memory = build_context(
                     self._get_memory(), text, scopes=scopes,
-                    conversation=("bilibili", session) if session else None,
+                    conversation=("bilibili", session or "__unbound_no_context__"),
                     max_chars=int(self.config.get("max_context_chars", 1800)),
+                    include_persona=False,
                 )
             except (sqlite3.Error, OSError, ValueError) as exc:
                 logger.warning(f"读取共享记忆失败，跳过本次 B 站自动回复：{exc}")
                 return ""
-            if memory:
-                persona += "\n\n[共享记忆参考]\n" + memory
         context = f"视频《{title}》。" if title else ""
         from fatfish_core.knowledge_graph import KnowledgeGraph
         graph = KnowledgeGraph(self.memory_db).context(text, collection="lore", max_chars=1200)
-        if graph:
-            persona += "\n\n" + graph
         material = wrap_untrusted(text, "评论" if kind == "comment" else "私信")
+        address = "当前对话者是老大。" if actor and actor == str(self.config.get("owner_uid") or "") else "当前对话者是普通客户，合适时称老板或昵称。"
+        material = "\n".join(part for part in [memory, graph, address, material] if part)
         prompt = (
             f"{context}{material}\n"
-            "请以 UP 主身份回复 1 到 2 句，不超过 60 字，口语化，不要引号，不要解释身份。"
+            "以UP主身份简短接话，默认一句5～20字，必要解释最多60字；不重复解释或承诺，不加引号。"
             if kind == "comment"
-            else f"{material}\n请回复 1 到 2 句，不超过 80 字，口语化，不要引号。"
+            else f"{material}\n简短接话，默认一句5～20字，必要解释最多60字；不重复解释、认错或承诺，不加引号。"
         )
         try:
             provider = self.context.get_using_provider()
@@ -401,6 +402,11 @@ class Main(Star):
             if self._pause_reason is not None or self._offline():
                 return ""
             response = await provider.text_chat(prompt=prompt, system_prompt=persona)
+            if hasattr(response, "usage"):
+                try:
+                    await record_usage(self.context, provider, response, umo="bilibili:" + (session or "unbound"), agent_type="fatfish_bili_reply")
+                except Exception as exc:
+                    logger.warning("B站用量未记录：" + type(exc).__name__)
             answer = str(getattr(response, "completion_text", "") or "").strip()
         except Exception as exc:  # provider failures must not break polling
             logger.warning(f"生成回复失败：{exc}")

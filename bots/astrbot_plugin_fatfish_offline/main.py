@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 import sys
 from contextlib import suppress
 from datetime import datetime, timedelta
@@ -87,9 +88,9 @@ class Main(Star):
         self.state = StateStore(state_directory, db_path=resolve_shared_db(state_directory.parent.parent))
         self.engagement = GroupEngagement(
             GroupConfig(
-                random_probability=float(self.config.get("ambient_chance") or 0.025),
+                random_probability=float(self.config.get("ambient_chance", 0.025)),
                 random_cooldown=float(self.config.get("ambient_cooldown") or 300),
-                random_hourly_limit=int(self.config.get("ambient_hourly_limit") or 3),
+                random_hourly_limit=int(self.config.get("ambient_hourly_limit", 3)),
             )
         )
         self._pending_trigger: dict[str, tuple[str | None, str]] = {}
@@ -100,6 +101,7 @@ class Main(Star):
             model=str(self.config.get("local_model_name") or "qwen2.5:1.5b"),
             timeout=float(self.config.get("local_model_timeout") or 30),
             enabled=bool(self.config.get("local_model_enabled", True)),
+            api_key=str(self.config.get("local_model_api_key") or ""),
         )
         self._local_warm: bool | None = None
         self._local_mode_task: asyncio.Task | None = None
@@ -135,7 +137,7 @@ class Main(Star):
 
     async def _daily_apple_pie_once(self, now: datetime) -> bool:
         group = str(self.config.get("daily_apple_pie_group_id") or "").strip()
-        if not group:
+        if not group or group in {str(value).strip() for value in self.config.get("mute_groups", [])}:
             return True
         if not group.isascii() or not group.isdecimal() or int(group) <= 0:
             raise ValueError("每日啊噗噜派群号必须是数字，留空则关闭")
@@ -411,6 +413,9 @@ class Main(Star):
     # starts an LLM session before ordinary plugin handlers can see the event.
     @filter.event_message_type(filter.EventMessageType.ALL, priority=sys.maxsize)
     async def guard(self, event: AstrMessageEvent):
+        if str(event.get_group_id() or "") in {str(group).strip() for group in self.config.get("mute_groups", [])}:
+            event.stop_event()
+            return
         if not self.enabled:
             return
         if self._is_bot(event) and not (self._is_friendly_bot(event) and self._has_at_bot(event)):
@@ -435,7 +440,7 @@ class Main(Star):
             group_key = str(event.get_group_id() or "")
             if group_key:
                 self._pending_trigger[group_key] = (str(event.get_sender_id() or ""), kind)
-            await event.send(MessageChain([Plain(reply)]))
+            await event.send(MessageChain([Plain(self._addressed_reply(event, reply))]))
             event.stop_event()
             return
         if not decision.offline:
@@ -538,6 +543,7 @@ class Main(Star):
         if self.local_model.enabled and reply is not None and detect_intent(text) == "default":
             knowledge = await self._knowledge(text)
             system = LOCAL_SYSTEM
+            system += "\n当前对象称" + ("老大" if self._addressed_reply(event, "老板") == "老大" else "老板") + "；默认一句，答完就停，不反复解释、认错或承诺。"
             if decision.offline and resume_text:
                 system += (
                     f"\n现在是出勤时间，你在企鹅物流送快递，回消息简短一点；"
@@ -553,7 +559,7 @@ class Main(Star):
             event.stop_event()
             return
         try:
-            await event.send(MessageChain([Plain(reply)]))
+            await event.send(MessageChain([Plain(self._addressed_reply(event, reply))]))
             self.engagement.on_bot_sent(
                 group_id=group,
                 text=reply,
@@ -568,6 +574,13 @@ class Main(Star):
         event.stop_event()
 
     # ---------- commands ----------
+
+    def _addressed_reply(self, event, text):
+        getter = getattr(self.context, "get_registered_star", None)
+        registered = getter("astrbot_plugin_fatfish_memory") if getter else None
+        memory = getattr(registered, "star_cls", None)
+        owner = bool(memory and memory.store.is_owner("qq", str(event.get_sender_id())))
+        return re.sub(r"老板(?!大帝)", "老大", str(text)) if owner else str(text)
 
     @filter.command("离线")
     async def offline(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):

@@ -124,6 +124,7 @@ class MemoryStore:
         limit: int = 20,
         conversation: tuple[str, str] | None = None,
         kinds: tuple[str, ...] | None = None,
+        conversation_only: bool = False,
     ) -> list[dict]:
         # Keep legacy inbox snapshots out of public access even before a reload.
         where = ["NOT (platform='bilibili' AND kind='inbox' AND scope='public')"]
@@ -131,8 +132,11 @@ class MemoryStore:
         if scopes:
             where.append("scope IN (" + ",".join("?" for _ in scopes) + ")")
             params.extend(scopes)
-        if conversation is not None:
-            where.append("(kind <> 'message' OR (platform=? AND session=?))")
+        if conversation_only and (conversation is None or not all(conversation)):
+            where.append("0")
+        elif conversation is not None:
+            where.append("(platform=? AND session=?)" if conversation_only else
+                         "(kind <> 'message' OR (platform=? AND session=?))")
             params.extend(conversation)
         if kinds is not None:
             where.append("kind IN (" + ",".join("?" for _ in kinds) + ")" if kinds else "0")
@@ -155,8 +159,10 @@ class MemoryStore:
         limit: int = 20,
         conversation: tuple[str, str] | None = None,
         kinds: tuple[str, ...] | None = None,
+        conversation_only: bool = False,
     ) -> list[dict]:
-        return self.recall("", scopes=scopes, limit=limit, conversation=conversation, kinds=kinds)
+        return self.recall("", scopes=scopes, limit=limit, conversation=conversation, kinds=kinds,
+                           conversation_only=conversation_only)
 
     def set_persona(self, content: str, name: str = "default") -> None:
         text = str(content).strip()
@@ -202,13 +208,15 @@ class MemoryStore:
             )
             return int(cursor.lastrowid or 0)
 
-    def summaries(self, limit: int = 10) -> list[dict]:
+    def summaries(self, limit: int = 10, *, source: str | None = None) -> list[dict]:
+        where = " WHERE source=?" if source is not None else ""
+        params = (() if source is None else (source,)) + (max(1, min(100, int(limit))),)
         with self._connect() as conn:
             return [
                 dict(row)
                 for row in conn.execute(
-                    "SELECT id, period, content, created_at, source FROM summaries ORDER BY id DESC LIMIT ?",
-                    (max(1, min(100, int(limit))),),
+                    "SELECT id, period, content, created_at, source FROM summaries" + where + " ORDER BY id DESC LIMIT ?",
+                    params,
                 ).fetchall()
             ]
 
@@ -224,13 +232,15 @@ class MemoryStore:
             )
             return int(cursor.lastrowid or 0)
 
-    def journals(self, limit: int = 10) -> list[dict]:
+    def journals(self, limit: int = 10, *, source: str | None = None) -> list[dict]:
+        where = " WHERE source=?" if source is not None else ""
+        params = (() if source is None else (source,)) + (max(1, min(100, int(limit))),)
         with self._connect() as conn:
             return [
                 dict(row)
                 for row in conn.execute(
-                    "SELECT id, day, content, source, created_at FROM journals ORDER BY id DESC LIMIT ?",
-                    (max(1, min(100, int(limit))),),
+                    "SELECT id, day, content, source, created_at FROM journals" + where + " ORDER BY id DESC LIMIT ?",
+                    params,
                 ).fetchall()
             ]
 

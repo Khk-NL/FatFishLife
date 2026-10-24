@@ -35,11 +35,13 @@ def build_context(
     scopes: tuple[str, ...] = ("public",),
     conversation: tuple[str, str] | None = None,
     max_chars: int = 1800,
+    include_persona: bool = True,
 ) -> str:
-    """Return reference data, never raw chat from another conversation.
+    """Return reference data scoped to a platform and complete conversation ID.
 
-    Callers decide authorized scopes. Without a conversation, raw messages are
-    omitted; explicit notes and public video records can still be shared.
+    Supplying a conversation isolates every event kind, including saved notes
+    and summaries. Unscoped management/reporting can still inspect explicit
+    records; raw messages require a conversation.
     """
     budget = max(0, int(max_chars))
     if not budget:
@@ -52,7 +54,8 @@ def build_context(
     if conversation is not None:
         kinds += ("message",)
     candidates = store.recent(
-        scopes=scopes, conversation=conversation, kinds=kinds, limit=36 if private else 40
+        scopes=scopes, conversation=conversation, kinds=kinds, limit=36 if private else 40,
+        conversation_only=conversation is not None,
     )
     candidates = [
         row for row in candidates
@@ -62,7 +65,7 @@ def build_context(
     if private:
         candidates.extend(
             {**row, "kind": "journal", "scope": "private", "platform": "journal"}
-            for row in store.journals(limit=4)
+            for row in store.journals(limit=4, source=conversation[1] if conversation is not None else None)
         )
     ranked = []
     for row in candidates:
@@ -77,7 +80,7 @@ def build_context(
     ranked.sort(key=lambda item: (item[0], item[1]["created_at"], item[1]["id"]), reverse=True)
 
     blocks = []
-    persona = _compact(store.get_persona())
+    persona = _compact(store.get_persona()) if include_persona else ""
     if persona:
         blocks.append("【共享人设参考】" + _clip(persona, 500))
     for _, row in ranked[:6]:

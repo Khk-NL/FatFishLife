@@ -13,7 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEPLOY = ROOT / "deploy"
 PLUGINS = tuple("astrbot_plugin_fatfish_" + name for name in (
-    "memory", "bili", "offline", "lore", "life", "story", "obsidian", "steam", "voice", "style",
+    "memory", "bili", "offline", "lore", "life", "story", "obsidian", "steam", "voice", "style", "context",
 ))
 PACKAGES = ("fatfish_core", "fatfish_video", "fatfish_story", "fatfish_bili")
 

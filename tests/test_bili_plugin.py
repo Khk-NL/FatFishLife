@@ -174,20 +174,16 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.context = types.SimpleNamespace(get_using_provider=lambda: provider)
         return provider
 
-    async def test_auto_reply_uses_shared_private_notes_only_for_owner_dm(self):
+    async def test_auto_reply_never_injects_unbound_or_cross_chat_notes(self):
         self.store.remember("SHARED_PRIVATE_TOKEN", platform="qq", scope="private", kind="note")
         self.store.remember("SHARED_PUBLIC_TOKEN", platform="qq", scope="public", kind="note")
         self.store.add_journal("PRIVATE_JOURNAL_TOKEN")
         provider = self.mock_provider()
-        for kind, actor in (("comment", "123"), ("dm", "456"), ("dm", "123"), ("dm", "")):
-            with self.subTest(kind=kind, actor=actor):
-                result = await self.plugin._generate_reply(kind, "TOKEN", actor=actor, session=f"{kind}:{actor}")
-                self.assertEqual(result, "本轮回复")
-                system = provider.text_chat.await_args.kwargs["system_prompt"]
-                self.assertIn("SHARED_PUBLIC_TOKEN", system)
-                self.assertEqual("SHARED_PRIVATE_TOKEN" in system, kind == "dm" and actor == "123")
-                self.assertEqual("PRIVATE_JOURNAL_TOKEN" in system, kind == "dm" and actor == "123")
-                self.assertNotIn("PRIVATE_MESSAGE_TOKEN", system)
+        for kind, actor in (("comment", "123"), ("dm", "456"), ("dm", "123")):
+            await self.plugin._generate_reply(kind, "TOKEN", actor=actor)
+            call = provider.text_chat.await_args.kwargs
+            for secret in ("SHARED_PRIVATE_TOKEN", "SHARED_PUBLIC_TOKEN", "PRIVATE_JOURNAL_TOKEN"):
+                self.assertNotIn(secret, str(call))
         self.plugin._run.assert_not_awaited()
 
     async def test_auto_reply_isolates_raw_chat_by_video_or_dm_session(self):
@@ -196,7 +192,7 @@ class BiliPrivacyTests(unittest.IsolatedAsyncioTestCase):
         self.store.remember("QQ_GROUP_TOKEN", platform="qq", scope="public", session="comment:BV1")
         provider = self.mock_provider()
         await self.plugin._generate_reply("comment", "TOKEN", actor="123", session="comment:BV1")
-        system = provider.text_chat.await_args.kwargs["system_prompt"]
+        system = provider.text_chat.await_args.kwargs["prompt"]
         self.assertIn("THIS_VIDEO_TOKEN", system)
         self.assertNotIn("OTHER_VIDEO_TOKEN", system)
         self.assertNotIn("QQ_GROUP_TOKEN", system)

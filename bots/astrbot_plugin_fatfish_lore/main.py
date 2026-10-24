@@ -18,6 +18,7 @@ from fatfish_core.knowledge_graph import KnowledgeGraph
 from fatfish_core.graph_build import build_graph, file_documents
 from fatfish_core.usage import record_usage
 from fatfish_core.context import _terms
+from fatfish_core.context_policy import retrieval_budget
 
 from .prts import fetch_page
 
@@ -137,7 +138,7 @@ class Main(Star):
                     await helper.delete_document(doc.doc_id)
                 self.runtime.set("lore_graph", "legacy_migrated", True)
                 result["legacy_retired"] = len(old_docs)
-            provider = await self.context.get_using_provider_async(umo or "fatfish:Internal:lore_graph")
+            provider = self.context.get_provider_by_id(str(self.config.get("graph_provider_id") or "fatfish_context_local"))
             async def generate(system, text):
                 if provider is None:
                     raise RuntimeError("No graph extraction provider")
@@ -163,7 +164,7 @@ class Main(Star):
                 yield event.plain_result("导入只在私聊里执行。")
                 return
             if not self._owner(event):
-                yield event.plain_result("资料导入由老板在私聊中执行。")
+                yield event.plain_result("资料导入由老大在私聊中执行。")
                 return
             async for message in self._import_docs(event):
                 yield message
@@ -178,7 +179,7 @@ class Main(Star):
         try:
             graph = self.graph.context(query, max_chars=self.max_chars) if hasattr(self, "graph") else ""
             result = await self.context.kb_manager.retrieve(
-                query=query, kb_names=[self.kb_name], top_k_fusion=20, top_m_final=3,
+                query=query, kb_names=[self.kb_name], top_k_fusion=8, top_m_final=retrieval_budget(query)[0],
             )
         except Exception:
             logger.exception("原生设定知识库检索失败")

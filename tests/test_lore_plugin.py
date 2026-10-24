@@ -35,4 +35,4 @@ class LoreAdapterTests(unittest.IsolatedAsyncioTestCase):
         event = SimpleNamespace(is_private_chat=lambda: True, get_platform_name=lambda: "aiocqhttp",
                                 get_sender_id=lambda: "stranger", plain_result=lambda text: text)
         result = [item async for item in plugin.lore(event, "导入")]
-        self.assertIn("老板", result[0])
+        self.assertIn("老大", result[0])

@@ -2,6 +2,10 @@
 param([string]$AstrBot='D:\Code\Apps\AstrBot',[int]$Port=6185,[int]$StartupGraceSeconds=300,[switch]$CheckOnly)
 $ErrorActionPreference='Stop'
 $taskPython=Join-Path $AstrBot '.venv\Scripts\python.exe'
+if(-not $CheckOnly){
+    $taskContextRoot=Join-Path (Split-Path $AstrBot -Parent) 'MiniCPM'
+    & (Join-Path $PSScriptRoot 'start_minicpm_context.ps1') -Root $taskContextRoot
+}
 $taskLogDir=Join-Path $AstrBot 'data\runtime_logs'
 $taskProcesses=@(Get-CimInstance Win32_Process -Filter "Name='python.exe'")
 $taskRootPattern=[regex]::Escape([IO.Path]::GetFullPath($AstrBot))

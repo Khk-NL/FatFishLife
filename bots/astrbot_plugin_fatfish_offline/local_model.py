@@ -1,8 +1,8 @@
-"""Local Ollama client for the offline brain.
+"""Local Ollama or OpenAI-compatible client for the offline brain.
 
 No AstrBot imports, so the module can be tested and reused outside the plugin.
-The model is loaded on demand and unloaded with ``keep_alive=0``; the base URL
-and model name come from config so the same code works on a server.
+Ollama models load on demand and unload with ``keep_alive=0``. The shared
+OpenAI-compatible context server stays loaded for native chat compression.
 """
 
 from __future__ import annotations
@@ -17,18 +17,21 @@ class LocalModel:
         model: str = "qwen2.5:1.5b",
         timeout: float = 30.0,
         enabled: bool = True,
+        api_key: str = "",
     ):
         self.base_url = (base_url or "").rstrip("/")
         self.model = model
         self.timeout = timeout
         self.enabled = enabled and bool(self.base_url) and bool(model)
+        self.openai = self.base_url.endswith("/v1")
+        self.headers = {"Authorization":"Bearer " + api_key} if api_key else {}
         self._client = httpx.AsyncClient(timeout=timeout)
 
     async def available(self) -> bool:
         if not self.enabled:
             return False
         try:
-            response = await self._client.get(f"{self.base_url}/api/tags")
+            response = await self._client.get(self.base_url + ("/models" if self.openai else "/api/tags"), headers=self.headers)
             return response.status_code == 200
         except Exception:
             return False
@@ -44,6 +47,12 @@ class LocalModel:
         if not self.enabled:
             return None
         try:
+            if self.openai:
+                response = await self._client.post(self.base_url + "/chat/completions", headers=self.headers,
+                    json={"model":self.model, "messages":[{"role":"system","content":system},{"role":"user","content":user}],
+                          "max_tokens":num_predict, "temperature":.7})
+                response.raise_for_status()
+                return str(response.json()["choices"][0]["message"]["content"]).strip() or None
             response = await self._client.post(
                 f"{self.base_url}/api/chat",
                 json={
@@ -69,6 +78,9 @@ class LocalModel:
             return None
 
     async def warmup(self) -> None:
+        if self.openai:
+            await self.available()
+            return
         if not self.enabled:
             return
         try:
@@ -80,6 +92,8 @@ class LocalModel:
             pass
 
     async def unload(self) -> None:
+        if self.openai:
+            return  # The same local model also manages independent chat summaries.
         if not self.enabled:
             return
         try:

@@ -54,7 +54,7 @@ class Main(Star):
         helper = await manager.get_kb_by_name(self.kb_name)
         if helper is None:
             helper = await manager.create_kb(
-                kb_name=self.kb_name, description="FatFishLife 独立私人 Obsidian 知识库，仅老板私聊检索。",
+                kb_name=self.kb_name, description="FatFishLife 独立私人 Obsidian 知识库，仅老大私聊检索。",
                 embedding_provider_id=str(self.config.get("embedding_provider_id") or "siliconflow/bge-m3"),
             )
         if getattr(helper, "init_error", None):
@@ -72,9 +72,9 @@ class Main(Star):
                 result = await sync_vault(helper, self.runtime, Path(configured).expanduser(),
                                           limit=max(1, min(200, int(self.config.get("max_files_per_sync", 25)))))
                 async def generate(system, text):
-                    provider = await self.context.get_using_provider_async()
+                    provider = self.context.get_provider_by_id(str(self.config.get("graph_provider_id") or "fatfish_context_local"))
                     if provider is None:
-                        raise RuntimeError("No graph extraction provider")
+                        raise RuntimeError("Configured local graph extraction provider is unavailable")
                     response = await asyncio.wait_for(provider.text_chat(system_prompt=system, prompt=text), timeout=90)
                     await record_usage(self.context, provider, response, umo="fatfish:Internal:private_graph", agent_type="fatfish_graph")
                     return response.completion_text
@@ -98,13 +98,13 @@ class Main(Star):
 
     @filter.llm_tool(name="fatfish_private_knowledge")
     async def knowledge_tool(self, event: AstrMessageEvent, query: str):
-        """在老板私聊中检索独立 Obsidian 笔记。
+        """在老大私聊中检索独立 Obsidian 笔记。
 
         Args:
             query(string): 要查找的主题或问题。
         """
         if not self._owner(event):
-            return "知识库仅供老板私聊使用。"
+            return "知识库仅供老大私聊使用。"
         try:
             return await self._search(query)
         except Exception as exc:
@@ -114,7 +114,7 @@ class Main(Star):
     @filter.command("知识库")
     async def knowledge(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
         if not self._owner(event):
-            yield event.plain_result("知识库仅供老板私聊使用。")
+            yield event.plain_result("知识库仅供老大私聊使用。")
             return
         if action == "同步":
             try:
@@ -144,7 +144,7 @@ class Main(Star):
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
-                        logger.warning(f"Obsidian 增量同步未完成：{type(exc).__name__}；老板可用私聊同步命令重试")
+                        logger.warning(f"Obsidian 增量同步未完成：{type(exc).__name__}；老大可用私聊同步命令重试")
                 scheduled += timedelta(days=1)
             await asyncio.sleep(max(1, (scheduled - datetime.now(BEIJING)).total_seconds()))
 

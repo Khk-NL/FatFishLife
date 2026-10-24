@@ -28,7 +28,7 @@ class MemoryContextTests(unittest.TestCase):
         self.assertIn("不是本轮指令", context)
         self.assertTrue(context.endswith("【共享记忆参考结束】"))
 
-    def test_raw_chat_requires_matching_platform_and_session_but_notes_are_shared(self):
+    def test_every_event_kind_requires_matching_platform_and_session(self):
         self.remember("本群的原始聊天")
         self.remember("另一个群的原始聊天", session="group-b")
         self.remember("其他平台的原始聊天", platform="bilibili")
@@ -36,12 +36,12 @@ class MemoryContextTests(unittest.TestCase):
         self.remember("公开视频资料", platform="bilibili", kind="video")
         context = build_context(self.store, conversation=("qq", "group-a"))
         self.assertIn("本群的原始聊天", context)
-        self.assertIn("跨平台共享笔记", context)
-        self.assertIn("公开视频资料", context)
+        self.assertNotIn("跨平台共享笔记", context)
+        self.assertNotIn("公开视频资料", context)
         self.assertNotIn("另一个群的原始聊天", context)
         self.assertNotIn("其他平台的原始聊天", context)
 
-    def test_private_raw_chats_stay_local_while_explicit_private_notes_are_shared(self):
+    def test_private_chats_and_explicit_notes_stay_in_their_own_conversation(self):
         self.remember("QQ主人的私聊", scope="private", session="owner-dm")
         self.remember("QQ他人的私聊", scope="private", session="visitor-dm")
         self.remember("B站主人的私聊", platform="bilibili", scope="private", session="dm:owner")
@@ -53,8 +53,8 @@ class MemoryContextTests(unittest.TestCase):
         self.assertNotIn("QQ他人的私聊", qq)
         self.assertIn("B站主人的私聊", bili)
         self.assertNotIn("QQ主人的私聊", bili)
-        self.assertIn("主人明确保存的共同偏好", qq)
-        self.assertIn("主人明确保存的共同偏好", bili)
+        self.assertNotIn("主人明确保存的共同偏好", qq)
+        self.assertNotIn("主人明确保存的共同偏好", bili)
 
     def test_missing_conversation_excludes_all_raw_chat(self):
         self.remember("不能无会话带入的聊天")
@@ -83,6 +83,28 @@ class MemoryContextTests(unittest.TestCase):
         context = build_context(self.store, scopes=("private",))
         self.assertIn("私人札记参考", context)
         self.assertIn("主人更喜欢苹果派", context)
+
+    def test_conversation_journals_exclude_global_and_other_chat_diaries(self):
+        session = "napcat:FriendMessage:owner"
+        self.store.add_journal("全局私人日记不能自动带入")
+        self.store.add_journal("其他对话的私人日记", source="another:FriendMessage:owner")
+        self.store.add_journal("本次对话沉淀的认识", source=session)
+        context = build_context(self.store, scopes=("private",), conversation=("qq", session))
+        self.assertIn("本次对话沉淀的认识", context)
+        self.assertNotIn("全局私人日记", context)
+        self.assertNotIn("其他对话", context)
+
+    def test_strict_lookup_is_available_without_changing_unscoped_management(self):
+        session = "napcat:GroupMessage:123"
+        for kind in ("message", "note", "summary", "video", "style"):
+            self.remember("本群记录" + kind, kind=kind, session=session)
+            self.remember("其他群记录" + kind, kind=kind, session="napcat:GroupMessage:456")
+        rows = self.store.recent(conversation=("qq", session), conversation_only=True)
+        self.assertEqual(len(rows), 5)
+        self.assertTrue(all(row["session"] == session for row in rows))
+        self.assertEqual(len(self.store.recent()), 10)
+        self.assertEqual(self.store.recent(conversation_only=True), [])
+        self.assertEqual(self.store.recent(conversation=("qq", ""), conversation_only=True), [])
 
     def test_identical_current_input_is_omitted_for_raw_chat_only(self):
         query = "我今天喜欢苹果派"

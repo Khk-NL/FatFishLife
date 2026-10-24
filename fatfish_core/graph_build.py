@@ -48,6 +48,11 @@ def file_documents(root: Path, collection: str):
                 data = {"entities": [{"name": title, "type": "事件"}] + [{"name": name, "type": "人物"} for name in names],
                         "relations": [{"subject": name, "predicate": "登场于", "object": title,
                                        "evidence": characters.group(0), "confidence": .9} for name in names]}
+                nature = re.search(r"活动性质[:：]\s*([^\n]+)", body)
+                if nature and "SideStory" in nature.group(1):
+                    data["entities"].append({"name": "SideStory", "type": "概念"})
+                    data["relations"].append({"subject": title, "predicate": "活动类型", "object": "SideStory",
+                                              "evidence": nature.group(0), "confidence": 1})
                 yield {"collection": collection, "source": relative + "#" + title, "title": title,
                        "text": source, "structured": data, "source_url": "https://prts.wiki/w/" + title}
             continue

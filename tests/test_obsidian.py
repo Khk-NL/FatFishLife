@@ -217,8 +217,8 @@ class ObsidianPluginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_only_owner_private_queries_can_reach_manager(self):
         for event in (self.event(owner=False), self.event(private=False), self.event(platform="telegram")):
-            self.assertIn("仅供老板私聊", await self.plugin.knowledge_tool(event, "PRIVATE_QUERY"))
-            self.assertEqual([item async for item in self.plugin.knowledge(event, "同步")], ["知识库仅供老板私聊使用。"])
+            self.assertIn("仅供老大私聊", await self.plugin.knowledge_tool(event, "PRIVATE_QUERY"))
+            self.assertEqual([item async for item in self.plugin.knowledge(event, "同步")], ["知识库仅供老大私聊使用。"])
         self.manager.retrieve.assert_not_awaited()
         self.manager.get_kb_by_name.assert_not_awaited()
         result = await self.plugin.knowledge_tool(self.event(), "PRIVATE_QUERY")

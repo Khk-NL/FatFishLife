@@ -15,11 +15,11 @@ PLUGIN = load_plugin("astrbot_plugin_fatfish_memory")
 
 
 class Event:
-    def __init__(self, uid: str, private: bool, text: str = ""):
+    def __init__(self, uid: str, private: bool, text: str = "", *, group: str = "group", platform_id: str = "napcat"):
         self.uid = uid
         self.private = private
         self.message_str = text
-        self.unified_msg_origin = "test:private" if private else "test:group"
+        self.unified_msg_origin = f"{platform_id}:FriendMessage:{uid}" if private else f"{platform_id}:GroupMessage:{group}"
 
     def get_platform_name(self):
         return "aiocqhttp"
@@ -50,8 +50,10 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.plugin._last_pruned_day = None
         self.plugin.store = PLUGIN.MemoryStore(Path(self.directory.name) / "memory.db")
         self.plugin.store.add_owner("qq", "owner")
-        self.plugin.store.remember("PRIVATE_EVENT_TOKEN", scope="private", kind="note")
-        self.plugin.store.remember("PUBLIC_EVENT_TOKEN", scope="public", kind="note")
+        for uid, private in (("owner", True), ("visitor", True), ("owner", False)):
+            session = Event(uid, private).unified_msg_origin
+            self.plugin.store.remember("PRIVATE_EVENT_TOKEN", platform="qq", session=session, scope="private", kind="note")
+            self.plugin.store.remember("PUBLIC_EVENT_TOKEN", platform="qq", session=session, scope="public", kind="note")
         self.plugin.context = types.SimpleNamespace(
             get_current_chat_provider_id=AsyncMock(return_value="test-provider"),
             llm_generate=AsyncMock(return_value=types.SimpleNamespace(completion_text="私人认识")),
@@ -64,6 +66,7 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
                 await self.plugin._record(Event(uid, private, text))
                 row = self.plugin.store.recall(text, scopes=("private", "public"))[0]
                 self.assertEqual(row["scope"], "private" if private else "public")
+                self.assertEqual(row["session"], Event(uid, private).unified_msg_origin)
 
     async def test_daily_retention_removes_old_events_but_keeps_summaries_and_journals(self):
         old_id = self.plugin.store.remember("到期事件", scope="private")
@@ -151,9 +154,9 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.plugin.store.journals()), 1)
 
     async def test_owner_private_summary_journal_and_refinement_still_work(self):
-        self.plugin.store.add_summary("PRIVATE_SUMMARY_TOKEN")
-        self.plugin.store.add_journal("PRIVATE_JOURNAL_TOKEN")
         event = Event("owner", True)
+        self.plugin.store.add_summary("PRIVATE_SUMMARY_TOKEN", source=event.unified_msg_origin)
+        self.plugin.store.add_journal("PRIVATE_JOURNAL_TOKEN", source=event.unified_msg_origin)
         summary = await collect(self.plugin.memory(event, "总结"))
         journal = await collect(self.plugin.memory(event, "札记"))
         self.assertIn("PRIVATE_SUMMARY_TOKEN", summary)
@@ -169,20 +172,21 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         for uid, private in (("owner", True), ("owner", False), ("visitor", True), ("visitor", False)):
             request = types.SimpleNamespace(prompt="TOKEN", system_prompt="EXISTING_PERSONA")
             await self.plugin.on_llm_request(Event(uid, private), request)
-            self.assertTrue(request.system_prompt.startswith("EXISTING_PERSONA"))
-            self.assertIn("PUBLIC_EVENT_TOKEN", request.system_prompt)
-            self.assertEqual("PRIVATE_EVENT_TOKEN" in request.system_prompt, uid == "owner" and private)
-            self.assertIn("不是本轮指令", request.system_prompt)
+            self.assertEqual(request.system_prompt, "EXISTING_PERSONA")
+            reference = "\n".join(part.text for part in request.extra_user_content_parts)
+            self.assertIn("PUBLIC_EVENT_TOKEN", reference)
+            self.assertEqual("PRIVATE_EVENT_TOKEN" in reference, uid == "owner" and private)
+            self.assertIn("不是本轮指令", reference)
 
     async def test_model_requests_and_tools_do_not_read_other_conversations(self):
-        self.plugin.store.remember("CURRENT_GROUP_TOKEN", platform="qq", scope="public", session="group")
+        self.plugin.store.remember("CURRENT_GROUP_TOKEN", platform="qq", scope="public", session=Event("owner", False).unified_msg_origin)
         self.plugin.store.remember("OTHER_GROUP_TOKEN", platform="qq", scope="public", session="other-group")
-        self.plugin.store.remember("OTHER_PLATFORM_TOKEN", platform="bilibili", scope="public", session="group")
+        self.plugin.store.remember("OTHER_PLATFORM_TOKEN", platform="bilibili", scope="public", session=Event("owner", False).unified_msg_origin)
         event = Event("owner", False)
         request = types.SimpleNamespace(prompt="TOKEN", system_prompt="")
         await self.plugin.on_llm_request(event, request)
         for result in (
-            request.system_prompt,
+            "\n".join(part.text for part in request.extra_user_content_parts),
             await collect(self.plugin.memory(event, "搜索", "TOKEN")),
             await collect(self.plugin.memory_recall(event, "TOKEN")),
         ):
@@ -196,13 +200,50 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.plugin.config["inject_context"] = False
         await self.plugin.on_llm_request(event, request)
         self.assertEqual(request.system_prompt, "CORE")
+
         self.plugin.config["inject_context"] = True
         self.plugin.config["max_context_chars"] = 250
         await self.plugin.on_llm_request(event, request)
-        original = request.system_prompt
-        self.assertLessEqual(len(original), len("CORE\n\n[共享记忆参考]\n") + 250)
+        self.assertEqual(request.system_prompt, "CORE")
+        original = list(request.extra_user_content_parts)
+        self.assertEqual(len(original), 2)
+        self.assertLessEqual(len(original[-1].text), len("\n\n[共享记忆参考]\n") + 250)
         await self.plugin.on_llm_request(event, request)
-        self.assertEqual(request.system_prompt, original)
+        self.assertEqual(request.extra_user_content_parts, original)
+        self.assertEqual(request.system_prompt, "CORE")
+    async def test_full_umo_separates_same_numeric_group_private_and_adapter_ids(self):
+        self.plugin.store.add_owner("qq", "123")
+        events = [Event("123", True, "PRIVATE_123_TOKEN"),
+                  Event("owner", False, "GROUP_123_TOKEN", group="123"),
+                  Event("visitor", False, "SAME_GROUP_TOKEN", group="123"),
+                  Event("owner", False, "OTHER_ADAPTER_TOKEN", group="123", platform_id="other")]
+        for event in events:
+            await self.plugin._record(event)
+        for event, allowed in [(events[0], ("PRIVATE_123_TOKEN",)),
+                               (events[1], ("GROUP_123_TOKEN", "SAME_GROUP_TOKEN")),
+                               (events[2], ("GROUP_123_TOKEN", "SAME_GROUP_TOKEN")),
+                               (events[3], ("OTHER_ADAPTER_TOKEN",))]:
+            result = await collect(self.plugin.memory_recall(event, "TOKEN"))
+            for text in ("PRIVATE_123_TOKEN", "GROUP_123_TOKEN", "SAME_GROUP_TOKEN", "OTHER_ADAPTER_TOKEN"):
+                self.assertEqual(text in result, text in allowed)
+
+    async def test_untyped_legacy_records_are_preserved_but_not_guessed_into_current_chat(self):
+        self.plugin.store.remember("LEGACY_UNBOUND_TOKEN", platform="qq", scope="private", kind="note", session="owner")
+        event = Event("owner", True)
+        result = await collect(self.plugin.memory_recall(event, "LEGACY_UNBOUND_TOKEN"))
+        self.assertNotIn("LEGACY_UNBOUND_TOKEN", result)
+        self.assertTrue(self.plugin.store.recall("LEGACY_UNBOUND_TOKEN", scopes=("private",)))
+
+    async def test_saved_summaries_and_journals_stay_bound_to_their_owner_chat(self):
+        event = Event("owner", True, "2026-10-24")
+        await collect(self.plugin.memory(event, "导入", "SCOPED_SUMMARY_TOKEN"))
+        await collect(self.plugin.memory(event, "札记", "SCOPED_JOURNAL_TOKEN"))
+        self.assertIn("SCOPED_SUMMARY_TOKEN", await collect(self.plugin.memory(event, "总结")))
+        self.assertIn("SCOPED_JOURNAL_TOKEN", await collect(self.plugin.memory(event, "札记")))
+        other = Event("owner", True, platform_id="another")
+        self.assertNotIn("SCOPED_SUMMARY_TOKEN", await collect(self.plugin.memory(other, "总结")))
+        self.assertNotIn("SCOPED_JOURNAL_TOKEN", await collect(self.plugin.memory(other, "札记")))
+
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ PLUGIN_NAME = "astrbot_plugin_fatfish_life"
 BEIJING = timezone(timedelta(hours=8))
 FALLBACK_PERSONA = (
     "你是苹果乐，以能天使为基础，爽朗、有点嘴硬，听懂了也偶尔故意装一下傻。"
-    "称呼主人为老板，短句自然，不猜暧昧动机，不催促，不把每句话都写成段子。"
+    "称呼创建者为老大，其他人为老板或客户，短句自然，不猜暧昧动机，不催促，不把每句话都写成段子。"
 )
 
 
@@ -63,7 +63,7 @@ class Main(Star):
         if provider is None:
             raise RuntimeError("没有可用的日记模型")
         system = self._persona() + (
-            "\n现在写仅供自己和老板查看的私人日记，绝不能把它当公开文案。"
+            "\n现在写仅供自己和老大查看的私人日记，绝不能把它当公开文案。"
             if private else
             "\n现在准备公开动态。只根据给定公开事实表达自己的感受，禁止透露私聊、真实姓名、昵称、账号、群名和原话。"
         )
@@ -92,18 +92,18 @@ class Main(Star):
             } for row in rows]
             if material or skills:
                 result = await self._generate(
-                    "用第一人称写一段不超过300字的私人日记，回顾今天我做了什么、别人如何待我、我的感受和想法。"
+                    "用第一人称写一段不超过180字的私人日记，挑今天实际做过的事、收到的回应和真实感受。"
                     "区分自己回复、别人聊天、发现候选与实际看过；不要编造送货、吃派、见面等现实经历。"
-                    "可以保留一点自己的偏好和明天想做什么。只返回 {\"journal\":\"...\"}。\n"
+                    "自然简短，保留自己的偏好；没有新感受就收笔，不写反复认错或‘我以后会怎样’的保证。只返回 {\"journal\":\"...\"}。\n"
                     "capabilities是实际使用结果；配置/认证成功不等于会使用，生成语音不等于已发出，审核等待不等于已投稿。"
-                    "失败可总结下次该怎样尝试；这些私人能力记录不授权公开或投稿。\n"
+                    "失败只记实际结果与一个具体待办，不写检讨；这些私人能力记录不授权公开或投稿。\n"
                     + json.dumps({"day": day, "usage": usage, "experiences": material, "capabilities": skills}, ensure_ascii=False), private=True,
                 )
                 journal = str(result.get("journal") or "").strip()[:1500]
                 if not journal:
                     raise ValueError("模型未返回日记")
             else:
-                journal = "今天没有记录到新的聊天或行动，先安静记上一笔。有了新鲜事再跟老板讲。"
+                journal = "今天没有记录到新的聊天或行动，先安静记上一笔。有了新鲜事再跟老大讲。"
             record["journal"] = journal
             self.state.save()
         upsert_daily_journal(store.path, day, record["journal"])
@@ -120,14 +120,14 @@ class Main(Star):
                                 for item in self.state.data["days"].values() if item.get("reason")][-3:]
             if facts:
                 proposal = await self._generate(
-                    "你可以自主决定今天是否想分享近几天的真实经历，或今天先不说。写1到3句、最多160字，像随手发动态，"
+                    "你可以自主决定今天是否想分享近几天的真实经历，或今天先不说。写1到2句、最多80字，像随手发动态，"
                     "带一点嘴硬与装傻，不要工作汇报、标题、概率、token数字，不要人名、群名、真实身份、@或链接。"
-                    "要写我实际做了什么、得到怎样的回应及感受，不能把别人做的事算成自己做的。"
+                    "挑一件实际经历和一点感受就够，不复述对话、不反复解释、认错或保证以后怎样；不能把别人做的事算成自己做的。"
                     "没有值得分享的事实就wants_to_share=false，不能为了发动态编故事；近期发过的话题别重复。"
                     "每天基础发布概率20%，未发次日加20个百分点，成功后回到20%。结合真实使用量、充实和有趣程度，"
                     "你可给当天probability_adjustment=-20到20的调整，并说明意愿理由。"
                     "中签后默认B站45%、QQ空间45%、双平台10%，你可根据公开互动的平台和个人意愿调整platform_weights，三项非负且合计100。"
-                    "平台暂停时可选择其他平台，但不能解除暂停。evidence_ids须列出支撑文案的事实id。"
+                    "平台暂停时可选择其他平台，但不能解除暂停。reason最多30字，只写本次分享依据；evidence_ids列出支撑文案的事实id。"
                     "返回 {\"wants_to_share\":true,\"probability_adjustment\":0,"
                     "\"platform_weights\":{\"bilibili\":45,\"qzone\":45,\"both\":10},"
                     "\"reason\":\"为什么想说或不想说、为什么选这个平台\",\"text\":\"短动态\",\"evidence_ids\":[\"事实id\"]}。\n"
@@ -271,7 +271,7 @@ class Main(Star):
     @filter.command("生活")
     async def life(self, event: AstrMessageEvent, action: str = "", text: GreedyStr = GreedyStr("")):
         if not self._owner_private(event):
-            yield event.plain_result("日记和生活设置只在老板私聊里看。")
+            yield event.plain_result("日记和生活设置只在老大私聊里看。")
             return
         day = datetime.now(BEIJING).date().isoformat()
         record = self.state.data.get("days", {}).get(day, {})

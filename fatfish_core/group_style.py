@@ -54,7 +54,7 @@ def source_material(path: Path, group: str, bot: str, after=0, *, limit=50, publ
         with closing(sqlite3.connect(Path(public_store).resolve().as_uri() + "?mode=ro", uri=True)) as db:
             public_messages = {(str(actor), compact(content)) for actor, content in db.execute(
                 "SELECT actor,content FROM events WHERE platform='qq' AND scope='public' AND kind='message' "
-                "AND session=? ORDER BY id DESC LIMIT 2000", (group,),
+                "AND (session=? OR session LIKE ?) ORDER BY id DESC LIMIT 2000", (group, "%:GroupMessage:" + group),
             )}
     rows.reverse()
     samples = [{"id": row["id"], "text": compact(row["message"])[:220]}

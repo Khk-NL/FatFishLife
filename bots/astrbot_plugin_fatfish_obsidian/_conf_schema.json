@@ -4,6 +4,7 @@
   "owner_ids": {"type": "string", "description": "可在私聊检索的主人，格式 qq:账号，多个逗号分隔；也沿用共享记忆主人", "default": ""},
   "kb_name": {"type": "string", "description": "独立私人知识库名称；不要加入 AstrBot 全局 kb_names", "default": "FatFish-Obsidian-Private"},
   "embedding_provider_id": {"type": "string", "description": "AstrBot 中已有的向量模型 ID", "default": "siliconflow/bge-m3"},
+  "graph_provider_id": {"type": "string", "description": "图谱提取模型 ID；默认使用本地 MiniCPM，不回退到云模型", "default": "fatfish_context_local"},
   "sync_time": {"type": "string", "description": "每天增量同步时间，北京时间 HH:MM", "default": "03:00"},
   "max_files_per_sync": {"type": "int", "description": "每轮最多上传的新增或变更笔记，1到200", "default": 25}
 }

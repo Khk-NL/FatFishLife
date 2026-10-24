@@ -139,7 +139,7 @@ class LifePluginTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_growth_command_has_same_owner_private_boundary(self):
         for event in (Event(sender="visitor"), Event(private=False)):
-            self.assertEqual(await self.command(event, "成长"), ["日记和生活设置只在老板私聊里看。"])
+            self.assertEqual(await self.command(event, "成长"), ["日记和生活设置只在老大私聊里看。"])
         record_capability(self.store, "tts", "success", stage="generate")
         with self.store._connect() as connection:
             connection.execute("UPDATE events SET created_at=? WHERE kind='capability'", (DAY + "T15:00:00+08:00",))
@@ -260,7 +260,7 @@ class LifePluginTests(unittest.IsolatedAsyncioTestCase):
             for action in ("日记", "草稿", "预览", "恢复", ""):
                 with self.subTest(private=event.private, admin=event.admin, action=action):
                     replies = await self.command(event, action, "qzone")
-                    self.assertEqual(replies, ["日记和生活设置只在老板私聊里看。"])
+                    self.assertEqual(replies, ["日记和生活设置只在老大私聊里看。"])
                     self.assertNotIn(PRIVATE_MARKER, "".join(replies))
         self.plugin._run_day.assert_not_awaited()
         self.assertIn("qzone", self.plugin.state.data["paused"])

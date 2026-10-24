@@ -1,5 +1,6 @@
 {
   "enabled": {"type": "bool", "description": "从现有 Self Learning 语料吸收群聊表达，按群用于回复", "default": true},
+  "review_provider_id": {"type":"string","description":"表达提炼模型ID；本机可填fatfish_context_local，配置后不可用不会回退云端","default":""},
   "bot_id": {"type": "string", "description": "仅对这个QQ机器人启用，留空不学习和注入；私聊不自动采集", "default": ""},
   "min_messages": {"type": "int", "description": "每轮最少有效群友语料条数，最低5；最多读取50条", "default": 10}
 }
