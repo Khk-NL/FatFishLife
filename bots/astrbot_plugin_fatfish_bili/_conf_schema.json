@@ -71,7 +71,7 @@
   },
   "auto_scroll_enabled": {
     "type": "bool",
-    "description": "每天定时刷 B 站推荐，把感兴趣的视频私信给主人",
+    "description": "每天定时推荐感兴趣的视频，私信写明苹果乐视角的推荐理由",
     "default": false
   },
   "auto_scroll_times": {
@@ -103,5 +103,10 @@
     "type": "int",
     "description": "每个标签取多少个热门视频",
     "default": 3
+  },
+  "auto_scroll_comment_enabled": {
+    "type": "bool",
+    "description": "推荐私信发送成功后，在对应视频评论区说明理由并真正@主人；使用owner_uid，保留独立回执，不确定不重发",
+    "default": true
   }
 }

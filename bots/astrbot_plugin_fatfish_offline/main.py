@@ -430,6 +430,51 @@ class Main(Star):
         else:
             event._fatfish_engagement_trigger = (target, kind)
 
+    def _note_quote_message(self, event):
+        if event.is_private_chat() or not event.get_group_id():
+            return
+        message_id = str(getattr(event.message_obj, "message_id", "") or "")
+        if not message_id or message_id == "0":
+            return
+        latest = getattr(self, "_quote_latest", None)
+        if latest is None:
+            latest = self._quote_latest = {}
+        key = self._conversation_key(event)
+        latest.pop(key, None)
+        latest[key] = message_id
+        if len(latest) > 256:
+            latest.pop(next(iter(latest)))
+
+    def _quote_chain(self, event, chain):
+        """Use native Reply only when a group answer needs its source shown."""
+        if event.is_private_chat() or not event.get_group_id() or not chain:
+            return chain
+        # Match native AstrBot's text/image restriction: avoid empty quote-only
+        # messages and interference with the community Record delivery wrapper.
+        if not all(type(part).__name__ in {"Plain", "Image"} for part in chain):
+            return chain
+        message_id = str(getattr(event.message_obj, "message_id", "") or "")
+        if not message_id or message_id == "0":
+            return chain
+        getter = getattr(event, "get_extra", None)
+        trigger = getter("fatfish_engagement_trigger") if getter else None
+        keyword = bool(trigger and trigger[1] == "keyword")
+        quoted = any(isinstance(part, Reply) for part in getattr(event.message_obj, "message", ()) or ())
+        incoming = str(event.message_str or "")
+        if re.search(r"(?:别|不要|不用|不必).{0,3}引用", incoming):
+            return chain
+        requested = bool(re.search(r"(?:引用|回复)(?:这条|本条|原)(?:消息)?(?:来)?(?:回复|回答)|引用回复", incoming))
+        newer = getattr(self, "_quote_latest", {}).get(self._conversation_key(event))
+        if quoted or keyword or requested or (newer and newer != message_id):
+            return [Reply(id=message_id), *chain]
+        return chain
+
+    @filter.on_decorating_result(priority=-1200)
+    async def quote_when_needed(self, event: AstrMessageEvent):
+        result = event.get_result()
+        if result is not None and getattr(result, "is_llm_result", lambda: False)():
+            result.chain = self._quote_chain(event, list(result.chain or ()))
+
     @staticmethod
     def _take_trigger(event):
         getter = getattr(event, "get_extra", None)
@@ -512,6 +557,9 @@ class Main(Star):
             # Ignore other bots, except friendly ones that explicitly @ this bot.
             event.stop_event()
             return
+        raw = getattr(event.message_obj, "raw_message", None)
+        if not isinstance(raw, dict) or raw.get("post_type") != "notice":
+            self._note_quote_message(event)
         # Explicit media collection must run before off-peak/chat engagement gates.
         if not hasattr(self, "_meme_collection"):
             self._meme_collection = MemeCollection(self.context)
@@ -661,7 +709,7 @@ class Main(Star):
             event.stop_event()
             return
         try:
-            await event.send(MessageChain([Plain(self._addressed_reply(event, reply))]))
+            await event.send(MessageChain(self._quote_chain(event, [Plain(self._addressed_reply(event, reply))])))
             if keyword_selected:
                 self._keyword_sent(group, now.timestamp())
             self.engagement.on_bot_sent(

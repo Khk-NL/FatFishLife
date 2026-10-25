@@ -22,7 +22,8 @@ class Plain:
 
 
 class Reply:
-    pass
+    def __init__(self, id=None):
+        self.id = id
 
 
 class Poke:
@@ -93,6 +94,50 @@ def poke_raw(target):
 
 
 class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
+    def quote_event(self, *, group='group', message_id='101', text='你好', message=()):
+        event=Event(group=group,text=text,message=message)
+        event.message_obj.message_id=message_id
+        return event
+
+    async def test_simple_group_chat_does_not_quote_by_default(self):
+        plugin=self.plugin();event=self.quote_event();chain=[Plain('在呢')]
+        plugin._note_quote_message(event)
+        self.assertIs(plugin._quote_chain(event,chain),chain)
+
+    async def test_quote_request_or_incoming_quote_references_current_event_not_old_id(self):
+        plugin=self.plugin()
+        for event in (self.quote_event(text='引用这条消息回复'),self.quote_event(message=[Reply(id='old')])):
+            reply=plugin._quote_chain(event,[Plain('知道啦')])
+            self.assertIsInstance(reply[0],Reply)
+            self.assertEqual(reply[0].id,'101')
+
+    async def test_intervening_message_quotes_delayed_reply_without_crossing_sessions(self):
+        plugin=self.plugin();first=self.quote_event();newer=self.quote_event(message_id='102')
+        plugin._note_quote_message(first);plugin._note_quote_message(newer)
+        self.assertEqual(plugin._quote_chain(first,[Plain('回答第一条')])[0].id,'101')
+        self.assertIsInstance(plugin._quote_chain(newer,[Plain('回答第二条')])[0],Plain)
+        other=self.quote_event(group='other',message_id='103');plugin._note_quote_message(other)
+        self.assertIsInstance(plugin._quote_chain(newer,[Plain('还是第二条')])[0],Plain)
+
+    async def test_keyword_interjection_quotes_but_private_media_commands_and_optout_do_not(self):
+        plugin=self.plugin();event=self.quote_event();plugin._set_trigger(event,'visitor','keyword')
+        self.assertEqual(plugin._quote_chain(event,[Plain('苹果派！')])[0].id,'101')
+        for blocked,chain in ((self.quote_event(group='',text='引用这条消息回复'),[Plain('私聊')]),
+                              (self.quote_event(message_id=''),[Plain('没有ID')]),
+                              (self.quote_event(message=[Reply(id='old')]),[Reply(id='existing'),Plain('已有引用')]),
+                              (self.quote_event(text='引用回复'),[type('Record',(),{})()]),
+                              (self.quote_event(text='不要引用回复'),[Plain('好的')])):
+            self.assertIs(plugin._quote_chain(blocked,chain),chain)
+        result=types.SimpleNamespace(chain=[Plain('命令结果')],is_llm_result=lambda:False)
+        event.get_result=lambda:result
+        await plugin.quote_when_needed(event)
+        self.assertIsInstance(result.chain[0],Plain)
+
+    async def test_quote_message_tracking_is_bounded(self):
+        plugin=self.plugin()
+        for index in range(270):plugin._note_quote_message(self.quote_event(group=str(index)))
+        self.assertEqual(len(plugin._quote_latest),256)
+
     def plugin(self, offline=False):
         plugin = PLUGIN.Main.__new__(PLUGIN.Main)
         plugin.config = {}

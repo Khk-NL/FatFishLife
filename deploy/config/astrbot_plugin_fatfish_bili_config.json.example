@@ -9,5 +9,6 @@
   "poll_interval_seconds": 180,
   "auto_reply": false,
   "auto_reply_owner_only": true,
-  "dry_run_writes": true
+  "dry_run_writes": true,
+  "auto_scroll_comment_enabled": true
 }

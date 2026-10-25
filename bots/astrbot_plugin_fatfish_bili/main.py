@@ -17,7 +17,7 @@ from astrbot.api.message_components import Image, Plain
 from astrbot.api.star import Context, Star, StarTools
 from astrbot.core.star.filter.command import GreedyStr
 
-from fatfish_core import MemoryStore, SeenStore, build_context, read_offline, resolve_shared_db
+from fatfish_core import MemoryStore, RuntimeStore, SeenStore, build_context, read_offline, resolve_shared_db
 from fatfish_core.safety import wrap_untrusted
 from fatfish_core.usage import record_usage
 from .discovery import DiscoveryStore, discover
@@ -118,54 +118,145 @@ class Main(Star):
                 logger.warning(f"自动刷 B 站失败：{exc}")
             await asyncio.sleep(60)
 
-    async def _auto_scroll(self) -> None:
-        owner = str(self.config.get("owner_uid") or "").strip()
-        if not owner or self._pause_reason is not None:
-            return
-        payload = await self._run("feed", "recommend", "-n", "20", "--unseen", timeout=120)
+    @staticmethod
+    def _recommendation_reason(title: str) -> str:
+        """A small, title-grounded first-person reaction; no model/video call."""
+        if any(word in title for word in ("前瞻", "新版本", "新活动")):
+            return "有新消息就想凑个热闹，老大陪苹果乐挑挑这次的新花样呀"
+        if any(word in title for word in ("攻略", "打法", "通关", "作业")):
+            return "想学两招省力打法，学会就能多摸会儿鱼啦"
+        if any(word in title for word in ("音乐", "歌曲", "演奏", "BGM", "配乐")):
+            return "我想给摸鱼歌单添点新东西，拉老大一起挑挑"
+        if any(word in title for word in ("剧情", "故事", "考据")):
+            return "这个故事勾起苹果乐的好奇心了，老大陪我捋捋呀"
+        if any(word in title for word in ("科技", "技术", "工具", "教程")):
+            return "想找找能不能省点力的办法，这种技术小窍门最适合摸鱼啦"
+        if "明日方舟" in title:
+            return "碰到方舟相关的题目就有点好奇，老大陪苹果乐找点乐子呀"
+        return "这个题目勾起苹果乐的好奇心了，想拉老大一起找点乐子"
+
+    @staticmethod
+    def _recommendation_receipt(payload: dict, *, channel: str, owner: str, dry: bool) -> dict:
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            return {"status": "uncertain"}
         if not payload.get("ok"):
-            await self._pause_for_error(payload)
-            return
-        if self._pause_reason is not None:
+            code = (payload.get("error") or {}).get("code", "unknown")
+            # A transport failure cannot establish whether a write arrived.
+            return {"status": "uncertain" if code in {"network_error", "internal_error", "unknown"} else "blocked", "error_code": code}
+        if dry:
+            return {"status": "preview" if data.get("dry_run") is True else "uncertain"}
+        if channel == "dm":
+            key = data.get("msg_key")
+            return {"status": "sent", "msg_key": str(key)} if data.get("sent") is True and key else {"status": "uncertain"}
+        rpid = str(data.get("rpid") or "")
+        if not rpid.isascii() or not rpid.isdecimal() or int(rpid) <= 0:
+            return {"status": "uncertain"}
+        mention = any(str(item.get("mid")) == owner and item.get("resolved") is True for item in data.get("mentions") or [] if isinstance(item, dict))
+        return {"status": "sent" if mention else "mention_unconfirmed", "rpid": rpid, "mention_resolved": mention}
+
+    async def _auto_scroll(self) -> None:
+        if not hasattr(self, "_recommendation_lock"):
+            self._recommendation_lock = asyncio.Lock()
+        async with self._recommendation_lock:
+            await self._recommend_batch()
+
+    async def _recommend_batch(self) -> None:
+        owner = str(self.config.get("owner_uid") or "").strip()
+        if not owner.isascii() or not owner.isdecimal() or int(owner) <= 0 or self._pause_reason is not None or self._offline():
             return
         dry = bool(self.config.get("dry_run_writes", True))
-        items = (payload.get("data") or {}).get("items") or []
-        keywords = [
-            item.strip()
-            for item in str(self.config.get("auto_scroll_keywords") or "明日方舟,游戏,音乐,科技").split(",")
-            if item.strip()
-        ]
-        picked = []
-        picked_ids = set()
-        for item in items:
-            bvid = str(item.get("bvid") or "")
-            title = str(item.get("title") or "")
-            if not bvid or bvid in picked_ids or bvid in self.seen or (dry and f"preview:{bvid}" in self.seen):
-                continue
-            if keywords and not any(word in title for word in keywords):
-                continue
-            picked.append(item)
-            picked_ids.add(bvid)
-            if len(picked) >= 3:
-                break
-        if not picked:
+        runtime = RuntimeStore(self.memory_db)
+        key = "preview" if dry else "live"
+        state = runtime.get("bilibili_recommendations", key, {})
+        batch = state.get("batch", {})
+        if batch.get("owner") != owner or batch.get("complete"):
+            if batch:
+                state["history"] = (state.get("history", []) + [batch])[-20:]
+            batch = {}
+        if not batch:
+            payload = await self._run("feed", "recommend", "-n", "20", "--unseen", timeout=120)
+            if not payload.get("ok"):
+                await self._pause_for_error(payload)
+                return
+            if self._pause_reason is not None or self._offline():
+                return
+            keywords = [item.strip() for item in str(self.config.get("auto_scroll_keywords") or "明日方舟,游戏,音乐,科技").split(",") if item.strip()]
+            picked, picked_ids = [], set()
+            for item in (payload.get("data") or {}).get("items") or []:
+                bvid, title = str(item.get("bvid") or ""), str(item.get("title") or "")
+                claim = ("preview:recommend:" if dry else "recommend:") + bvid
+                if not bvid or bvid in picked_ids or bvid in self.seen or claim in self.seen or (dry and f"preview:{bvid}" in self.seen):
+                    continue
+                if keywords and not any(word in title for word in keywords):
+                    continue
+                picked.append({"bvid": bvid, "title": title, "reason": self._recommendation_reason(title), "comment": {"status": "pending"}})
+                picked_ids.add(bvid)
+                if len(picked) >= 3:
+                    break
+            if not picked:
+                return
+            batch = {"owner": owner, "created_at": datetime.now().astimezone().isoformat(), "dm": {"status": "pending"}, "items": picked}
+            state["batch"] = batch
+            runtime.set("bilibili_recommendations", key, state)
+        # A persisted sending claim means the old call may already have arrived.
+        if batch["dm"]["status"] == "sending":
+            batch["dm"] = {"status": "uncertain"}
+            for item in batch["items"]:
+                self.seen.add(("preview:recommend:" if dry else "recommend:") + item["bvid"])
+            self._save_seen()
+        if batch["dm"]["status"] == "pending":
+            if self._pause_reason is not None or self._offline():
+                return
+            batch["dm"] = {"status": "sending"}
+            runtime.set("bilibili_recommendations", key, state)
+            for item in batch["items"]:
+                self.seen.add(("preview:recommend:" if dry else "recommend:") + item["bvid"])
+            self._save_seen()
+            lines = [f"《{item['title']}》\n{item['reason']}\nhttps://www.bilibili.com/video/{item['bvid']}" for item in batch["items"]]
+            payload = await self._run("dm", "send", owner, "老大，苹果乐挑了这几条：\n" + "\n\n".join(lines), timeout=90, dry_run=dry)
+            batch["dm"] = self._recommendation_receipt(payload, channel="dm", owner=owner, dry=dry)
+            runtime.set("bilibili_recommendations", key, state)
+            if not payload.get("ok"):
+                await self._pause_for_error(payload)
+        if batch["dm"]["status"] not in {"sent", "preview"}:
+            batch["complete"] = True
+            runtime.set("bilibili_recommendations", key, state)
+            logger.warning("B站推荐私信未确认，保留回执且不自动重发")
             return
-        lines = [
-            f"{item.get('title')} https://www.bilibili.com/video/{item.get('bvid')}"
-            for item in picked
-        ]
-        result = await self._run("dm", "send", owner, "今天刷到几个有意思的：\n" + "\n".join(lines), timeout=90, dry_run=dry)
-        if not result.get("ok"):
-            if not await self._pause_for_error(result):
-                logger.warning(f"自动推荐私信未确认发送：{self._error(result)}")
-            return
-        for item in picked:
-            bvid = str(item["bvid"])
+        for item in batch["items"]:
+            bvid = item["bvid"]
             self.seen.add(f"preview:{bvid}" if dry else bvid)
             if not dry:
                 self.seen.discard(f"preview:{bvid}")
+            item["dm"] = dict(batch["dm"])
         self._save_seen()
-        logger.info(f"自动刷 B 站，{'已预览' if dry else '已私信'} {len(lines)} 个视频")
+        for item in batch["items"]:
+            status = item["comment"]["status"]
+            if status == "sending":
+                item["comment"] = {"status": "uncertain"}
+                runtime.set("bilibili_recommendations", key, state)
+                continue
+            if status != "pending":
+                continue
+            if not bool(self.config.get("auto_scroll_comment_enabled", True)):
+                item["comment"] = {"status": "disabled"}
+                continue
+            if self._pause_reason is not None or self._offline():
+                runtime.set("bilibili_recommendations", key, state)
+                return
+            item["comment"] = {"status": "sending"}
+            runtime.set("bilibili_recommendations", key, state)
+            payload = await self._run("comment", "post", item["bvid"], "老大，" + item["reason"], "--at", owner, "--wait", timeout=90, dry_run=dry)
+            item["comment"] = self._recommendation_receipt(payload, channel="comment", owner=owner, dry=dry)
+            runtime.set("bilibili_recommendations", key, state)
+            if not payload.get("ok") and await self._pause_for_error(payload):
+                return
+            if item["comment"]["status"] not in {"sent", "preview"}:
+                logger.warning("B站推荐评论或@未确认，保留回执且不自动重发")
+        batch["complete"] = True
+        runtime.set("bilibili_recommendations", key, state)
+        logger.info(f"B站推荐批次完成：{len(batch['items'])}条，{'预览' if dry else '已保存各渠道回执'}")
 
     async def _study_loop(self) -> None:
         while True:
