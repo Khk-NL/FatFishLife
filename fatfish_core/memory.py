@@ -233,13 +233,17 @@ class MemoryStore:
                 "UPDATE candidates SET status=?, review_note=? WHERE id=?",
                 (status, note, candidate_id),
             )
+            if cur.rowcount:
+                # Review and FTS are one write transaction. A second connection
+                # cannot write while this UPDATE holds SQLite's writer lock.
+                conn.execute("DELETE FROM memory_fts WHERE ref_id=?", (candidate_id,))
             if status == "verified" and cur.rowcount:
                 row = conn.execute(
                     "SELECT group_id, kind, content, speaker FROM candidates WHERE id=?",
                     (candidate_id,),
                 ).fetchone()
                 if row:
-                    self._index(row["content"], row["kind"], row["group_id"], candidate_id)
+                    self._index(conn, row["content"], row["kind"], row["group_id"], candidate_id)
             return bool(cur.rowcount)
 
     def list_candidates(self, status: str = "candidate", limit: int = 20) -> list[dict]:
@@ -253,19 +257,22 @@ class MemoryStore:
             ).fetchall()
             return [dict(r) for r in rows]
 
-    def _index(self, content: str, kind: str, group_id: str, ref_id: int) -> None:
-        try:
-            conn = sqlite3.connect(self.path, timeout=10)
-            try:
-                conn.execute(
-                    "INSERT INTO memory_fts(content, kind, group_id, ref_id) VALUES (?,?,?,?)",
-                    (content, kind, group_id, ref_id),
-                )
-                conn.commit()
-            finally:
-                conn.close()
-        except sqlite3.Error:
-            pass
+    def _index(self, conn: sqlite3.Connection, content: str, kind: str, group_id: str, ref_id: int) -> None:
+        conn.execute(
+            "INSERT INTO memory_fts(content, kind, group_id, ref_id) VALUES (?,?,?,?)",
+            (content, kind, group_id, ref_id),
+        )
+
+    def rebuild_candidate_index(self) -> int:
+        """Repair legacy missing/duplicate/stale rows without changing reviews."""
+        with self._lock, self._connect() as conn:
+            conn.execute("DELETE FROM memory_fts")
+            conn.execute(
+                """INSERT INTO memory_fts(content, kind, group_id, ref_id)
+                   SELECT content, kind, group_id, id FROM candidates
+                   WHERE status='verified'"""
+            )
+            return int(conn.execute("SELECT COUNT(*) FROM memory_fts").fetchone()[0])
 
     def search(
         self,

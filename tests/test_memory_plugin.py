@@ -60,6 +60,19 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
             llm_generate=AsyncMock(return_value=types.SimpleNamespace(completion_text="私人认识")),
         )
 
+    async def test_candidate_review_runs_off_the_event_loop(self):
+        event = Event('owner', True)
+        with patch.object(PLUGIN.asyncio, 'to_thread', new_callable=AsyncMock, return_value=True) as worker:
+            reply = await collect(self.plugin.memory(event, 'approve', '3'))
+        worker.assert_awaited_once_with(self.plugin.store.review_candidate, 3, 'verified', 'owner verified')
+        self.assertIn('已通过', reply)
+
+    async def test_candidate_review_failure_does_not_report_success(self):
+        with patch.object(PLUGIN.asyncio, 'to_thread', new_callable=AsyncMock, side_effect=sqlite3.OperationalError('test lock')):
+            reply = await collect(self.plugin.memory(Event('owner', True), 'approve', '3'))
+        self.assertIn('审核未保存', reply)
+        self.assertNotIn('已通过', reply)
+
     async def test_private_messages_are_not_recorded_as_public_even_for_non_owner(self):
         for uid in ("owner", "visitor"):
             for private in (True, False):

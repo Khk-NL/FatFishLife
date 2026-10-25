@@ -441,7 +441,12 @@ class Main(Star):
                 yield event.plain_result("需要候选编号，例如 /记忆 通过 3。")
                 return
             status = "verified" if command in ("通过", "approve") else "rejected"
-            ok = self.store.review_candidate(int(target), status, f"owner {status}")
+            try:
+                ok = await asyncio.to_thread(self.store.review_candidate, int(target), status, f"owner {status}")
+            except sqlite3.Error as exc:
+                logger.warning(f"候选记忆审核失败：{type(exc).__name__}")
+                yield event.plain_result("审核未保存，请稍后重试。")
+                return
             label = "已通过" if status == "verified" else "已拒绝"
             yield event.plain_result(f"{label}候选 {target}。" if ok else f"没有编号为 {target} 的候选。")
             return
