@@ -18,6 +18,7 @@ from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.star.filter.command import GreedyStr
 
 from fatfish_core import StateStore, resolve_shared_db
+from fatfish_core.progressive_probability import MissCounters, progressive_probability
 
 from .engagement import GroupConfig, GroupEngagement, GroupMessage
 from .daily_apple_pie import DailyApplePie
@@ -112,6 +113,8 @@ class Main(Star):
         self.engagement = GroupEngagement(
             GroupConfig(
                 random_probability=float(self.config.get("ambient_chance", 0.025)),
+                random_probability_step=float(self.config.get("ambient_probability_step", 0)),
+                random_probability_max=float(self.config.get("ambient_probability_max", 1)),
                 random_cooldown=float(self.config.get("ambient_cooldown") or 300),
                 random_hourly_limit=int(self.config.get("ambient_hourly_limit", 3)),
             )
@@ -330,15 +333,45 @@ class Main(Star):
     def _keyword_hit(self, text: str) -> bool:
         return any(word in text for word in KEYWORDS)
 
+    @staticmethod
+    def _conversation_key(event) -> str:
+        value = str(getattr(event, "unified_msg_origin", "") or "")
+        if value:
+            return value
+        platform = getattr(event, "get_platform_id", lambda: "qq")()
+        group = str(event.get_group_id() or "")
+        return f"{platform}:GroupMessage:{group}" if group else f"{platform}:FriendMessage:{event.get_sender_id()}"
+
     def _keyword_allowed(self, group: str, now: float) -> bool:
         store = getattr(self, "_keyword_last", None)
         if store is None:
             store = self._keyword_last = {}
         last = store.get(group, 0.0)
-        if now - last < 90:
+        if now - last < max(0, float(self.config.get("keyword_cooldown", 90))):
             return False
-        store[group] = now
-        return True
+        base = float(self.config.get("keyword_probability", 1))
+        step = float(self.config.get("keyword_probability_step", 0))
+        if base <= 0 and step <= 0:
+            return False
+        misses = getattr(self, "_keyword_misses", None)
+        if misses is None:
+            misses = self._keyword_misses = MissCounters()
+        probability = progressive_probability(base, step, misses.get(group),
+            ceiling=float(self.config.get("keyword_probability_max", 1)))
+        hit = random.random() < probability
+        misses.record(group, sent=False)
+        if hit:
+            # Reserve the cooldown before LLM work; n still resets only after
+            # actual delivery, and a failed generation cannot flood the queue.
+            store[group] = now
+        return hit
+
+    def _keyword_sent(self, group: str, now: float) -> None:
+        if not hasattr(self, "_keyword_last"):
+            self._keyword_last = {}
+        self._keyword_last[group] = now
+        if getattr(self, "_keyword_misses", None) is not None:
+            self._keyword_misses.record(group, sent=True)
 
     def _is_friendly_bot(self, event: AstrMessageEvent) -> bool:
         targets = str(self.config.get("friendly_bots") or "").strip()
@@ -374,11 +407,14 @@ class Main(Star):
                 text = str(result.get_plain_text() or "").strip()
             except Exception:
                 text = ""
-        if not text:
+        if not text and not getattr(result, "chain", None):
             return
         target, kind = self._take_trigger(event)
+        conversation = self._conversation_key(event)
+        if kind == "keyword":
+            self._keyword_sent(conversation, datetime.now(self.scheduler.tz).timestamp())
         self.engagement.on_bot_sent(
-            group_id=group_id,
+            group_id=conversation,
             text=text,
             target_user=target,
             trigger_kind=kind,
@@ -509,8 +545,8 @@ class Main(Star):
                 decision = Decision(True, "usage_limit", self._next_hour(now), None)
                 self._publish_decision(decision)
             else:
-                group_key = str(event.get_group_id() or "")
-                if group_key:
+                group_key = self._conversation_key(event)
+                if event.get_group_id():
                     incoming = str(
                         getattr(getattr(event, "message_obj", None), "message_str", "")
                         or event.message_str
@@ -523,7 +559,8 @@ class Main(Star):
                         and previous[0] == user_id
                         and now.timestamp() - previous[1] < 180
                     )
-                    keyword = self._keyword_hit(incoming) and self._keyword_allowed(group_key, now.timestamp())
+                    direct = bool(event.is_at_or_wake_command) or self._has_at_bot(event)
+                    keyword = not direct and not carry and self._keyword_hit(incoming) and self._keyword_allowed(group_key, now.timestamp())
                     trigger = self.engagement.handle_message(
                         GroupMessage(
                             group_id=group_key,
@@ -540,7 +577,7 @@ class Main(Star):
                         wake_matched=bool(event.is_at_or_wake_command) and not self._has_at_bot(event) or keyword or carry,
                     )
                     if trigger:
-                        self._set_trigger(event, trigger.target_user, trigger.kind)
+                        self._set_trigger(event, trigger.target_user, "keyword" if keyword else trigger.kind)
                         if trigger.kind in ("random", "continuation") or keyword or carry:
                             event.is_at_or_wake_command = True
                             logger.info(f"{trigger.kind} 触发 group={group_key} keyword={keyword} carry={carry}")
@@ -576,11 +613,13 @@ class Main(Star):
             event.stop_event()
             return
 
-        group = str(event.get_group_id() or f"private:{event.get_sender_id()}")
+        group = self._conversation_key(event)
         user = str(event.get_sender_id() or "unknown")
         addressed = await self._addressed(event)
-        if not addressed and self._keyword_hit(text) and self._keyword_allowed(group, now.timestamp()):
+        keyword_selected = not addressed and self._keyword_hit(text) and self._keyword_allowed(group, now.timestamp())
+        if keyword_selected:
             addressed = True
+            self._set_trigger(event, user, "keyword")
         if not addressed:
             previous = getattr(self, "_last_addressed", {}).get(group)
             if previous and previous[0] == user and now.timestamp() - previous[1] < 180:
@@ -623,11 +662,13 @@ class Main(Star):
             return
         try:
             await event.send(MessageChain([Plain(self._addressed_reply(event, reply))]))
+            if keyword_selected:
+                self._keyword_sent(group, now.timestamp())
             self.engagement.on_bot_sent(
                 group_id=group,
                 text=reply,
                 target_user=user,
-                trigger_kind="mention" if addressed else "reply",
+                trigger_kind="keyword" if keyword_selected else "mention" if addressed else "reply",
             )
         except Exception as exc:  # sending must not crash the pipeline
             logger.warning(f"离线回复发送失败：{exc}")

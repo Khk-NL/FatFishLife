@@ -16,6 +16,8 @@ python scripts/configure_voice_policy.py --astrbot D:\Code\Apps\AstrBot --apply
 |---|---|---|
 | enabled | false | 总开关；真实付费验收与日常自动消费分开授权 |
 | voice_probability | 0.10 | 已决定参与且已生成回复后，转语音的概率 |
+| voice_probability_step | 0.0 | 每次符合语音条件但没有发送成功后增加的概率；由用户填写 |
+| voice_probability_max | 1.0 | 递增概率上限；由用户填写 |
 | cooldown_seconds | 180 | 每个完整会话独立冷却 |
 | max_text_length | 80 | 超长回复保持原文 |
 | manual_trigger | true | “用语音回复”等明确请求跳过概率，仍受冷却/长度/节能/会话门禁限制 |
@@ -24,6 +26,10 @@ python scripts/configure_voice_policy.py --astrbot D:\Code\Apps\AstrBot --apply
 | disable_during_economy_mode | true | 读取既有 offline/signal，节能时不调用付费 TTS |
 
 以上参数可在现有 router 的 WebUI“FatFish lightweight voice policy”中修改。概率仍调用 router 原有检查器，不做两次随机判断；这与群聊参与概率完全独立。自然语言明确要求文字时，本轮保持文字。
+
+有效语音概率为 `min(voice_probability_max, voice_probability + n * voice_probability_step)`。三个概率值都填 **0～1的小数**，例如0.10代表10%，0.02代表每次增加2个百分点。基础值仍为当前0.10；新增步长默认0，保持原有频率，具体数字由用户填写。可自行设置为0.10/0.02/0.30，对应10%→12%→14%……最高30%，这只是调节示例，不会自动写入。
+
+`n`按完整会话标识独立统计，与表情包及搭话计数互不影响：只有通过白名单、会话、节能、长度、混合内容和冷却门禁的回复尝试才计数；概率未中、合成失败、语音发送失败都计为一次未发。冷却中、离线中或用户明确要文字时不积累，避免恢复后突然高概率发声。只有实际Record发送成功才归零，抽中概率或生成了文件不归零；明确请求的语音成功发送也会重置。计数只在本进程内保留，重启归零，最多保留512个会话，无聊天正文。
 
 2026-10-25用户已明确授权开启日常语音并接受后续按量费用，日常开关现已开启。白名单仅包含已确认的“苹果乐乐乐”完整会话；10%概率、180秒冷却、最多80字，节能时关闭。MiniMax 使用 `AppleLeVoice20261025`、1.0倍语速；旧硅基情绪音色映射保留在配置/备份中，但其路由暂时关闭，避免把旧服务的音色URI传给MiniMax。后续复核情绪映射后再启用。
 

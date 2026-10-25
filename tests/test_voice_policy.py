@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 from fatfish_core.voice_policy import (DEFAULT_POLICY, guarded_result, guarded_manual,
-                                      protect_delivery, MANUAL_REQUEST)
+                                      protect_delivery, MANUAL_REQUEST, _voice_counters)
 from scripts.configure_voice_policy import configure, patch_source, MARKER
 
 
@@ -177,6 +177,103 @@ class VoicePolicyTests(unittest.IsolatedAsyncioTestCase):
             protect_delivery(event,[record],'文字',root=self.root)
             await event.send(Chain([record]))
             self.assertTrue(path.exists())
+
+    async def test_progressive_voice_uses_current_conversation_misses_and_ceiling(self):
+        r=self.router(voice_probability=.1,voice_probability_step=.2,voice_probability_max=.5)
+        observed=[]
+        def check(*args,enable_probability=True,**kwargs):
+            if enable_probability:observed.append(r.condition_checker.prob)
+            return types.SimpleNamespace(passed=not enable_probability)
+        r.condition_checker.check_all=check
+        async def original(router,event):
+            router.condition_checker.check_all('原回复',object())
+        wrapped=guarded_result(original)
+        for _ in range(4):await wrapped(r,self.event())
+        await wrapped(r,self.event(umo='napcat:FriendMessage:1'))
+        await wrapped(r,self.event(umo='other:GroupMessage:1'))
+        for actual,expected in zip(observed,[.1,.3,.5,.5,.1,.1]):self.assertAlmostEqual(actual,expected)
+        self.assertEqual(_voice_counters(r).get('napcat:GroupMessage:1'),4)
+        self.assertEqual(_voice_counters(r).get('napcat:FriendMessage:1'),1)
+
+    async def test_zero_base_can_accumulate_when_step_is_positive(self):
+        r=self.router(voice_probability=0,voice_probability_step=.1,voice_probability_max=.3)
+        observed=[]
+        def check(*args,enable_probability=True,**kwargs):
+            if enable_probability:observed.append(r.condition_checker.prob)
+            return types.SimpleNamespace(passed=not enable_probability)
+        r.condition_checker.check_all=check
+        async def original(router,event):router.condition_checker.check_all('原回复',object())
+        await guarded_result(original)(r,self.event())
+        await guarded_result(original)(r,self.event())
+        self.assertEqual(observed,[0,.1])
+
+    async def test_synthesis_or_delivery_failure_does_not_reset_until_actual_record_send(self):
+        r=self.router(voice_probability_step=.1)
+        async def failed(router,event):raise RuntimeError()
+        await guarded_result(failed)(r,self.event(private=True))
+        key='napcat:GroupMessage:1'
+        self.assertEqual(_voice_counters(r).get(key),1)
+        cache=self.root/'progressive.mp3';cache.write_bytes(b'audio')
+        async def generated(router,event):event.get_result().chain=[Record(cache)]
+        event=self.event(private=True)
+        await guarded_result(generated)(r,event)
+        self.assertEqual(_voice_counters(r).get(key),2)
+        await event.send(event.get_result())
+        self.assertEqual(_voice_counters(r).get(key),0)
+        broken=self.event(private=True)
+        async def sender(message):
+            if isinstance(message.chain[0],Record):raise TimeoutError()
+        broken.send=sender
+        await guarded_result(generated)(r,broken)
+        await broken.send(broken.get_result())
+        self.assertEqual(_voice_counters(r).get(key),1)
+
+    async def test_cooldown_and_other_gates_do_not_accumulate_misses(self):
+        r=self.router(voice_probability_step=.1)
+        r.condition_checker.check_all=lambda *a,**k:types.SimpleNamespace(passed=False)
+        original=AsyncMock()
+        await guarded_result(original)(r,self.event())
+        original.assert_not_awaited()
+        self.assertIsNone(getattr(r,'_fatfish_voice_misses',None))
+        r=self.router(voice_probability_step=.1)
+        r.context.get_registered_star=lambda name:None
+        await guarded_result(original)(r,self.event())
+        self.assertIsNone(getattr(r,'_fatfish_voice_misses',None))
+
+    async def test_concurrent_conversations_keep_their_effective_probability(self):
+        r=self.router(voice_probability=.1,voice_probability_step=.2)
+        _voice_counters(r).record('napcat:GroupMessage:1',sent=False)
+        observed={};all_started=asyncio.Event();entered=0
+        async def original(router,event):
+            nonlocal entered
+            entered+=1
+            if entered==2:all_started.set()
+            await all_started.wait()
+            router.condition_checker.check_all('原回复',object())
+        # Observe inside the actual synchronous checker where the contextual
+        # value is installed, not a shared attribute during the preceding await.
+        def check(*args,enable_probability=True,**kwargs):
+            if enable_probability:
+                observed[asyncio.current_task().get_name()]=r.condition_checker.prob
+            return types.SimpleNamespace(passed=True)
+        r.condition_checker.check_all=check
+        wrapped=guarded_result(original)
+        a=asyncio.create_task(wrapped(r,self.event()),name='group')
+        b=asyncio.create_task(wrapped(r,self.event(umo='napcat:FriendMessage:1')),name='private')
+        await asyncio.gather(a,b)
+        self.assertAlmostEqual(observed['group'],.3);self.assertAlmostEqual(observed['private'],.1)
+        self.assertEqual(r.condition_checker.prob,.1)
+
+    async def test_manual_voice_success_resets_same_conversation_counter(self):
+        r=self.router(voice_probability_step=.1);key='napcat:GroupMessage:1'
+        _voice_counters(r).record(key,sent=False)
+        cache=self.root/'manual.mp3';cache.write_bytes(b'audio')
+        async def original(router,event,text):return True,[Record(cache)],text
+        event=self.event(private=True)
+        ok,chain,_=await guarded_manual(original)(r,event,'原来这一句')
+        self.assertTrue(ok);self.assertEqual(_voice_counters(r).get(key),2)
+        await event.send(Chain(chain))
+        self.assertEqual(_voice_counters(r).get(key),0)
 
 
 SOURCE='''from __future__ import annotations

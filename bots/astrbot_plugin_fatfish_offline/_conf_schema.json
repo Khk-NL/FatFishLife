@@ -48,17 +48,47 @@
   },
   "ambient_chance": {
     "type": "float",
-    "description": "群聊主动插话基础概率，每次插话后下降，跨小时恢复",
+    "description": "群聊随机主动插话基础概率p0（0到1），最终概率=min(上限,p0+n×步长)，发送成功后n归零",
     "default": 0.025
+  },
+  "ambient_probability_step": {
+    "type": "float",
+    "description": "群聊主动插话每次合格未发送机会的概率增量（0到1），0保持固定概率，数字由你填写",
+    "default": 0.0
+  },
+  "ambient_probability_max": {
+    "type": "float",
+    "description": "群聊主动插话概率上限（0到1），不绕过冷却和小时上限",
+    "default": 1.0
+  },
+  "keyword_probability": {
+    "type": "float",
+    "description": "未被@/叫名且命中关键词时的基础概率p0（0到1），1保留原来命中即触发的行为",
+    "default": 1.0
+  },
+  "keyword_probability_step": {
+    "type": "float",
+    "description": "关键词搭话每次合格未发送机会的概率增量（0到1），0保持固定概率",
+    "default": 0.0
+  },
+  "keyword_probability_max": {
+    "type": "float",
+    "description": "关键词搭话概率上限（0到1），每完整会话独立计数",
+    "default": 1.0
+  },
+  "keyword_cooldown": {
+    "type": "int",
+    "description": "关键词抽中时先预约会话冷却，回复成功后刷新起点；冷却期间不累计n，避免生成时连续排队",
+    "default": 90
   },
   "ambient_cooldown": {
     "type": "int",
-    "description": "每群两次主动插话的最小间隔秒数",
+    "description": "群主动插话抽中时先预约冷却，实际发送成功后刷新起点，避免生成时连续排队",
     "default": 300
   },
   "ambient_hourly_limit": {
     "type": "int",
-    "description": "每群每小时主动插话上限",
+    "description": "每群每小时主动插话请求上限；抽中即预占，生成失败也保留配额以限制费用，0保持关闭",
     "default": 3
   },
   "local_model_enabled": {

@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 
 from bots.astrbot_plugin_fatfish_offline.engagement import (
     GroupConfig,
@@ -85,21 +86,61 @@ class EngagementTest(unittest.TestCase):
         media.has_media = True
         self.assertIsNone(engine.handle_message(media))
 
-    def test_probability_decays_and_resets_hourly(self):
+    def test_probability_increases_per_unsent_opportunity_and_resets_only_after_send(self):
         engine = GroupEngagement(
             GroupConfig(
-                random_probability=1.0,
+                random_probability=0.1,
+                random_probability_step=0.1,
+                random_probability_max=0.3,
                 random_cooldown=0,
                 random_hourly_limit=99,
-                decay_factor=0.5,
-            )
+            ), rng=Mock(random=Mock(return_value=.99))
         )
         for index in range(3):
             engine.handle_message(msg(f"聊{index}", timestamp=1000 + index))
-        trigger = engine.handle_message(msg("继续聊", timestamp=1004))
+        self.assertIsNone(engine.handle_message(msg("继续聊", timestamp=1004)))
+        self.assertAlmostEqual(engine._current_probability("g1", 1005), 0.2)
+        self.assertAlmostEqual(engine._current_probability("other:GroupMessage:g1", 1005), 0.1)
+        engine.handle_message(msg("换个话题", timestamp=1005))
+        engine.handle_message(msg("还有别的吗", timestamp=1006))
+        self.assertAlmostEqual(engine._current_probability("g1", 1007), 0.3)
+        engine.rng.random.return_value = 0
+        trigger = engine.handle_message(msg("接着聊呀", timestamp=1007))
         self.assertEqual(trigger.kind, "random")
-        self.assertAlmostEqual(engine._current_probability("g1", 1005), 0.5)
-        self.assertAlmostEqual(engine._current_probability("g1", 1005 + 3600), 1.0)
+        self.assertEqual(engine.random_misses.get("g1"), 4)
+        engine.on_bot_sent(group_id="g1", text="好耶", target_user=None, trigger_kind="random", timestamp=1008)
+        self.assertEqual(engine.random_misses.get("g1"), 0)
+        self.assertAlmostEqual(engine._current_probability("g1", 1009), 0.1)
+
+    def test_zero_base_can_progress_but_zero_base_and_step_remain_disabled(self):
+        for step in (0, .2):
+            rng=Mock(random=Mock(return_value=.99))
+            engine=GroupEngagement(GroupConfig(random_probability=0,random_probability_step=step),rng=rng)
+            for index in range(3):engine.handle_message(msg(f"聊{index}",timestamp=1000+index))
+            engine.handle_message(msg("值得接的话题",timestamp=1004))
+            self.assertEqual(engine.random_misses.get("g1"),1 if step else 0)
+            self.assertAlmostEqual(engine._current_probability("g1",1005),step)
+
+    def test_cooldown_and_hour_limit_do_not_accumulate_misses(self):
+        engine=GroupEngagement(GroupConfig(random_probability=.1,random_probability_step=.1,random_hourly_limit=1))
+        engine.on_bot_sent(group_id="g1",text="刚说过",target_user=None,trigger_kind="random",timestamp=1000)
+        for index in range(5):engine.handle_message(msg("普通群聊消息",timestamp=1010+index))
+        self.assertEqual(engine.random_misses.get("g1"),0)
+
+    def test_hit_reserves_cooldown_and_hour_budget_before_send_without_resetting_n(self):
+        engine=GroupEngagement(GroupConfig(random_probability=1,random_cooldown=300,random_hourly_limit=1))
+        for index in range(3):engine.handle_message(msg(f"聊{index}",timestamp=1000+index))
+        self.assertEqual(engine.handle_message(msg("聊个新话题",timestamp=1004)).kind,'random')
+        self.assertIsNone(engine.handle_message(msg("再聊个新话题",timestamp=1005)))
+        self.assertEqual(engine.random_misses.get('g1'),1)
+        self.assertEqual(len(engine.random_times['g1']),1)
+        # Even after cooldown, the reserved hourly allowance is exhausted.
+        for index in range(3):engine.handle_message(msg('重新热起来',timestamp=1400+index))
+        self.assertIsNone(engine.handle_message(msg('又一个话题',timestamp=1404)))
+        self.assertEqual(engine.random_misses.get('g1'),1)
+        engine.on_bot_sent(group_id='g1',text='终于回复啦',target_user=None,trigger_kind='random',timestamp=1405)
+        self.assertEqual(engine.random_misses.get('g1'),0)
+        self.assertEqual(len(engine.random_times['g1']),1)
 
     def test_recent_context_format(self):
         self.engine.handle_message(msg("今天好累", timestamp=1000))

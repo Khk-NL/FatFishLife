@@ -6,6 +6,7 @@ These wrappers only gate that work and protect this event's existing sender.
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 from functools import wraps
 import logging
 import os
@@ -14,14 +15,18 @@ import re
 import shutil
 import tempfile
 
+from .progressive_probability import MissCounters, progressive_probability
+
 LOG = logging.getLogger(__name__)
 DEFAULT_POLICY = {
-    "enabled": False, "voice_probability": .10, "cooldown_seconds": 180,
+    "enabled": False, "voice_probability": .10, "voice_probability_step": 0.0,
+    "voice_probability_max": 1.0, "cooldown_seconds": 180,
     "max_text_length": 80, "manual_trigger": True, "fallback_to_text": True,
     "text_alongside_voice": False, "disable_during_economy_mode": True,
 }
 MANUAL_REQUEST = re.compile(r"(?:用|发|来|转|说|读).{0,8}(?:语音|声音)|(?:语音|声音).{0,8}(?:说|读|回复|回答|来|发)|念(?:一下|一遍|给我听)|读给我听")
 VOICE_OPT_OUT = re.compile(r"(?:别|不要|不用|不必|不想|禁止).{0,4}(?:语音|声音)|(?:用文字|打字回复|文字就好)")
+_CURRENT_PROBABILITY = ContextVar("fatfish_voice_probability", default=None)
 
 
 def policy(router):
@@ -67,6 +72,43 @@ def _sync_native_limits(router):
     router.condition_checker.prob = max(0., min(1., float(cfg["voice_probability"])))
     router.condition_checker.cooldown = max(0, int(cfg["cooldown_seconds"]))
     router.condition_checker.text_limit = max(1, int(cfg["max_text_length"]))
+    checker = router.condition_checker
+    if not getattr(checker, "_fatfish_context_probability", False):
+        original = checker.check_all
+        def check_all(*args, **kwargs):
+            probability = _CURRENT_PROBABILITY.get()
+            if probability is None:
+                return original(*args, **kwargs)
+            previous = checker.prob
+            checker.prob = probability
+            try:
+                # The upstream checker is synchronous. Only it rolls, and
+                # another task cannot observe the temporary value mid-call.
+                return original(*args, **kwargs)
+            finally:
+                checker.prob = previous
+        checker.check_all = check_all
+        checker._fatfish_context_probability = True
+
+
+def _voice_counters(router):
+    counters = getattr(router, "_fatfish_voice_misses", None)
+    if counters is None:
+        counters = router._fatfish_voice_misses = MissCounters()
+    return counters
+
+
+def _effective_probability(router, event):
+    cfg = policy(router)
+    return progressive_probability(cfg["voice_probability"], cfg["voice_probability_step"],
+                                   _voice_counters(router).get(str(event.unified_msg_origin)),
+                                   ceiling=cfg["voice_probability_max"])
+
+
+def _eligible(router, event, text, chain=()):
+    state = router._get_session_state(router._get_umo(event))
+    mixed = any(type(part).__name__ not in {"Plain", "At", "Reply", "Image", "Face"} for part in chain)
+    return router.condition_checker.check_all(text, state, mixed, enable_probability=False).passed
 
 
 def _reserve(router, event):
@@ -98,7 +140,7 @@ def _cleanup(paths, root):
             LOG.warning("Voice temporary file cleanup deferred")
 
 
-def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True):
+def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True, on_success=None):
     """Keep native OneBot sending; records stay separate and failures use text.
 
     Attach only to this event and restore after its records complete. No queue,
@@ -133,9 +175,10 @@ def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True
     original_send = event.send
     announced = False
     fallback_sent = False
+    success_recorded = False
 
     async def send(message, *args, **kwargs):
-        nonlocal announced, fallback_sent
+        nonlocal announced, fallback_sent, success_recorded
         matched = [part for part in message.chain if id(part) in pending]
         if not matched:
             return await original_send(message, *args, **kwargs)
@@ -148,6 +191,9 @@ def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True
                         await original_send(message.derive([Plain("AI合成角色语音")]), *args, **kwargs)
                         announced = True
                     last = await original_send(message.derive([record]), *args, **kwargs)
+                    if on_success is not None and not success_recorded:
+                        on_success()
+                        success_recorded = True
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
@@ -184,13 +230,21 @@ def guarded_result(function):
         manual = bool(cfg["manual_trigger"] and MANUAL_REQUEST.search(incoming))
         if not await _allowed(router, event, text, manual=manual):
             return
-        if not manual and float(cfg["voice_probability"]) <= 0:
+        if not manual and float(cfg["voice_probability"]) <= 0 and float(cfg["voice_probability_step"]) <= 0:
             return
         if not _reserve(router, event):
             return
         event._fatfish_manual_voice = manual
+        attempted = False
+        token = None
         try:
             _sync_native_limits(router)
+            if not _eligible(router, event, text, original):
+                return
+            counters = _voice_counters(router)
+            key = str(event.unified_msg_origin)
+            token = _CURRENT_PROBABILITY.set(_effective_probability(router, event))
+            attempted = True
             await function(router, event, *args, **kwargs)
             from astrbot.core.message.components import Plain
             from importlib import import_module
@@ -200,13 +254,18 @@ def guarded_result(function):
                 others = [part for part in original if type(part).__name__ != "Plain"]
                 result.chain = ([Plain(text)] if cfg["text_alongside_voice"] else []) + records + others
                 protect_delivery(event, result.chain, text, root=root,
-                                 alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"])
+                                 alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"],
+                                 on_success=lambda: counters.record(key, sent=True))
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             LOG.warning("TTS policy kept the original text: %s", type(exc).__name__)
             result.chain = original
         finally:
+            if attempted:
+                counters.record(key, sent=False)
+            if token is not None:
+                _CURRENT_PROBABILITY.reset(token)
             event._fatfish_manual_voice = False
             _release(router, event)
     return wrapped
@@ -220,12 +279,16 @@ def guarded_manual(function):
             return False, [], "当前语音策略未允许此请求，保留文字"
         if not _reserve(router, event):
             return False, [], "已有语音正在处理，保留文字"
+        attempted = False
         try:
             _sync_native_limits(router)
             state = router._get_session_state(router._get_umo(event))
             check = router.condition_checker.check_all(text, state, enable_probability=False)
             if not check.passed:
                 return False, [], "语音冷却或长度限制中，保留文字"
+            counters = _voice_counters(router)
+            key = str(event.unified_msg_origin)
+            attempted = True
             ok, chain, history = await function(router, event, text, *args, **kwargs)
             if ok:
                 from importlib import import_module
@@ -233,8 +296,11 @@ def guarded_manual(function):
                 root = import_module(router.__class__.__module__.rsplit(".", 1)[0] + ".core.constants").TEMP_DIR
                 cfg = policy(router)
                 chain = ([Plain(text)] if cfg["text_alongside_voice"] else []) + [part for part in chain if type(part).__name__ != "Plain"]
-                protect_delivery(event, chain, text, root=root, alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"])
+                protect_delivery(event, chain, text, root=root, alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"],
+                                 on_success=lambda: counters.record(key, sent=True))
             return ok, chain, history
         finally:
+            if attempted:
+                counters.record(key, sent=False)
             _release(router, event)
     return wrapped

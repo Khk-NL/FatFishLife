@@ -113,6 +113,49 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         )
         return plugin
 
+    async def test_keyword_progression_is_per_full_session_and_send_success_controls_reset(self):
+        plugin=self.plugin();plugin.config.update(keyword_probability=.1,keyword_probability_step=.1,keyword_probability_max=.3)
+        first='napcat:GroupMessage:42';other='other:GroupMessage:42';private='napcat:FriendMessage:42'
+        with patch.object(PLUGIN.random,'random',return_value=.99):
+            self.assertFalse(plugin._keyword_allowed(first,1000))
+            self.assertFalse(plugin._keyword_allowed(first,1001))
+            self.assertFalse(plugin._keyword_allowed(first,1002))
+            self.assertEqual(plugin._keyword_misses.get(first),3)
+            self.assertEqual(plugin._keyword_misses.get(other),0)
+            self.assertEqual(plugin._keyword_misses.get(private),0)
+        with patch.object(PLUGIN.random,'random',return_value=.25):
+            self.assertTrue(plugin._keyword_allowed(first,1003))
+            self.assertFalse(plugin._keyword_allowed(other,1003))
+        self.assertEqual(plugin._keyword_misses.get(first),4)
+        self.assertEqual(plugin._keyword_last[first],1003)
+        with patch.object(PLUGIN.random,'random',return_value=0):
+            self.assertFalse(plugin._keyword_allowed(first,1003.5))
+        self.assertEqual(plugin._keyword_misses.get(first),4)
+        plugin._keyword_sent(first,1004)
+        self.assertEqual(plugin._keyword_misses.get(first),0)
+        self.assertFalse(plugin._keyword_allowed(first,1005))
+        self.assertEqual(plugin._keyword_misses.get(first),0)
+
+    async def test_keyword_trigger_reset_follows_real_sent_hook_even_for_media_reply(self):
+        plugin=self.plugin();event=Event(group='42',text='能天使今天有什么好玩的')
+        event.unified_msg_origin='napcat:GroupMessage:42'
+        await plugin.guard(event)
+        self.assertEqual(plugin._keyword_misses.get(event.unified_msg_origin),1)
+        self.assertEqual(plugin._take_trigger(event)[1],'keyword')
+        plugin._set_trigger(event,'visitor','keyword')
+        event.get_result=lambda:types.SimpleNamespace(get_plain_text=lambda:'',chain=[types.SimpleNamespace(type='Record')])
+        await plugin.remember_bot_turn(event)
+        self.assertEqual(plugin._keyword_misses.get(event.unified_msg_origin),0)
+        self.assertIn(event.unified_msg_origin,plugin.engagement.last_bot_turn)
+
+    async def test_direct_mention_and_disabled_keyword_do_not_count_as_keyword_chances(self):
+        plugin=self.plugin();event=Event(group='42',text='能天使',message=[At('bot')])
+        await plugin.guard(event)
+        self.assertFalse(hasattr(plugin,'_keyword_misses'))
+        plugin.config.update(keyword_probability=0,keyword_probability_step=0)
+        self.assertFalse(plugin._keyword_allowed('napcat:GroupMessage:42',1000))
+        self.assertFalse(hasattr(plugin,'_keyword_misses'))
+
     async def test_online_return_unloads_a_previous_local_model(self):
         plugin = self.plugin()
         plugin._local_warm = True

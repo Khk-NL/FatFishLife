@@ -18,13 +18,17 @@ from collections import defaultdict, deque
 from dataclasses import dataclass
 from typing import Optional
 
+from fatfish_core.progressive_probability import MissCounters, progressive_probability
+
 
 @dataclass
 class GroupConfig:
     random_probability: float = 0.025
+    random_probability_step: float = 0.0
+    random_probability_max: float = 1.0
     random_cooldown: float = 300.0
     random_hourly_limit: int = 3
-    decay_factor: float = 0.7
+    decay_factor: float = 0.7  # Compatibility only; linear progression replaces decay.
 
     continuation_timeout: float = 90.0
     open_followup_timeout: float = 30.0
@@ -81,23 +85,14 @@ class GroupEngagement:
         self.last_bot_turn: dict[str, BotTurn] = {}
         self.random_times = defaultdict(deque)
         self.last_random_at: dict[str, float] = {}
-        self.decay: dict[str, dict] = {}
+        self._random_reserved: set[str] = set()
+        self.random_misses = MissCounters()
 
     def _current_probability(self, group_id: str, now: float) -> float:
-        """Base chance, reduced by recent random remarks and restored each hour."""
-        hour_key = int(now // 3600)
-        state = self.decay.get(group_id)
-        if not state or state.get("hour") != hour_key:
-            return self.config.random_probability
-        return self.config.random_probability * float(state.get("factor", 1.0))
-
-    def _apply_decay(self, group_id: str, now: float) -> None:
-        hour_key = int(now // 3600)
-        state = self.decay.get(group_id)
-        if not state or state.get("hour") != hour_key:
-            state = {"hour": hour_key, "factor": 1.0}
-        state["factor"] = max(0.1, float(state.get("factor", 1.0)) * self.config.decay_factor)
-        self.decay[group_id] = state
+        """Per-conversation p0 + n*step; successful delivery resets n."""
+        return progressive_probability(self.config.random_probability,
+            self.config.random_probability_step, self.random_misses.get(group_id),
+            ceiling=self.config.random_probability_max)
 
     def _time(self, msg: GroupMessage) -> float:
         return msg.timestamp or time.time()
@@ -129,6 +124,7 @@ class GroupEngagement:
             self.last_bot_turn.pop(group_id, None)
             self.random_times.pop(group_id, None)
             self.last_random_at.pop(group_id, None)
+            self._random_reserved.discard(group_id)
 
     def _recent_bot_message(self, group_id: str, now: float) -> Optional[BotTurn]:
         turn = self.last_bot_turn.get(group_id)
@@ -241,8 +237,18 @@ class GroupEngagement:
         if self._is_continuation(msg, now):
             return Trigger("continuation", msg.user_id)
         if self._random_eligible(msg, now):
-            if self.rng.random() < self._current_probability(msg.group_id, now):
-                self._apply_decay(msg.group_id, now)
+            if self.config.random_probability <= 0 and self.config.random_probability_step <= 0:
+                return None
+            hit = self.rng.random() < self._current_probability(msg.group_id, now)
+            # Count the eligible opportunity now; generation/send may fail.
+            # Only on_bot_sent() can turn it into a successful reset.
+            self.random_misses.record(msg.group_id, sent=False)
+            if hit:
+                # Reserve frequency/cost allowance before asynchronous model
+                # work, so another queued message cannot spend it again.
+                self.last_random_at[msg.group_id] = now
+                self.random_times[msg.group_id].append(now)
+                self._random_reserved.add(msg.group_id)
                 return Trigger("random", None)
         return None
 
@@ -279,8 +285,12 @@ class GroupEngagement:
         )
 
         if trigger_kind == "random":
+            self.random_misses.record(group_id, sent=True)
             self.last_random_at[group_id] = now
-            self.random_times[group_id].append(now)
+            if group_id in self._random_reserved:
+                self._random_reserved.discard(group_id)
+            else:
+                self.random_times[group_id].append(now)
 
     def recent_context(
         self,

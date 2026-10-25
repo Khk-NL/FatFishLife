@@ -1,21 +1,42 @@
 # meme_manager 表情概率递增补丁
 
-社区插件 `meme_manager` 的 `generation.emotion.probability` 是固定概率，每轮独立掷骰。这里改成随连续未命中递增：
+沿用已安装的社区 `meme_manager` 5.2.5（MIT），不新增表情插件。概率公式为：
 
-- 基础概率取配置里的 `probability`（当前 35）
-- 每连续一轮没发成表情，概率 +10
-- 上限 90
-- 成功进入发送流程后归零
+- `p(n) = min(probability_max, probability + n × probability_step)`
+- 当前值保留基础35%、每次增加10个百分点、上限90%；本轮不再替用户提高数字。
+- 每个完整会话独立计数；群聊、私聊、不同适配器即使数字ID相同也不混用。
+- `n`是本会话上一轮成功发送表情后，已完成但没有真正发送表情的机器人回复数。群友的背景消息、通知和没有发出的回复不累加。
+- 同一事件旧版预检、装饰、流式阶段共用一次概率结果，不重复掷骰或重复累计。
+- 掷骰命中、生成候选或开始发送不算成功；原生图片发送实际完成才归零。没候选、生成失败、图片发送失败仍算未发，文字回复正常保留。
 
 实际曲线：35 → 45 → 55 → 65 → 75 → 85 → 90 → 90…
 
-## 改动位置
+## 如何调整
 
-- `data/plugins/meme_manager/main.py`：在 `self.emotions_probability` 后加 `self._meme_miss` 计数器
-- `data/plugins/meme_manager/mixins/event_handlers.py`：新增 `_meme_probability_hit(event)`，把三处 `probability_hit(self.emotions_probability)` 换成它
+AstrBot WebUI → 表情包管理器 → `generation.emotion`：
+
+| 字段 | 当前值 | 单位与作用 |
+|---|---|---|
+| `probability` | 35 | 基础概率，0～100% |
+| `probability_step` | 10 | 每次未发增加的百分点，0～100；填0恢复固定概率 |
+| `probability_max` | 90 | 概率上限，0～100% |
+
+例如基础20、递增5、上限50，对应20%→25%→30%…→50%；成功发出后回20%。这些是调节示例，不会自动写入你的配置。
+
+现有语义候选、分类匹配、流式和混合消息仍由社区插件完成。薄适配只统一概率与成功回执，不额外调用模型。语义辅助模式概率未命中时，复用原解析器清理标记，不再为本轮追加选图模型调用。
+
+计数只存在当前进程，不含正文或发送人；重启从基础概率开始。最多保留512个会话计数，避免长期无限增长。
+
+## 部署与升级
+
+配置只写到原生插件的私有配置和WebUI字段。部署前停止AstrBot，再运行：
+
+```powershell
+python scripts/configure_meme_probability.py --astrbot D:/Code/Apps/AstrBot --apply
+```
+
+不加`--apply`只预览。脚本核对已检查的5.2.5版本、MIT许可与方法形态，备份后幂等改动`mixins/event_handlers.py`、`_conf_schema.json`及本机插件配置；基础概率和其他配置保留。
 
 ## 升级注意
 
-这是对社区插件源码的本地补丁，`meme_manager` 升级会用新文件覆盖，需要重新应用。升级后先确认两处改动还在，再重启 AstrBot。
-
-想调力度就改 `_meme_probability_hit` 里的步长（10）和上限（90），基础概率仍在插件配置里。
+社区插件升级可能覆盖源码薄钩子，需先审查新版本再重新适配；形态不匹配时脚本停止，不猜测接口。本地测试覆盖概率递增、完整会话隔离、成功/失败回执、语义未命中、流式独立图片、混合图片和配置幂等；真实QQ收发仍需实际客户端验证。

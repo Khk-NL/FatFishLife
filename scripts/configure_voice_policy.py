@@ -46,7 +46,9 @@ def patch_source(source: str):
 def schema():
     descriptions = {
         "enabled": "Enable the voice policy (kept off until ongoing spending is authorized)",
-        "voice_probability": "Normal replies converted to speech, independently of group participation",
+        "voice_probability": "语音基础概率 p0（0～1，0.10表示10%），独立于群聊参与概率",
+        "voice_probability_step": "每次合格但未发语音增加的概率（0～1，0.02表示2个百分点；0为固定概率）",
+        "voice_probability_max": "语音概率上限（0～1，0.30表示30%）",
         "cooldown_seconds": "Per-conversation speech cooldown in seconds",
         "max_text_length": "Maximum reply characters eligible for speech",
         "manual_trigger": "Explicit speech requests bypass probability, retain cooldown and economy gates",
