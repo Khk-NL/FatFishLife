@@ -25,7 +25,7 @@ python scripts/configure_voice_policy.py --astrbot D:\Code\Apps\AstrBot --apply
 
 以上参数可在现有 router 的 WebUI“FatFish lightweight voice policy”中修改。概率仍调用 router 原有检查器，不做两次随机判断；这与群聊参与概率完全独立。自然语言明确要求文字时，本轮保持文字。
 
-本次 MiniMax 配置已准备好；日常开关尚未获得额外消费授权，保持关闭。白名单仅加入已确认的“苹果乐乐乐”完整会话。MiniMax 使用 `AppleLeVoice20261025`、1.0倍语速；旧硅基情绪音色映射保留在配置/备份中，但其路由暂时关闭，避免把旧服务的音色URI传给MiniMax。后续复核情绪映射后再启用。
+2026-10-25用户已明确授权开启日常语音并接受后续按量费用，日常开关现已开启。白名单仅包含已确认的“苹果乐乐乐”完整会话；10%概率、180秒冷却、最多80字，节能时关闭。MiniMax 使用 `AppleLeVoice20261025`、1.0倍语速；旧硅基情绪音色映射保留在配置/备份中，但其路由暂时关闭，避免把旧服务的音色URI传给MiniMax。后续复核情绪映射后再启用。
 
 只有确认日常自动语音的消费安排后，才使用 `--enable --apply`，并在 router 原生会话名单中允许目标 UMO。仅把 `fatfish_policy.enabled` 改为 true 不能绕过 router 的会话名单或 AstrBot `/tts` 会话开关；禁用任何一层都会阻止合成。MiniMax 密钥和 Voice ID 仍在 `tts_engine.minimax`，适配脚本保留这些值且不会输出。原生全局 TTS 应关闭，避免与社区 router 重复合成。
 
