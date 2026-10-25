@@ -73,6 +73,20 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('审核未保存', reply)
         self.assertNotIn('已通过', reply)
 
+    async def test_final_native_connection_failure_is_short_and_does_not_retry_model(self):
+        plain=type('Plain',(),{})();plain.text='LLM 响应错误: All chat models failed: APIConnectionError: Connection error.'
+        result=types.SimpleNamespace(chain=[plain],is_llm_result=lambda:False)
+        event=Event('owner',True);event.get_result=lambda:result
+        await self.plugin.natural_final_reply(event)
+        self.assertIn('刚才连接断了',result.chain[0].text)
+        self.assertNotIn('APIConnectionError',result.chain[0].text)
+        self.plugin.context.llm_generate.assert_not_called()
+
+    async def test_response_tone_instruction_is_removed_before_history_and_voice(self):
+        response=types.SimpleNamespace(completion_text='[语气：稍快、口语，连成一句话]\n老大，我在呢',is_chunk=False)
+        await self.plugin.grounded_lookup_response(Event('owner',True),response)
+        self.assertEqual(response.completion_text,'老大，我在呢')
+
     async def test_private_messages_are_not_recorded_as_public_even_for_non_owner(self):
         for uid in ("owner", "visitor"):
             for private in (True, False):

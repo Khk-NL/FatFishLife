@@ -95,6 +95,38 @@ class VoicePolicyTests(unittest.IsolatedAsyncioTestCase):
         release.set();await asyncio.gather(first,second)
         self.assertEqual(r._fatfish_voice_inflight,set())
 
+    async def test_explicit_request_reports_scope_block_instead_of_silently_ignoring_it(self):
+        r=self.router();r.config['allowed']=False
+        event=self.event(prompt='语音呢？')
+        function=AsyncMock()
+        await guarded_result(function)(r,event)
+        function.assert_not_awaited()
+        self.assertIn('当前会话没有开启语音',event.get_result().chain[0].text)
+        self.assertTrue(MANUAL_REQUEST.search('语音呢？'))
+        self.assertFalse(MANUAL_REQUEST.search('语音识别是什么'))
+
+    async def test_manual_short_reply_bypasses_only_automatic_minimum_and_restores_checker(self):
+        r=self.router(voice_probability=0);r.condition_checker.text_min_limit=5
+        event=self.event(prompt='用语音说好');event.get_result().chain[0].text='好'
+        checks=[]
+        def check(text,*args,**kwargs):
+            checks.append(r.condition_checker.text_min_limit)
+            return types.SimpleNamespace(passed=len(text)>=r.condition_checker.text_min_limit)
+        r.condition_checker.check_all=check
+        original=AsyncMock()
+        await guarded_result(original)(r,event)
+        original.assert_awaited_once()
+        self.assertEqual(checks,[0])
+        self.assertEqual(r.condition_checker.text_min_limit,5)
+        self.assertEqual(r.condition_checker.cooldown,180)
+
+    async def test_explicit_request_reports_failed_synthesis_without_an_extra_model_call(self):
+        event=self.event(prompt='发语音')
+        function=AsyncMock()
+        await guarded_result(function)(self.router(),event)
+        function.assert_awaited_once()
+        self.assertIn('合成没有成功',event.get_result().chain[0].text)
+
     async def test_generated_record_uses_existing_sender_discloses_ai_and_removes_own_file(self):
         audio=self.root/'voice.mp3';audio.write_bytes(b'fake')
         async def original(router,event):event.get_result().chain=[Record(audio)]

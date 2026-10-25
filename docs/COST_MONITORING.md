@@ -44,6 +44,10 @@ HTTP 请求成功、插件显示已开启、每日预算配置存在，都不能
 
 本地服务只监听回环地址，并使用本地密钥。安装：`python scripts/setup_minicpm_context.py --root D:/Code/Apps/MiniCPM`；停 AstrBot 后运行 `python scripts/configure_cost_policy.py --astrbot D:/Code/Apps/AstrBot --model-root D:/Code/Apps/MiniCPM --apply`，再由现有 watchdog 启动两项服务。该脚本备份配置且不显示密钥。
 
+MiniCPM启动脚本现使用llama.cpp原生 `--sleep-idle-seconds 60`：没有实际推理任务60秒后卸载模型权重和KV缓存，保留轻量回环监听，下一次本地摘要或回复自动重新加载。健康检查不会唤醒模型，也不会重置空闲计时；不需要另一套定时器。`scripts/start_minicpm_context.ps1 -IdleSeconds 30` 可调整为30秒（允许1～3600秒）。已在运行的旧进程需要重启一次才带上此参数；只修改脚本不会改变旧进程。重新加载会增加下一次本地请求的等待时间，不因此回退到云模型。这里释放的是模型占用，轻量服务进程仍保留。
+
+接口语义以本机b11669的 `llama-server.exe --help` 和[llama.cpp官方休眠说明](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md#sleeping-on-idle)为依据。
+
 历史修复先用 `scripts/repair_chat_history.py` 预览，指定 `--apply` 时逐会话备份原文再更新。不会合并会话，也不需要伪装成主人发送 `/reset`。
 
 ## 旧 context 配置迁移

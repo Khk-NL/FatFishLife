@@ -2,7 +2,8 @@
 
 No AstrBot imports, so the module can be tested and reused outside the plugin.
 Ollama models load on demand and unload with ``keep_alive=0``. The shared
-OpenAI-compatible context server stays loaded for native chat compression.
+llama.cpp context server unloads model memory after its configured idle timeout
+and wakes automatically for native chat compression or offline replies.
 """
 
 from __future__ import annotations
@@ -93,7 +94,9 @@ class LocalModel:
 
     async def unload(self) -> None:
         if self.openai:
-            return  # The same local model also manages independent chat summaries.
+            # The shared server also handles chat summaries: its native idle
+            # sleep releases memory safely without killing concurrent requests.
+            return
         if not self.enabled:
             return
         try:

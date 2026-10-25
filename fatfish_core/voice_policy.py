@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import time
 
 from .progressive_probability import MissCounters, progressive_probability
 
@@ -24,9 +25,10 @@ DEFAULT_POLICY = {
     "max_text_length": 80, "manual_trigger": True, "fallback_to_text": True,
     "text_alongside_voice": False, "disable_during_economy_mode": True,
 }
-MANUAL_REQUEST = re.compile(r"(?:用|发|来|转|说|读).{0,8}(?:语音|声音)|(?:语音|声音).{0,8}(?:说|读|回复|回答|来|发)|念(?:一下|一遍|给我听)|读给我听")
+MANUAL_REQUEST = re.compile(r"(?:用|发|来|转|说|读).{0,8}(?:语音|声音)|(?:语音|声音).{0,8}(?:说|读|回复|回答|来|发)|念(?:一下|一遍|给我听)|读给我听|^\s*(?:语音|声音)(?:呢|呀|啊|来一个|来一条)?[？?！!。\s]*$")
 VOICE_OPT_OUT = re.compile(r"(?:别|不要|不用|不必|不想|禁止).{0,4}(?:语音|声音)|(?:用文字|打字回复|文字就好)")
 _CURRENT_PROBABILITY = ContextVar("fatfish_voice_probability", default=None)
+_CURRENT_MANUAL = ContextVar("fatfish_manual_voice", default=False)
 
 
 def policy(router):
@@ -48,22 +50,37 @@ def _offline(router):
         return True
 
 
-async def _allowed(router, event, text, *, manual=False):
+async def _blocked_reason(router, event, text, *, manual=False):
     cfg = policy(router)
     if not cfg["enabled"] or not str(event.unified_msg_origin or ""):
-        return False
+        return "语音开关未开启"
     if not router.config.is_voice_output_enabled_for_umo(str(event.unified_msg_origin)):
-        return False
+        return "当前会话没有开启语音"
     if not str(event.get_platform_name()).startswith(("aiocqhttp", "qq_official")):
-        return False
+        return "当前平台不支持这条QQ语音路径"
     if not text.strip() or len(text) > int(cfg["max_text_length"]):
-        return False
+        return f"回复为空或超过{int(cfg['max_text_length'])}字"
     if cfg["disable_during_economy_mode"] and _offline(router):
-        return False
+        return "现在处于节能离线时段"
     if manual and not cfg["manual_trigger"]:
-        return False
+        return "手动语音请求未开启"
     from astrbot.core.star.session_llm_manager import SessionServiceManager
-    return await SessionServiceManager.should_process_tts_request(event)
+    if not await SessionServiceManager.should_process_tts_request(event):
+        return "当前会话的语音服务已关闭"
+    return ""
+
+
+async def _allowed(router, event, text, *, manual=False):
+    return not await _blocked_reason(router, event, text, manual=manual)
+
+
+def _manual_unavailable(router, event, result, text, reason):
+    """Explicit requests must not silently claim voice was delivered."""
+    reasons = getattr(router, "_recent_reasons", None)
+    if reasons is not None:
+        reasons[str(event.unified_msg_origin)] = (time.time(), reason)
+    from astrbot.core.message.components import Plain
+    result.chain = [Plain(text + "\n（这次未发语音：" + reason + "）")] + [part for part in result.chain if type(part).__name__ != "Plain"]
 
 
 def _sync_native_limits(router):
@@ -77,16 +94,23 @@ def _sync_native_limits(router):
         original = checker.check_all
         def check_all(*args, **kwargs):
             probability = _CURRENT_PROBABILITY.get()
-            if probability is None:
+            manual = _CURRENT_MANUAL.get()
+            if probability is None and not manual:
                 return original(*args, **kwargs)
             previous = checker.prob
-            checker.prob = probability
+            minimum = getattr(checker, "text_min_limit", 0)
+            if probability is not None:
+                checker.prob = probability
+            if manual:
+                checker.text_min_limit = 0
             try:
                 # The upstream checker is synchronous. Only it rolls, and
                 # another task cannot observe the temporary value mid-call.
                 return original(*args, **kwargs)
             finally:
                 checker.prob = previous
+                if manual:
+                    checker.text_min_limit = minimum
         checker.check_all = check_all
         checker._fatfish_context_probability = True
 
@@ -108,7 +132,7 @@ def _effective_probability(router, event):
 def _eligible(router, event, text, chain=()):
     state = router._get_session_state(router._get_umo(event))
     mixed = any(type(part).__name__ not in {"Plain", "At", "Reply", "Image", "Face"} for part in chain)
-    return router.condition_checker.check_all(text, state, mixed, enable_probability=False).passed
+    return router.condition_checker.check_all(text, state, mixed, enable_probability=False)
 
 
 def _reserve(router, event):
@@ -228,18 +252,27 @@ def guarded_result(function):
         if VOICE_OPT_OUT.search(incoming):
             return
         manual = bool(cfg["manual_trigger"] and MANUAL_REQUEST.search(incoming))
-        if not await _allowed(router, event, text, manual=manual):
+        blocked = await _blocked_reason(router, event, text, manual=manual)
+        if blocked:
+            if manual:
+                _manual_unavailable(router, event, result, text, blocked)
             return
         if not manual and float(cfg["voice_probability"]) <= 0 and float(cfg["voice_probability_step"]) <= 0:
             return
         if not _reserve(router, event):
+            if manual:
+                _manual_unavailable(router, event, result, text, "已有语音正在处理")
             return
         event._fatfish_manual_voice = manual
         attempted = False
         token = None
+        manual_token = _CURRENT_MANUAL.set(manual)
         try:
             _sync_native_limits(router)
-            if not _eligible(router, event, text, original):
+            eligibility = _eligible(router, event, text, original)
+            if not eligibility.passed:
+                if manual:
+                    _manual_unavailable(router, event, result, text, "语音冷却或长度限制中")
                 return
             counters = _voice_counters(router)
             key = str(event.unified_msg_origin)
@@ -256,16 +289,21 @@ def guarded_result(function):
                 protect_delivery(event, result.chain, text, root=root,
                                  alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"],
                                  on_success=lambda: counters.record(key, sent=True))
+            elif manual:
+                _manual_unavailable(router, event, result, text, "合成没有成功，已保留文字")
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             LOG.warning("TTS policy kept the original text: %s", type(exc).__name__)
             result.chain = original
+            if manual:
+                _manual_unavailable(router, event, result, text, "语音服务暂时不可用，已保留文字")
         finally:
             if attempted:
                 counters.record(key, sent=False)
             if token is not None:
                 _CURRENT_PROBABILITY.reset(token)
+            _CURRENT_MANUAL.reset(manual_token)
             event._fatfish_manual_voice = False
             _release(router, event)
     return wrapped
@@ -275,11 +313,13 @@ def guarded_manual(function):
     """Apply the same offline/length/cooldown gates to existing /tts commands."""
     @wraps(function)
     async def wrapped(router, event, text, *args, **kwargs):
-        if not await _allowed(router, event, text, manual=True):
-            return False, [], "当前语音策略未允许此请求，保留文字"
+        blocked = await _blocked_reason(router, event, text, manual=True)
+        if blocked:
+            return False, [], blocked + "，保留文字"
         if not _reserve(router, event):
             return False, [], "已有语音正在处理，保留文字"
         attempted = False
+        manual_token = _CURRENT_MANUAL.set(True)
         try:
             _sync_native_limits(router)
             state = router._get_session_state(router._get_umo(event))
@@ -302,5 +342,6 @@ def guarded_manual(function):
         finally:
             if attempted:
                 counters.record(key, sent=False)
+            _CURRENT_MANUAL.reset(manual_token)
             _release(router, event)
     return wrapped

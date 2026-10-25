@@ -70,10 +70,13 @@ def configure(root: Path, *, apply=False):
     for key, default, description in (("probability_step", 10, "每次合格但未发出表情增加的百分点（0～100，填2表示增加2个百分点）"),
                                       ("probability_max", 90, "表情概率上限（0～100，填90表示90%）")):
         emotion[key] = {"type":"float", "default":default, "description":description, "hint":"0～100；基础概率+n×每次递增，最高不超过上限"}
+    emotion["manual_trigger"] = {"type":"bool", "default":True,
+                                 "description":"明确要求发表情时跳过随机概率；仍使用原有会话范围、语义候选校验与发送流程"}
     config = json.loads(config_path.read_text(encoding="utf-8-sig"))
     values = config.setdefault("generation", {}).setdefault("emotion", {})
     values.setdefault("probability_step", 10)
     values.setdefault("probability_max", 90)
+    values.setdefault("manual_trigger", True)
     from fatfish_core.progressive_probability import progressive_probability
     progressive_probability(float(values.get("probability", 35))/100, float(values["probability_step"])/100, 0, ceiling=float(values["probability_max"])/100)
     pending = {source_path:patch_source(source_path.read_text(encoding="utf-8-sig")),

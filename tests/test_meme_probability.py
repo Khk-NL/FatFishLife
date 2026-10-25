@@ -135,6 +135,59 @@ class MemeProgressionTests(unittest.IsolatedAsyncioTestCase):
         await after(p,first)
         self.assertEqual(policy._counts(p).get(first.unified_msg_origin),1)
 
+    async def test_explicit_request_bypasses_probability_without_random_roll(self):
+        p=plugin(probability=0,probability_step=0);e=event();e.message_str='苹果乐，给我发一张开心的表情包'
+        with patch.object(policy.random,'random',return_value=.99) as rng:
+            self.assertTrue(policy.meme_probability_hit(p,e))
+        rng.assert_not_called()
+        self.assertTrue(getattr(e,policy.STATE)['manual'])
+
+    async def test_opt_out_and_setting_do_not_force_a_manual_hit(self):
+        for text,enabled in [('不要发个表情包，纯文字就好',True),('发个表情包',False),('表情包怎么都不发了',True)]:
+            p=plugin(probability=0,probability_step=0,manual_trigger=enabled);e=event();e.message_str=text
+            with patch.object(policy.random,'random',return_value=.99):
+                self.assertFalse(policy.meme_probability_hit(p,e))
+
+    async def test_manual_text_reply_reuses_one_native_search_and_parser(self):
+        p=plugin();e=event();e.message_str='发个开心表情包'
+        e.set_extra('meme_manager_semantic_mode','tool')
+        p._semantic_mode_active=lambda e:True
+        async def search(event,query):
+            event.set_extra('meme_manager_semantic_search_completed',True)
+            event.set_extra('meme_manager_semantic_candidates',{'first':{'id':'pack:first','score':.3},'best':{'id':'pack:best','score':.8}})
+        p.search_memes_tool=AsyncMock(side_effect=search)
+        p._resp_semantic_impl=AsyncMock()
+        response=types.SimpleNamespace(completion_text='来啦')
+        await policy.progressive_response(AsyncMock())(p,e,response)
+        p.search_memes_tool.assert_awaited_once_with(e,e.message_str)
+        p._resp_semantic_impl.assert_awaited_once_with(e,response,'来啦\n&&pack:best&&')
+
+    async def test_manual_reuses_existing_candidates_without_searching_twice(self):
+        p=plugin();e=event();e.message_str='来个表情包'
+        e.set_extra('meme_manager_semantic_mode','tool');e.set_extra('meme_manager_semantic_search_completed',True)
+        e.set_extra('meme_manager_semantic_candidates',{'first':{'id':'pack:first','score':.8}})
+        p._semantic_mode_active=lambda e:True;p.search_memes_tool=AsyncMock();p._resp_semantic_impl=AsyncMock()
+        await policy.progressive_response(AsyncMock())(p,e,types.SimpleNamespace(completion_text='好呀'))
+        p.search_memes_tool.assert_not_awaited();p._resp_semantic_impl.assert_awaited_once()
+
+    async def test_manual_no_candidates_or_failed_search_keeps_original_text(self):
+        for outcome in (None,TimeoutError()):
+            p=plugin();e=event();e.message_str='发个表情包';e.set_extra('meme_manager_semantic_mode','tool')
+            p._semantic_mode_active=lambda e:True
+            p.search_memes_tool=AsyncMock(side_effect=outcome) if isinstance(outcome,Exception) else AsyncMock()
+            p._resp_semantic_impl=AsyncMock();response=types.SimpleNamespace(completion_text='原来的文字')
+            await policy.progressive_response(AsyncMock())(p,e,response)
+            self.assertEqual(response.completion_text,'原来的文字');p._resp_semantic_impl.assert_not_awaited()
+
+    async def test_manual_never_widens_scope_or_offline_plain_result(self):
+        for allowed,active,selected in ((False,True,False),(True,False,False),(True,True,True)):
+            p=plugin();e=event();e.message_str='发个表情包';e.set_extra('meme_manager_semantic_mode','tool')
+            if selected:e.set_extra('meme_manager_semantic_selected_ids',['already-selected'])
+            p._scope_allows_llm_origin=lambda e:allowed;p._semantic_mode_active=lambda e:active
+            p.search_memes_tool=AsyncMock();p._resp_semantic_impl=AsyncMock()
+            await policy.progressive_response(AsyncMock())(p,e,types.SimpleNamespace(completion_text='来啦'))
+            p.search_memes_tool.assert_not_awaited();p._resp_semantic_impl.assert_not_awaited()
+
 
 SOURCE='''from ..utils import probability_hit
 class EventHandlerMixin:
@@ -169,7 +222,7 @@ class MemeInstallerTests(unittest.TestCase):
             report=configure(root);self.assertFalse(report['applied']);self.assertEqual(source.read_text(),SOURCE)
             self.assertNotIn('local-secret',str(report))
             report=configure(root,apply=True);current=json.loads(config.read_text())
-            self.assertEqual(current['generation']['emotion'],{'probability':35,'probability_step':10,'probability_max':90})
+            self.assertEqual(current['generation']['emotion'],{'probability':35,'probability_step':10,'probability_max':90,'manual_trigger':True})
             self.assertEqual(current['keep'],7);self.assertEqual(current['api_key'],'local-secret')
             self.assertEqual(configure(root,apply=True)['changed_files'],[])
             self.assertEqual(patch_source(patch_source(SOURCE)),patch_source(SOURCE))

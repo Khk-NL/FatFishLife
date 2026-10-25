@@ -22,7 +22,7 @@ from fatfish_core import MemoryStore, build_context, resolve_shared_db
 from .style import build_style_block
 from fatfish_core.mood import MoodStore, react_to
 from fatfish_core.chat_text import event_chat_text
-from fatfish_core.context_policy import normalize_history
+from fatfish_core.context_policy import normalize_history, clean_assistant_text, is_connection_failure
 from fatfish_core.costs import read_cost_report
 from fatfish_core.chat_records import export_chat_records
 from fatfish_core.growth import record_capability
@@ -216,6 +216,7 @@ class Main(Star):
     async def grounded_lookup_response(self, event: AstrMessageEvent, response):
         if response is None or getattr(response, "is_chunk", False):
             return
+        response.completion_text = clean_assistant_text(response.completion_text or "")
         state = self._query_state(event)
         if unsupported_lookup_claim(str(response.completion_text or ""), state):
             address = "老大" if self._is_owner(event) else "老板"
@@ -229,13 +230,20 @@ class Main(Star):
     @filter.on_decorating_result(priority=-600)
     async def natural_final_reply(self, event: AstrMessageEvent):
         result = event.get_result()
-        if result is None or not getattr(result, "is_llm_result", lambda: False)():
+        if result is None:
             return
         chain = list(getattr(result, "chain", ()) or ())
+        if chain and all(type(part).__name__ == "Plain" for part in chain) and is_connection_failure("\n".join(part.text for part in chain)):
+            address = "老大" if self._is_owner(event) else "老板"
+            chain[0].text = address + "，刚才连接断了，这条没答上，稍后再试一下"
+            result.chain = [chain[0]]
+            return  # Keep the original error in native logs, never retry the LLM here.
+        if not getattr(result, "is_llm_result", lambda: False)():
+            return
         if not chain or not all(type(part).__name__ == "Plain" for part in chain):
             return  # Preserve captions/media ordering and command/tool output.
         state = self._query_state(event)
-        text = format_reply_parts([part.text for part in chain], active_lookup=bool(state.get("goal")))
+        text = clean_assistant_text(format_reply_parts([part.text for part in chain], active_lookup=bool(state.get("goal"))))
         if not text:
             address = "老大" if self._is_owner(event) else "老板"
             text = address + "，这次还没能核实前瞻结论" if state.get("goal") else "嗯，我在呢"

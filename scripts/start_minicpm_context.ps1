@@ -1,4 +1,8 @@
-param([string]$Root='D:\Code\Apps\MiniCPM',[int]$Port=6193)
+param(
+    [string]$Root='D:\Code\Apps\MiniCPM',
+    [int]$Port=6193,
+    [ValidateRange(1,3600)][int]$IdleSeconds=60
+)
 $ErrorActionPreference='Stop'
 $taskExe=Join-Path $Root 'llama\llama-server.exe'
 $taskModel=Join-Path $Root 'MiniCPM5-2B-Q4_K_M.gguf'
@@ -10,4 +14,6 @@ if(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyCont
 $taskLog=Join-Path $Root 'runtime_logs'
 New-Item -ItemType Directory -Path $taskLog -Force|Out-Null
 $taskRun=Get-Date -Format 'yyyyMMdd-HHmmss'
-Start-Process -FilePath $taskExe -ArgumentList '--model',("`""+$taskModel+"`""),'--host','127.0.0.1','--port',"$Port",'--ctx-size','16384','--parallel','1','--threads','6','--threads-batch','8','--reasoning','off','--no-reasoning-preserve','--alias','fatfish-context','--n-predict','1024','--api-key-file',("`""+$taskKey+"`""),'--cors-origins','http://127.0.0.1:6185' -WindowStyle Hidden -RedirectStandardOutput (Join-Path $taskLog "$taskRun.out.log") -RedirectStandardError (Join-Path $taskLog "$taskRun.err.log")|Out-Null
+# llama.cpp unloads model weights and KV memory after this idle period. Health
+# checks do not wake it; the next actual inference request reloads on demand.
+Start-Process -FilePath $taskExe -ArgumentList '--model',("`""+$taskModel+"`""),'--host','127.0.0.1','--port',"$Port",'--ctx-size','16384','--parallel','1','--threads','6','--threads-batch','8','--reasoning','off','--no-reasoning-preserve','--alias','fatfish-context','--n-predict','1024','--sleep-idle-seconds',"$IdleSeconds",'--api-key-file',("`""+$taskKey+"`""),'--cors-origins','http://127.0.0.1:6185' -WindowStyle Hidden -RedirectStandardOutput (Join-Path $taskLog "$taskRun.out.log") -RedirectStandardError (Join-Path $taskLog "$taskRun.err.log")|Out-Null

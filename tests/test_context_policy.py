@@ -1,5 +1,5 @@
 import unittest
-from fatfish_core.context_policy import normalize_history, retrieval_budget
+from fatfish_core.context_policy import normalize_history, retrieval_budget, clean_assistant_text, is_connection_failure
 
 
 class ContextPolicyTests(unittest.TestCase):
@@ -40,3 +40,22 @@ class ContextPolicyTests(unittest.TestCase):
 
     def test_retrieval_budget_is_smaller_for_simple_fact(self):
         self.assertLess(retrieval_budget("能天使是谁")[0], retrieval_budget("比较能天使与新约能天使的经历")[0])
+
+    def test_voice_delivery_notes_do_not_become_chat_or_history(self):
+        text = '[语气：稍快、口语，连成一句话]\n老大，我在呢'
+        self.assertEqual(clean_assistant_text(text), '老大，我在呢')
+        messages = [{'role':'user','content':text}, {'role':'assistant','content':text}]
+        cleaned, stats = normalize_history(messages)
+        self.assertEqual(cleaned[0]['content'], text)
+        self.assertEqual(cleaned[1]['content'], '老大，我在呢')
+        self.assertEqual(stats['voice_direction_removed'], 1)
+        self.assertEqual(clean_assistant_text('老板说[语气：稍快]是什么意思'), '老板说[语气：稍快]是什么意思')
+
+    def test_native_connection_error_is_not_learned_as_a_reply(self):
+        text = 'LLM 响应错误: All chat models failed: APIConnectionError: Connection error.'
+        self.assertTrue(is_connection_failure(text))
+        messages = [{'role':'user','content':'查一下前瞻'}, {'role':'assistant','content':text}, {'role':'user','content':'继续'}]
+        cleaned, stats = normalize_history(messages)
+        self.assertEqual([m['content'] for m in cleaned], ['查一下前瞻', '继续'])
+        self.assertEqual(stats['connection_failure_removed'], 1)
+        self.assertFalse(is_connection_failure('APIConnectionError是什么意思？'))

@@ -78,7 +78,7 @@ class RuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('当前会话事实',text)
             self.assertNotIn('123',text)
 
-    async def test_shared_local_api_uses_auth_and_is_never_unloaded(self):
+    async def test_shared_local_api_uses_auth_and_leaves_idle_unload_to_server(self):
         model = LOCAL.LocalModel("http://127.0.0.1:6193/v1", "fatfish-context", api_key="local-test")
         await model._client.aclose()
         response = types.SimpleNamespace(status_code=200, raise_for_status=lambda: None,

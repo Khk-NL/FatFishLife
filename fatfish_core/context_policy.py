@@ -9,6 +9,17 @@ import re
 DATA_URI = re.compile(r"data:(?:image|audio|video)/[^;\s]+;base64,[A-Za-z0-9+/=\r\n]+")
 MEDIA_TYPES = {"image_url", "input_image", "input_audio", "audio_url", "video_url"}
 OMITTED = "[较早图片或音频已省略，需细看时请重新发送]"
+VOICE_DIRECTION = re.compile(r"(?m)^[ \t]*[\[【](?:语气|语速|音色|朗读提示)[：:][^\]\】\r\n]{1,160}[\]】][ \t]*\n?")
+CONNECTION_FAILURE = re.compile(r"^\s*LLM\s*响应错误[：:]\s*All chat models failed:\s*(?:APIConnectionError|APITimeoutError):", re.I)
+
+
+def clean_assistant_text(text: str) -> str:
+    """Remove leaked delivery instructions, retaining the actual answer."""
+    return VOICE_DIRECTION.sub("", str(text or "")).strip()
+
+
+def is_connection_failure(text: str) -> bool:
+    return bool(CONNECTION_FAILURE.match(str(text or "")))
 
 
 def _legacy_parts(content):
@@ -30,7 +41,8 @@ def _legacy_parts(content):
 
 def normalize_history(messages: list[dict], *, image_turns=1) -> tuple[list[dict], dict]:
     """Preserve text/tool rounds, remove old media and known synthetic self-checks."""
-    result, stats = [], {"legacy_media":0, "media_removed":0, "synthetic_removed":0, "thought_removed":0}
+    result, stats = [], {"legacy_media":0, "media_removed":0, "synthetic_removed":0, "thought_removed":0,
+                         "voice_direction_removed":0, "connection_failure_removed":0}
     skip_example_reply = False
     for original in messages:
         if not isinstance(original, dict):
@@ -57,6 +69,11 @@ def normalize_history(messages: list[dict], *, image_turns=1) -> tuple[list[dict
             content, count = DATA_URI.subn(OMITTED, content)
             stats["media_removed"] += count
             if message.get("role") == "assistant":
+                if is_connection_failure(content) and not message.get("tool_calls"):
+                    stats["connection_failure_removed"] += 1
+                    continue
+                content, count = VOICE_DIRECTION.subn("", content)
+                stats["voice_direction_removed"] += count
                 content, count = re.subn(r"<thought>.*?</thought>", "", content, flags=re.S)
                 stats["thought_removed"] += count
                 content = content.strip() or ("" if message.get("tool_calls") else "[旧自检过程已省略]")
