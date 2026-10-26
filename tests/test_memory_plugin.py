@@ -67,6 +67,25 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
         worker.assert_awaited_once_with(self.plugin.store.review_candidate, 3, 'verified', 'owner verified')
         self.assertIn('已通过', reply)
 
+    async def test_pending_and_review_are_owner_private_only(self):
+        cid=self.plugin.store.add_candidate('GROUP_A_CANDIDATE_SECRET',kind='claim',group_id='napcat:GroupMessage:a')
+        for event in (Event('owner',False,group='b'),Event('visitor',True),Event('visitor',False)):
+            reply=await collect(self.plugin.memory(event,'pending'))
+            self.assertNotIn('GROUP_A_CANDIDATE_SECRET',reply)
+            reply=await collect(self.plugin.memory(event,'approve',str(cid)))
+            self.assertNotIn('已通过',reply)
+        self.assertEqual(len(self.plugin.store.list_candidates('candidate')),1)
+        self.assertIn('GROUP_A_CANDIDATE_SECRET',await collect(self.plugin.memory(Event('owner',True),'pending')))
+
+    async def test_style_hook_passes_the_full_conversation_boundary(self):
+        event=Event('owner',False,group='a',text='苹果派')
+        request=types.SimpleNamespace(system_prompt='persona')
+        self.plugin.db_path=self.plugin.store.path
+        with patch.object(PLUGIN,'build_style_block',return_value='') as build:
+            await self.plugin.inject_style_examples(event,request)
+        build.assert_called_once_with(self.plugin.store.path,query='苹果派',conversation=('qq','napcat:GroupMessage:a'))
+        self.assertEqual(request.system_prompt,'persona')
+
     async def test_candidate_review_failure_does_not_report_success(self):
         with patch.object(PLUGIN.asyncio, 'to_thread', new_callable=AsyncMock, side_effect=sqlite3.OperationalError('test lock')):
             reply = await collect(self.plugin.memory(Event('owner', True), 'approve', '3'))

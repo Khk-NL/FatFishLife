@@ -33,8 +33,8 @@ PLUGIN_NAME = "astrbot_plugin_fatfish_memory"
 MEMORY_HELP = """Memory commands:
 /memory help
 /memory status | recent | search <keywords>
-/memory pending                    待审候选（owner）
-/memory approve <id> | reject <id>  审核候选（owner）
+/memory pending                    待审候选（owner private chat）
+/memory approve <id> | reject <id>  审核候选（owner private chat）
 /memory add <text> | public <text>             owner only
 /memory persona [text]                       owner can update
 /memory import <daily-summary> | summary      owner only
@@ -134,7 +134,7 @@ class Main(Star):
         if not self.config.get("style_inject_enabled", True):
             return
         try:
-            block = build_style_block(Path(self.db_path), query=str(event.message_str or ""))
+            block = build_style_block(Path(self.db_path), query=str(event.message_str or ""), conversation=self._conversation(event))
         except Exception as exc:
             logger.debug(f"表达方式注入跳过：{exc}")
             return
@@ -425,8 +425,8 @@ class Main(Star):
             yield event.plain_result(MEMORY_HELP)
             return
         if command in ("待审", "pending"):
-            if not owner:
-                yield event.plain_result("只有主人能看候选记忆。")
+            if not self._can_access_private(event):
+                yield event.plain_result("请老大在私聊中查看待审记忆。")
                 return
             rows = self.store.list_candidates("candidate", limit=15)
             if not rows:
@@ -441,8 +441,8 @@ class Main(Star):
             )
             return
         if command in ("通过", "approve", "拒绝", "reject"):
-            if not owner:
-                yield event.plain_result("只有主人能审核记忆。")
+            if not self._can_access_private(event):
+                yield event.plain_result("请老大在私聊中审核记忆。")
                 return
             target = "".join(ch for ch in body if ch.isdigit())
             if not target:
