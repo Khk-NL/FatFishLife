@@ -1,5 +1,8 @@
 import asyncio
+import ast
 import json
+import logging
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -323,6 +326,83 @@ class VoicePolicyTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(ok);self.assertEqual(_voice_counters(r).get(key),2)
         await event.send(Chain(chain))
         self.assertEqual(_voice_counters(r).get(key),0)
+
+    async def test_false_voice_send_falls_back_once_without_success_callback(self):
+        event=self.event(private=True);sent=[];success=[]
+        async def sender(message):
+            sent.append(message)
+            if isinstance(message.chain[0],Record):return False
+        event.send=sender;record=Record(self.root/'not-needed.mp3')
+        protect_delivery(event,[record],'原有文字',root=self.root,on_success=lambda:success.append(True))
+        await event.send(Chain([record]))
+        self.assertEqual([p.text for msg in sent for p in msg.chain if isinstance(p,Plain)],['原有文字'])
+        self.assertEqual(success,[]);self.assertIs(event.send,sender)
+
+    async def test_manual_alongside_failure_propagates_after_one_text_fallback(self):
+        r=self.router(text_alongside_voice=True);event=self.event(private=True);sent=[]
+        async def sender(message):
+            sent.append(message)
+            if isinstance(message.chain[0],Record):raise TimeoutError()
+        event.send=sender
+        async def original(router,event,text):return True,[Record(self.root/'not-needed.mp3')],text
+        ok,chain,_=await guarded_manual(original)(r,event,'原有文字')
+        self.assertTrue(ok)
+        with self.assertRaisesRegex(RuntimeError,'语音投递失败'):
+            await event.send(Chain(chain))
+        self.assertEqual([p.text for msg in sent for p in msg.chain if isinstance(p,Plain)],['原有文字'])
+        self.assertEqual(_voice_counters(r).get(event.unified_msg_origin),1)
+        self.assertIs(event.send,sender)
+
+    async def test_cancelled_manual_delivery_does_not_fallback_or_reset_misses(self):
+        r=self.router();event=self.event(private=True);sent=[]
+        async def sender(message):
+            sent.append(message)
+            raise asyncio.CancelledError()
+        event.send=sender
+        async def original(router,event,text):return True,[Record(self.root/'not-needed.mp3')],text
+        _,chain,_=await guarded_manual(original)(r,event,'原有文字')
+        with self.assertRaises(asyncio.CancelledError):await event.send(Chain(chain))
+        self.assertEqual(len(sent),1)
+        self.assertEqual(_voice_counters(r).get(event.unified_msg_origin),1)
+        self.assertIs(event.send,sender)
+
+    async def test_installed_native_manual_sender_never_claims_failed_delivery_succeeded(self):
+        # Read only the actual installed caller; no plugin startup, provider or
+        # account is involved. CI without AstrBot still runs the adapter tests.
+        root=Path(os.environ.get('ASTRBOT_TEST_ROOT','D:/Code/Apps/AstrBot'))
+        source=root/'data/plugins/astrbot_plugin_tts_emotion_router/main.py'
+        if not source.is_file():self.skipTest('Installed AstrBot router unavailable')
+        tree=ast.parse(source.read_text(encoding='utf-8-sig'))
+        method=next(n for n in ast.walk(tree) if isinstance(n,ast.AsyncFunctionDef) and n.name=='_send_manual_tts')
+        method.decorator_list=[]
+        scope={'AstrMessageEvent':object,'VOICE_ONLY_SUPPRESSION_TTL_SECONDS':180,
+               'logger':logging.getLogger(__name__),'logging':logging}
+        exec(compile(ast.Module(body=[method],type_ignores=[]),str(source),'exec'),scope)
+        for failure in ('exception','false','cancelled',None):
+            with self.subTest(failure=failure):
+                r=self.router();event=self.event(private=True);sent=[];suppressed=[]
+                event.chain_result=Chain
+                async def sender(message):
+                    sent.append(message)
+                    if isinstance(message.chain[0],Record):
+                        if failure=='exception':raise TimeoutError('local-only failure')
+                        if failure=='false':return False
+                        if failure=='cancelled':raise asyncio.CancelledError()
+                event.send=sender
+                async def original(router,event,text):return True,[Record(self.root/'not-needed.mp3')],text
+                r._build_manual_tts_chain=lambda event,text:guarded_manual(original)(r,event,text)
+                r._get_session_state=lambda umo:types.SimpleNamespace(
+                    mark_next_llm_plain_text_suppressed=lambda **kwargs:suppressed.append(True))
+                call=scope['_send_manual_tts'](r,event,'原有文字',suppress_next_llm_plain_text=True)
+                if failure=='cancelled':
+                    with self.assertRaises(asyncio.CancelledError):await call
+                else:
+                    result=await call
+                    self.assertEqual('语音已发送' in result,failure is None)
+                self.assertEqual(bool(suppressed),failure is None)
+                expected=[] if failure in ('cancelled',None) else ['原有文字']
+                self.assertEqual([p.text for msg in sent for p in msg.chain if isinstance(p,Plain)],expected)
+                self.assertEqual(_voice_counters(r).get(event.unified_msg_origin),0 if failure is None else 1)
 
 
 SOURCE='''from __future__ import annotations

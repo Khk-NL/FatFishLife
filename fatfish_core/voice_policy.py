@@ -164,7 +164,8 @@ def _cleanup(paths, root):
             LOG.warning("Voice temporary file cleanup deferred")
 
 
-def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True, on_success=None):
+def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True, on_success=None,
+                     raise_on_failure=False):
     """Keep native OneBot sending; records stay separate and failures use text.
 
     Attach only to this event and restore after its records complete. No queue,
@@ -208,25 +209,37 @@ def protect_delivery(event, chain, text, *, root, alongside=False, fallback=True
             return await original_send(message, *args, **kwargs)
         remainder = [part for part in message.chain if id(part) not in pending]
         last = None
+        delivery_failed = False
         try:
             for record in matched:
                 try:
                     if not event.is_private_chat() and not announced:
-                        await original_send(message.derive([Plain("AI合成角色语音")]), *args, **kwargs)
+                        announcement = await original_send(message.derive([Plain("AI合成角色语音")]), *args, **kwargs)
+                        if announcement is False:
+                            raise RuntimeError("QQ voice disclosure sender returned False")
                         announced = True
                     last = await original_send(message.derive([record]), *args, **kwargs)
+                    if last is False:
+                        raise RuntimeError("QQ voice sender returned False")
                     if on_success is not None and not success_recorded:
                         on_success()
                         success_recorded = True
                 except asyncio.CancelledError:
                     raise
                 except Exception as exc:
+                    delivery_failed = True
                     LOG.warning("QQ voice delivery failed: %s", type(exc).__name__)
                     if fallback and not alongside and not fallback_sent:
                         last = await original_send(message.derive([Plain(text)]), *args, **kwargs)
                         fallback_sent = True
             if remainder:
                 last = await original_send(message.derive(remainder), *args, **kwargs)
+            if delivery_failed and raise_on_failure:
+                # Native manual/tool callers mark history and suppress the next
+                # LLM result only when this send returns normally. A successful
+                # text fallback must not masquerade as successful voice delivery.
+                detail = "，已保留文字" if fallback_sent or (alongside and remainder) else ""
+                raise RuntimeError("语音投递失败" + detail) from None
             return last
         finally:
             _cleanup([pending.pop(id(record)) for record in matched], root)
@@ -340,7 +353,7 @@ def guarded_manual(function):
                 cfg = policy(router)
                 chain = ([Plain(text)] if cfg["text_alongside_voice"] else []) + [part for part in chain if type(part).__name__ != "Plain"]
                 protect_delivery(event, chain, text, root=root, alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"],
-                                 on_success=lambda: counters.record(key, sent=True))
+                                 on_success=lambda: counters.record(key, sent=True), raise_on_failure=True)
             return ok, chain, history
         finally:
             if attempted:
