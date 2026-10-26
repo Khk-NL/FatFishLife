@@ -6,6 +6,10 @@
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
+$ffmpegBin = Join-Path $root ".tools\ffmpeg\bin"
+if (Test-Path (Join-Path $ffmpegBin "ffmpeg.exe")) {
+    $env:PATH = "$ffmpegBin;$env:PATH"
+}
 if (-not $AstrBotHome) { $AstrBotHome = "D:\Code\Apps\AstrBot" }
 if (-not $NapCatHome) { $NapCatHome = "D:\Code\Apps\NapCat" }
 if (-not $QQNumber) { $QQNumber = "1670515707" }

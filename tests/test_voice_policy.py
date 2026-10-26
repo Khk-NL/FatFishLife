@@ -125,7 +125,7 @@ class VoicePolicyTests(unittest.IsolatedAsyncioTestCase):
         function=AsyncMock()
         await guarded_result(function)(self.router(),event)
         function.assert_awaited_once()
-        self.assertIn('合成没有成功',event.get_result().chain[0].text)
+        self.assertIn('本次未生成语音',event.get_result().chain[0].text)
 
     async def test_generated_record_uses_existing_sender_discloses_ai_and_removes_own_file(self):
         audio=self.root/'voice.mp3';audio.write_bytes(b'fake')
@@ -209,6 +209,23 @@ class VoicePolicyTests(unittest.IsolatedAsyncioTestCase):
             protect_delivery(event,[record],'文字',root=self.root)
             await event.send(Chain([record]))
             self.assertTrue(path.exists())
+
+    async def test_manual_failure_preserves_current_decoder_reason(self):
+        router = self.router()
+        router._recent_reasons = {}
+        event = self.event(prompt='发个语音')
+        async def failed(r, e):
+            r._recent_reasons[e.unified_msg_origin] = (1, '请在 AstrBot 运行环境安装 ffmpeg')
+        await guarded_result(failed)(router, event)
+        self.assertIn('安装 ffmpeg', event.get_result().chain[0].text)
+
+    async def test_manual_failure_does_not_reuse_old_reason(self):
+        router = self.router()
+        event = self.event(prompt='发个语音')
+        router._recent_reasons = {event.unified_msg_origin: (1, '旧的余额错误')}
+        await guarded_result(AsyncMock())(router, event)
+        self.assertNotIn('旧的余额错误', event.get_result().chain[0].text)
+        self.assertIn('本次未生成语音', event.get_result().chain[0].text)
 
     async def test_progressive_voice_uses_current_conversation_misses_and_ceiling(self):
         r=self.router(voice_probability=.1,voice_probability_step=.2,voice_probability_max=.5)
@@ -319,6 +336,15 @@ class Router:
 
 
 class InstallerTests(unittest.TestCase):
+    def test_upgrades_existing_adapter_once_without_stacking_handlers(self):
+        current = patch_source(SOURCE)
+        legacy = current.replace(
+            'from fatfish_core.audio_tools import ensure_ffmpeg_on_path\nensure_ffmpeg_on_path()\n', '')
+        updated = patch_source(legacy)
+        self.assertEqual(updated, current)
+        self.assertEqual(patch_source(updated), updated)
+        self.assertEqual(updated.count('@guarded_result'), 1)
+
     def test_installer_dry_run_preserves_secrets_apply_is_idempotent_and_keeps_unrelated_settings(self):
         with tempfile.TemporaryDirectory() as directory:
             root=Path(directory);plugin=root/'data/plugins/astrbot_plugin_tts_emotion_router';plugin.mkdir(parents=True)

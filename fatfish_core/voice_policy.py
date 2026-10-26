@@ -266,6 +266,7 @@ def guarded_result(function):
         event._fatfish_manual_voice = manual
         attempted = False
         token = None
+        previous_reason = getattr(router, "_recent_reasons", {}).get(str(event.unified_msg_origin))
         manual_token = _CURRENT_MANUAL.set(manual)
         try:
             _sync_native_limits(router)
@@ -290,7 +291,9 @@ def guarded_result(function):
                                  alongside=cfg["text_alongside_voice"], fallback=cfg["fallback_to_text"],
                                  on_success=lambda: counters.record(key, sent=True))
             elif manual:
-                _manual_unavailable(router, event, result, text, "合成没有成功，已保留文字")
+                recent = getattr(router, "_recent_reasons", {}).get(str(event.unified_msg_origin))
+                reason = recent[1] if recent and recent != previous_reason else "本次未生成语音，已保留文字"
+                _manual_unavailable(router, event, result, text, reason)
         except asyncio.CancelledError:
             raise
         except Exception as exc:

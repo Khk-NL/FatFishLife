@@ -19,13 +19,20 @@ from fatfish_core.voice_policy import DEFAULT_POLICY
 
 PLUGIN = "astrbot_plugin_tts_emotion_router"
 MARKER = "# FatFish policy adapter (upstream MIT; do not remove upstream attribution)."
-IMPORT = MARKER + "\nfrom fatfish_core.voice_policy import guarded_result, guarded_manual\n"
+LEGACY_IMPORT = MARKER + "\nfrom fatfish_core.voice_policy import guarded_result, guarded_manual\n"
+IMPORT = (LEGACY_IMPORT + "from fatfish_core.audio_tools import ensure_ffmpeg_on_path\n"
+          "ensure_ffmpeg_on_path()\n")
 
 
 def patch_source(source: str):
     if MARKER in source:
         if source.count("@guarded_result") != 1 or source.count("@guarded_manual") != 1:
             raise ValueError("Incomplete voice policy adapter; inspect the installed plugin")
+        if "from fatfish_core.audio_tools import ensure_ffmpeg_on_path" not in source:
+            if source.count(LEGACY_IMPORT) != 1:
+                raise ValueError("Cannot locate the existing voice policy import")
+            source = source.replace(LEGACY_IMPORT, IMPORT, 1)
+        compile(source, "tts_emotion_router/main.py", "exec")
         return source
     changes = {
         "from __future__ import annotations\n": "from __future__ import annotations\n\n" + IMPORT,
