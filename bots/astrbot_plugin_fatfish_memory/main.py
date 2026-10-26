@@ -327,11 +327,7 @@ class Main(Star):
             return
         from fatfish_core.extract import extract_candidates, promote_repeated, stats
 
-        state = getattr(self, "_extract_state", None)
-        if state is None:
-            state = self._extract_state = {"last_id": 0}
-        result = await asyncio.to_thread(extract_candidates, self.store, since_id=int(state.get("last_id", 0)))
-        state["last_id"] = result.get("last_id", state.get("last_id", 0))
+        result = await asyncio.to_thread(extract_candidates, self.store)
         if result.get("preference") or result.get("claim"):
             promoted = await asyncio.to_thread(promote_repeated, self.store)
             logger.info(

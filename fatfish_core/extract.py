@@ -13,15 +13,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from .admission import classify
-from .memory import MemoryStore
+from .memory import MemoryStore, now
+from .runtime import RuntimeStore
 
 # 单次最多扫多少条，避免大表拖慢
 SCAN_LIMIT = 500
 
 
-def extract_candidates(store: MemoryStore, *, since_id: int = 0, limit: int = SCAN_LIMIT) -> dict:
+def extract_candidates(store: MemoryStore, *, since_id: int | None = None, limit: int = SCAN_LIMIT) -> dict:
     """扫描新的聊天记录，把够格的写进候选区。返回统计。"""
-    stats = {"scanned": 0, "preference": 0, "claim": 0, "skipped": 0, "last_id": since_id}
+    runtime = RuntimeStore(store.path)
+    checkpoint = int(runtime.get("memory_extract", "last_event_id", 0))
+    start = checkpoint if since_id is None else int(since_id)
+    stats = {"scanned": 0, "preference": 0, "claim": 0, "skipped": 0, "last_id": start}
     with store._connect() as conn:  # noqa: SLF001 - 同包内部使用
         rows = conn.execute(
             """
@@ -30,12 +34,15 @@ def extract_candidates(store: MemoryStore, *, since_id: int = 0, limit: int = SC
             WHERE kind='message' AND scope='public' AND id > ?
             ORDER BY id LIMIT ?
             """,
-            (since_id, limit),
+            (start, min(SCAN_LIMIT, max(1, int(limit)))),
         ).fetchall()
 
     for row in rows:
         stats["scanned"] += 1
         stats["last_id"] = int(row["id"])
+        if not str(row["session"] or "").strip():
+            stats["skipped"] += 1
+            continue  # Keep unattributed legacy messages out of new candidates.
         text = str(row["content"] or "")
         # 长段落多半是复制、转述或引用 bot 的话，不适合做记忆
         if len(text) > 120:
@@ -51,14 +58,15 @@ def extract_candidates(store: MemoryStore, *, since_id: int = 0, limit: int = SC
             continue
         if verdict.kind == "claim":
             # 转述只进候选，不自动生效
-            store.add_candidate(
+            cid = store.add_candidate(
                 verdict.content,
                 kind="claim",
                 group_id=str(row["session"] or ""),
                 speaker=str(row["actor"] or ""),
                 confidence=0.3,
+                source_event_id=int(row["id"]),
             )
-            stats["claim"] += 1
+            stats["claim"] += bool(cid)
         elif verdict.kind == "preference":
             cid = store.add_candidate(
                 verdict.content,
@@ -66,10 +74,20 @@ def extract_candidates(store: MemoryStore, *, since_id: int = 0, limit: int = SC
                 group_id=str(row["session"] or ""),
                 speaker=str(row["actor"] or ""),
                 confidence=0.9,
+                source_event_id=int(row["id"]),
             )
             if cid:
-                store.review_candidate(cid, "verified", "本人声明")
-            stats["preference"] += 1
+                store.review_candidate(cid, "verified", "本人声明", automatic=True)
+            stats["preference"] += bool(cid)
+    # Monotonic even when an explicit old-source replay overlaps another pass.
+    # Scalar JSON integers remain compatible with the existing RuntimeStore.
+    with runtime._connect() as conn:
+        conn.execute(
+            "INSERT INTO runtime_state(namespace,key,value,updated_at) VALUES ('memory_extract','last_event_id',?,?) "
+            "ON CONFLICT(namespace,key) DO UPDATE SET "
+            "value=MAX(CAST(runtime_state.value AS INTEGER),CAST(excluded.value AS INTEGER)),updated_at=excluded.updated_at",
+            (str(stats["last_id"]), now()),
+        )
     return stats
 
 
@@ -79,16 +97,16 @@ def promote_repeated(store: MemoryStore, *, min_hits: int = 3, limit: int = 50) 
     with store._connect() as conn:  # noqa: SLF001
         rows = conn.execute(
             """
-            SELECT id, first_seen, last_seen FROM candidates
-            WHERE status='candidate' AND kind='claim' AND hits >= ?
-              AND substr(first_seen, 1, 10) <> substr(last_seen, 1, 10)
+            SELECT c.id FROM candidates c JOIN candidate_sources s ON s.candidate_id=c.id
+            WHERE c.status='candidate' AND c.kind='claim'
+            GROUP BY c.id HAVING COUNT(*) >= ?
+              AND COUNT(DISTINCT substr(s.observed_at, 1, 10)) >= 2
             LIMIT ?
             """,
             (min_hits, limit),
         ).fetchall()
     for row in rows:
-        store.review_candidate(int(row["id"]), "verified", f"重复出现 {min_hits} 次以上")
-        promoted += 1
+        promoted += store.review_candidate(int(row["id"]), "verified", f"不同消息重复出现 {min_hits} 次以上", automatic=True)
     return promoted
 
 

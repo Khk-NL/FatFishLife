@@ -92,6 +92,15 @@ CREATE TABLE IF NOT EXISTS candidates (
 CREATE INDEX IF NOT EXISTS idx_candidates_status ON candidates(status, kind);
 CREATE INDEX IF NOT EXISTS idx_candidates_dedupe ON candidates(group_id, kind, content);
 
+-- One source message is one observation, even after retries or restarts.
+-- No sender or message body is copied into this evidence ledger.
+CREATE TABLE IF NOT EXISTS candidate_sources (
+    event_id INTEGER PRIMARY KEY,
+    candidate_id INTEGER NOT NULL REFERENCES candidates(id),
+    observed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_candidate_sources_candidate ON candidate_sources(candidate_id);
+
 -- 中文检索：trigram 支持 3 字以上子串匹配，2 字靠 LIKE/别名兜底
 CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
     content,
@@ -199,23 +208,40 @@ class MemoryStore:
         group_id: str = "",
         speaker: str = "",
         confidence: float = 0.0,
+        source_event_id: int | None = None,
     ) -> int:
-        """写入候选；同一群同类型同内容只累加命中次数。返回记录 id（0 表示忽略）。"""
+        """写入候选；有来源ID时同一原消息只计一次，重放返回0。"""
         text = " ".join(str(content or "").split())[:300]
         if not text:
             return 0
         stamp = now()
         with self._lock, self._connect() as conn:
+            if source_event_id is not None:
+                if not group_id:
+                    raise ValueError("候选来源缺少会话归属")
+                conn.execute("BEGIN IMMEDIATE")
+                if conn.execute("SELECT 1 FROM candidate_sources WHERE event_id=?", (source_event_id,)).fetchone():
+                    return 0
+                source = conn.execute(
+                    "SELECT created_at FROM events WHERE id=? AND kind='message' AND scope='public' AND session=?",
+                    (source_event_id, group_id),
+                ).fetchone()
+                if source is None:
+                    raise ValueError("候选来源必须属于当前公开会话")
+                stamp = str(source["created_at"])
             row = conn.execute(
                 "SELECT id, hits FROM candidates WHERE group_id=? AND kind=? AND content=?",
                 (group_id, kind, text),
             ).fetchone()
             if row:
+                candidate_id = int(row["id"])
+                if source_event_id is not None:
+                    conn.execute("INSERT INTO candidate_sources VALUES (?,?,?)", (source_event_id, candidate_id, stamp))
                 conn.execute(
-                    "UPDATE candidates SET hits=hits+1, last_seen=?, confidence=MAX(confidence,?) WHERE id=?",
-                    (stamp, confidence, row["id"]),
+                    "UPDATE candidates SET hits=hits+1, first_seen=MIN(first_seen,?), last_seen=MAX(last_seen,?), confidence=MAX(confidence,?) WHERE id=?",
+                    (stamp, stamp, confidence, candidate_id),
                 )
-                return int(row["id"])
+                return candidate_id
             cursor = conn.execute(
                 """
                 INSERT INTO candidates(group_id, speaker, kind, content, status, confidence, hits, first_seen, last_seen)
@@ -223,14 +249,17 @@ class MemoryStore:
                 """,
                 (group_id, speaker, kind, text, confidence, stamp, stamp),
             )
-            return int(cursor.lastrowid or 0)
+            candidate_id = int(cursor.lastrowid or 0)
+            if source_event_id is not None:
+                conn.execute("INSERT INTO candidate_sources VALUES (?,?,?)", (source_event_id, candidate_id, stamp))
+            return candidate_id
 
-    def review_candidate(self, candidate_id: int, status: str, note: str = "") -> bool:
+    def review_candidate(self, candidate_id: int, status: str, note: str = "", *, automatic: bool = False) -> bool:
         if status not in ("verified", "rejected", "candidate"):
             raise ValueError("status 必须是 candidate / verified / rejected")
         with self._lock, self._connect() as conn:
             cur = conn.execute(
-                "UPDATE candidates SET status=?, review_note=? WHERE id=?",
+                "UPDATE candidates SET status=?, review_note=? WHERE id=?" + (" AND status='candidate'" if automatic else ""),
                 (status, note, candidate_id),
             )
             if cur.rowcount:
@@ -350,7 +379,7 @@ class MemoryStore:
                     confidence=0.9,
                 )
                 if candidate_id:
-                    self.review_candidate(candidate_id, "verified", "本人声明")
+                    self.review_candidate(candidate_id, "verified", "本人声明", automatic=True)
             content = verdict.content
             kind = verdict.kind
             meta = {**(meta or {}), "admission": verdict.kind, "confident": verdict.confident}
