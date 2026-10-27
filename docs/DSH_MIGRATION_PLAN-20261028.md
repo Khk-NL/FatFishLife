@@ -19,7 +19,8 @@
 | P2.3 脱敏观察 | `fatfish_core/observe.py`：凭据键整段掩码、Bearer、QQ号、手机、邮箱、Windows路径 | 6类样本掩码正确，`summary()`检出0处泄漏 | 未接生产日志 | 未用presidio（重且对中文QQ号无优势），按明确范围自实现 |
 | P2.4 公开KB选型 | **改用`htcqp802/dsh-knowledge-base` 0.1.5**（MIT，仅pdfjs-dist一个依赖，FTS5/BM25）；已下载到`.tools/dsh-vendor/kb`并核对SRI | 包335KB，SRI匹配，`cordis.patch.yml`提供kb_query/kb_import/kb_list/kb_update/kb_delete | 未装到profile | 否决`Soren-ABT/dsh-knowledge`：AGPL-3.0且带onnxruntime+transformers，体积与许可都不合适 |
 | P2.5 私人笔记选型 | `dsh-obsidian` 0.2.6（MIT，1个依赖yaml，npm可装）；已下载核对SRI | 包16.6KB，`cordis.patch.yml`单行挂载 | 未装到profile | `gxpppp/dsh-obsidian` 0.4.0零依赖更轻但未发npm；P2只用只读查询，写入留主人单独验收 |
-| P2.6 群风格候选整理 | `scripts/migrate_style_candidates.py`：从self_learning的expression_patterns迁到候选区，过滤系统噪声 | 源251条→去重后178条候选；重复项按hits累加；测试库验证未写生产 | 未写生产库 | status=candidate，需主人`/记忆 通过`才进长期记忆 |
+| P2.6 群风格候选整理 | `scripts/migrate_style_candidates.py`：从self_learning的expression_patterns迁到候选区，过滤系统噪声 | 源251条→去重后197条候选入库生产，重复项按hits累加 | **已写生产库** | status=candidate，需主人`/记忆 通过`才进长期记忆 |
+| P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：检测桌面版进程→`dsh plugin add`装KB/Obsidian/插件市场/QQ桥→写入MCP与preset到profile patch | `-DryRun` 可列出将执行的命令；桌面版运行时自动中止 | **待主人退出DSH后执行** | 生态评估写进`dsh/upstream-lock.json`的`ecosystem_review` |
 | P2～P6 | 待实施 | 待验证 | 未切换 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。

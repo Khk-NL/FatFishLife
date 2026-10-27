@@ -31,5 +31,30 @@
     "rejected": {
       "gxpppp/dsh-obsidian": "0.4.0 零依赖且host-only更轻，但未发布到npm，需从git装，暂不作为首选"
     }
+  },
+  "ecosystem_review": {
+    "evaluated": {
+      "dsh-mnemon": {
+        "version": "0.5.36",
+        "license": "MIT",
+        "deps": 23,
+        "decision": "不采用",
+        "why": "通用三层记忆，面向编程 agent；23 个依赖含多套 provider。我们的场景是 QQ 群跨平台记忆、按群隔离、候选审核、中文风格，fatfish_core 已实现且零 AstrBot 依赖，换过去是净损失"
+      },
+      "dsh-plugin-workshop": {
+        "version": "unknown",
+        "decision": "可选安装",
+        "why": "应用内插件浏览器，装完后主人可自助浏览与安装，省得每次改脚本"
+      },
+      "dsh-voice-webspeech": {
+        "decision": "暂不安装",
+        "why": "浏览器语音输入，只能用在 Web 界面；QQ 侧 STT 走 SenseVoice，两者场景不同"
+      },
+      "dsh-plugin-scheduled-tasks": {
+        "decision": "P4 再评估",
+        "why": "官方 agent-runner 已有调度；重复引入会形成第二套 cron"
+      }
+    },
+    "install_script": "scripts/dsh_install_plugins.ps1"
   }
 }
