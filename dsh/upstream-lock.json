@@ -7,5 +7,17 @@
     "integrity": "sha512-FxeIJB0TI6BUpRIolLKrXZnbIYn9cdw7WLTlzbjVGZBC/ZPz89mEAmguZ1Gya1EmgcXBqEGuKbu6AHEDFbjSBg==",
     "source": "https://github.com/mario841859784/dsh-onebot",
     "license": "BSD-3-Clause"
+  },
+  "knowledge": {
+    "name": "dsh-knowledge-base",
+    "version": "0.1.5",
+    "tarball": "https://registry.npmjs.org/dsh-knowledge-base/-/dsh-knowledge-base-0.1.5.tgz",
+    "integrity": "sha512-krEcGeDYx22xDU27X/Cm410EEk2ZSaNebAgwn2JofFFzUhgk4Q",
+    "source": "https://github.com/htcqp802/dsh-knowledge-base",
+    "license": "MIT",
+    "why": "FTS5/BM25 全文检索，纯 JS 文本提取，仅 1 个依赖；相比 AGPL-3.0 且带 onnxruntime 的 dsh-knowledge 更适合本机与 2GB 服务器",
+    "rejected": {
+      "Soren-ABT/dsh-knowledge": "0.5.2 AGPL-3.0，15 个依赖含 @huggingface/transformers 与 onnxruntime-node，模型体积与许可都不适合"
+    }
   }
 }

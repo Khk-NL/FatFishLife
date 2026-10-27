@@ -4,6 +4,8 @@
 
 本轮从已批准的方案开始实施。生产DSH配置、AstrBot与NapCat连接暂未改变；新代码与依赖先在项目隔离环境验证。
 
+每个阶段开发前最好查查目前互联网上是否已有成熟项目代码或实现/架构值得复用, 不要重复造轮子
+
 ## 实施记录（逐项更新）
 
 | 单元 | 代码/准备 | 隔离验证 | 生产/真实账号 | 证据 |
@@ -12,6 +14,10 @@
 | P0.2 独立Python | 已完成 | Python3.12.10；base为系统Python，prefix为`.tools/dsh-python` | 未用于生产 | 不依赖AstrBot虚拟环境 |
 | P0.3 版本与来源 | 已记录DSH0.2.1-rc.3和QQ桥0.9.6 | 发布包已获取，后续准备脚本检查SRI与补丁匹配 | 社区插件尚未挂生产profile | `dsh/upstream-lock.json`；QQ桥BSD-3-Clause |
 | P1 QQ入口与工具边界 | 策略层`dsh/policy.mjs`+适配层`dsh/runtime-adapter.mjs`完成；桥补丁`scripts/prepare_dsh_onebot.py`（SRI校验+11处断言替换）；端到端冒烟`dsh/tests/smoke.e2e.test.mjs` | **33项通过**（22策略+11端到端）：工作时段的@/戳只发固定文案、非@静默、正常时段放行、静默覆盖一切、非主人命令当正文、跨会话拦截、message_id去重、异账号忽略、发送前复查 | 未连接真实QQ | `node --test dsh/tests/*.test.mjs`；策略随桥分发，不做独立bundle |
+| P2.1 人格preset | `dsh/preset-apple-le.yml`由`apple-le-core.md`生成：persona插件+time-context，tools为空 | YAML可解析；persona 2097字符；`<#0.6#>`禁标记规则在内；身份不写进人格，由policy的ownerId提供 | 未挂载到生产profile | `.tools/dsh-python`装pyyaml校验通过 |
+| P2.2 记忆MCP服务 | **改用官方 mcp SDK 2.x 的 MCPServer**（`FastMCP`已改名）；9个工具；挂载样例`dsh/mcp-fatfish.yml`走`@deepseek-ai/dsh-mcp-client` stdio | 官方MCP客户端stdio握手通过：工具列举、recall命中、只读模式下remember被拒 | 未接DSH宿主 | 手写JSON-RPC已删除；DSH官方有`guide/mcp-memory` |
+| P2.3 脱敏观察 | `fatfish_core/observe.py`：凭据键整段掩码、Bearer、QQ号、手机、邮箱、Windows路径 | 6类样本掩码正确，`summary()`检出0处泄漏 | 未接生产日志 | 未用presidio（重且对中文QQ号无优势），按明确范围自实现 |
+| P2.4 公开KB选型 | **改用`htcqp802/dsh-knowledge-base` 0.1.5**（MIT，仅pdfjs-dist一个依赖，FTS5/BM25）；已下载到`.tools/dsh-vendor/kb`并核对SRI | 包335KB，SRI匹配，`cordis.patch.yml`提供kb_query/kb_import/kb_list/kb_update/kb_delete | 未装到profile | 否决`Soren-ABT/dsh-knowledge`：AGPL-3.0且带onnxruntime+transformers，体积与许可都不合适 |
 | P2～P6 | 待实施 | 待验证 | 未切换 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。

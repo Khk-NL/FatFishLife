@@ -1,0 +1,20 @@
+# 把 FatFish 记忆库接进 DSH（官方 dsh-mcp-client，stdio）
+# 追加到 $DSH_HOME/profiles/<profile>/cordis.patch.yml
+#
+# 安全要点（来自 DSH 官方 mcp-memory 指南）：
+# - stdio 桥启动子进程前会剥离凭据类环境变量和所有 DSH_* 变量
+# - 需要的变量必须显式写进 config.env，不要塞进 YAML 明文
+# - 工具会以 mcp__fatfish__<tool> 暴露，需在 agent preset 的 tools 白名单里放行
+- insert:
+    - id: mcp-fatfish-memory
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: fatfish
+        transport: stdio
+        command: 'D:\Code\Projects\FatFishLife\.tools\dsh-python\Scripts\python.exe'
+        args:
+          - 'D:\Code\Projects\FatFishLife\dsh\service\fatfish_memory_mcp.py'
+        env:
+          FATFISH_MEMORY_DB: 'D:\Code\Apps\AstrBot\data\plugin_data\astrbot_plugin_fatfish_memory\memory.db'
+          FATFISH_SERVICE_READONLY: '1'
+        cwd: !!js process.cwd()
