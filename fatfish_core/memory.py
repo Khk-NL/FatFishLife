@@ -123,6 +123,28 @@ class MemoryStore:
         self._lock = threading.Lock()
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            # Candidate attribution must survive expiry of the source event.
+            # Older rows are bound only when every surviving ledger entry can
+            # prove one public platform/session; missing evidence stays unbound.
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(candidates)")}
+            migrated = False
+            for column in ("platform", "scope"):
+                if column not in columns:
+                    conn.execute(f"ALTER TABLE candidates ADD COLUMN {column} TEXT")
+                    migrated = True
+            if migrated:
+                rows = conn.execute(
+                    """SELECT c.id, MIN(e.platform) AS platform
+                       FROM candidates c JOIN candidate_sources s ON s.candidate_id=c.id
+                       LEFT JOIN events e ON e.id=s.event_id
+                       GROUP BY c.id
+                       HAVING COUNT(*)=COUNT(e.id) AND COUNT(DISTINCT e.platform)=1
+                         AND MIN(e.platform)<>'' AND MIN(e.scope)='public' AND MAX(e.scope)='public'
+                         AND COUNT(e.session)=COUNT(*) AND MIN(e.session)=c.group_id AND MAX(e.session)=c.group_id"""
+                ).fetchall()
+                conn.executemany("UPDATE candidates SET platform=?,scope='public' WHERE id=?",
+                                 [(row["platform"], row["id"]) for row in rows])
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_candidates_conversation ON candidates(platform,group_id,scope,status)")
             # Earlier inbox snapshots included private messages under public scope.
             conn.execute(
                 "UPDATE events SET scope='private' WHERE platform='bilibili' AND kind='inbox' AND scope='public'"
@@ -215,6 +237,7 @@ class MemoryStore:
         if not text:
             return 0
         stamp = now()
+        platform, scope = "", ""
         with self._lock, self._connect() as conn:
             if source_event_id is not None:
                 if not group_id:
@@ -223,15 +246,23 @@ class MemoryStore:
                 if conn.execute("SELECT 1 FROM candidate_sources WHERE event_id=?", (source_event_id,)).fetchone():
                     return 0
                 source = conn.execute(
-                    "SELECT created_at FROM events WHERE id=? AND kind='message' AND scope='public' AND session=?",
+                    "SELECT created_at,platform,scope FROM events WHERE id=? AND kind='message' AND scope='public' AND session=?",
                     (source_event_id, group_id),
                 ).fetchone()
                 if source is None:
                     raise ValueError("候选来源必须属于当前公开会话")
                 stamp = str(source["created_at"])
+                platform, scope = str(source["platform"]), str(source["scope"])
+                if conn.execute(
+                    "SELECT 1 FROM candidates WHERE group_id=? AND kind=? AND content=? "
+                    "AND COALESCE(platform,'')='' AND status IN ('rejected','verified') LIMIT 1",
+                    (group_id, kind, text),
+                ).fetchone():
+                    return 0  # New attribution must not bypass an old manual decision.
             row = conn.execute(
-                "SELECT id, hits FROM candidates WHERE group_id=? AND kind=? AND content=?",
-                (group_id, kind, text),
+                "SELECT id, hits FROM candidates WHERE group_id=? AND kind=? AND content=? "
+                "AND COALESCE(platform,'')=? AND COALESCE(scope,'')=?",
+                (group_id, kind, text, platform, scope),
             ).fetchone()
             if row:
                 candidate_id = int(row["id"])
@@ -244,15 +275,36 @@ class MemoryStore:
                 return candidate_id
             cursor = conn.execute(
                 """
-                INSERT INTO candidates(group_id, speaker, kind, content, status, confidence, hits, first_seen, last_seen)
-                VALUES (?,?,?,?,'candidate',?,1,?,?)
+                INSERT INTO candidates(group_id, speaker, kind, content, status, confidence, hits, first_seen, last_seen,platform,scope)
+                VALUES (?,?,?,?,'candidate',?,1,?,?,?,?)
                 """,
-                (group_id, speaker, kind, text, confidence, stamp, stamp),
+                (group_id, speaker, kind, text, confidence, stamp, stamp, platform, scope),
             )
             candidate_id = int(cursor.lastrowid or 0)
             if source_event_id is not None:
                 conn.execute("INSERT INTO candidate_sources VALUES (?,?,?)", (source_event_id, candidate_id, stamp))
             return candidate_id
+
+    def recall_verified(self, terms, *, conversation: tuple[str, str] | None,
+                        scopes: tuple[str, ...] = ("public",), limit: int = 6) -> list[dict]:
+        """Bounded, attributed long-term recall for the normal context builder.
+
+        Candidate extraction currently accepts only public source events. Private
+        permission alone never broadens this query to another conversation.
+        """
+        if not conversation or not all(conversation) or "public" not in scopes:
+            return []
+        tokens = sorted({str(term) for term in terms if str(term)})[:32]
+        if not tokens:
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id,content,kind,group_id AS session,platform,scope,last_seen AS created_at "
+                "FROM candidates WHERE status='verified' AND platform=? AND group_id=? AND scope='public' AND ("
+                + " OR ".join("content LIKE ?" for _ in tokens) + ") ORDER BY last_seen DESC,id DESC LIMIT ?",
+                (*conversation, *(f"%{term}%" for term in tokens), max(1,min(40,int(limit)))),
+            ).fetchall()
+            return [{**dict(row), "verified": True} for row in rows]
 
     def review_candidate(self, candidate_id: int, status: str, note: str = "", *, automatic: bool = False) -> bool:
         if status not in ("verified", "rejected", "candidate"):

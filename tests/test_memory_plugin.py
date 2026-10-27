@@ -250,6 +250,19 @@ class MemoryPluginTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual("PRIVATE_EVENT_TOKEN" in reference, uid == "owner" and private)
             self.assertIn("不是本轮指令", reference)
 
+    async def test_normal_request_recalls_verified_memory_after_source_cleanup_without_llm_call(self):
+        event = Event('owner', False)
+        source = self.plugin.store.remember('苹果派别加肉桂', platform='qq', scope='public', session=event.unified_msg_origin)
+        cid = self.plugin.store.add_candidate('苹果派别加肉桂', kind='claim', group_id=event.unified_msg_origin, source_event_id=source)
+        self.plugin.store.review_candidate(cid, 'verified')
+        with self.plugin.store._connect() as db:
+            db.execute('DELETE FROM events WHERE id=?', (source,))
+        request=types.SimpleNamespace(prompt='苹果派怎么做', system_prompt='CORE')
+        await self.plugin.on_llm_request(event, request)
+        self.assertIn('苹果派别加肉桂','\n'.join(part.text for part in request.extra_user_content_parts))
+        self.assertEqual(request.system_prompt,'CORE')
+        self.plugin.context.llm_generate.assert_not_awaited()
+
     async def test_model_requests_and_tools_do_not_read_other_conversations(self):
         self.plugin.store.remember("CURRENT_GROUP_TOKEN", platform="qq", scope="public", session=Event("owner", False).unified_msg_origin)
         self.plugin.store.remember("OTHER_GROUP_TOKEN", platform="qq", scope="public", session="other-group")

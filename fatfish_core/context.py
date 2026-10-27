@@ -50,7 +50,7 @@ def build_context(
     query = clean_chat_text(query)
     terms = _terms(query)
     private = "private" in scopes
-    # Events and journals together contribute at most 40 candidates / 6 items.
+    # At most 40 recent rows, 6 verified rows, and 6 final items; no model call.
     kinds = ("note", "summary", "video", "style", "preference", "claim", "culture")
     if conversation is not None:
         kinds += ("message", "reply")
@@ -71,6 +71,7 @@ def build_context(
             {**row, "kind": "journal", "scope": "private", "platform": "journal"}
             for row in store.journals(limit=4, source=conversation[1] if conversation is not None else None)
         )
+    candidates.extend(store.recall_verified(terms, scopes=scopes, conversation=conversation))
     ranked = []
     for row in candidates:
         content = _compact(row["content"])
@@ -93,8 +94,20 @@ def build_context(
         "culture": "群里的梗",
         "journal": "私人札记参考",
     }
-    for _, row in ranked[:6]:
+    seen = set()
+    selected_rows = []
+    for _, row in ranked:
+        key = _compact(row["content"])
+        if key in seen:
+            continue
+        seen.add(key)
+        selected_rows.append(row)
+        if len(selected_rows) >= 6:
+            break
+    for row in selected_rows:
         label = kind_labels.get(row["kind"], "历史记忆参考")
+        if row.get("verified"):
+            label = "已审核转述，非官方事实" if row["kind"] == "claim" else "已审核记忆参考"
         source = f"{row['created_at'][:16]} {row['platform']}/{row['scope']}/{row['kind']}"
         content = _clip(_compact(row["content"]), 200)
         if row.get("repeat_count", 1) > 1:
