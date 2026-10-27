@@ -19,5 +19,17 @@
     "rejected": {
       "Soren-ABT/dsh-knowledge": "0.5.2 AGPL-3.0，15 个依赖含 @huggingface/transformers 与 onnxruntime-node，模型体积与许可都不适合"
     }
+  },
+  "obsidian": {
+    "name": "dsh-obsidian",
+    "version": "0.2.6",
+    "tarball": "https://registry.npmjs.org/dsh-obsidian/-/dsh-obsidian-0.2.6.tgz",
+    "integrity": "sha512-dRXuOA8pnPJhV9RMlqTldeADW5eTU1Cy4pyNjUtWU8UN",
+    "source": "https://github.com/mingzeng21/dsh-obsidian",
+    "license": "MIT",
+    "why": "npm可装、仅1个依赖(yaml)、MIT；P2阶段只用只读查询，写入能力留给主人单独验收",
+    "rejected": {
+      "gxpppp/dsh-obsidian": "0.4.0 零依赖且host-only更轻，但未发布到npm，需从git装，暂不作为首选"
+    }
   }
 }
