@@ -105,7 +105,20 @@ def style_phrases(memory_db: Path, kind: str = "style", limit: int = 10, *, conv
             """,
             (kind, conversation[0], conversation[1], limit),
         ).fetchall()
-        return [_strip_label(str(r[0])) for r in rows if r and str(r[0]).strip()]
+        # Earlier writers stored an entire batch joined by 、. Split only after
+        # SQL has enforced the current conversation; never rebind legacy rows.
+        phrases = []
+        seen = set()
+        for row in rows:
+            for phrase in _strip_label(str(row[0])).split("、"):
+                phrase = phrase.strip()
+                if not phrase or len(phrase) > 30 or phrase in seen:
+                    continue
+                seen.add(phrase)
+                phrases.append(phrase)
+                if len(phrases) >= limit:
+                    return phrases
+        return phrases
     except sqlite3.Error:
         return []
     finally:

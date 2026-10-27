@@ -43,13 +43,19 @@ def extract_terms(texts, *, min_count: int = MIN_COUNT, max_terms: int = MAX_TER
     return keep
 
 
-def save_style(store, terms: list[str], *, kind: str = "style", label: str = "群友最近常这样说") -> int:
+def save_style(store, terms: list[str], *, kind: str = "style", label: str = "群友最近常这样说",
+               conversation: tuple[str, str] | None = None) -> int:
     """把提炼出的说法写进共享记忆，独立于人设。"""
-    if not terms:
-        return 0
-    content = f"{label}：" + "、".join(terms)
-    store.remember(content, platform="system", scope="public", kind=kind, actor="bot")
-    return len(terms)
+    phrases = list(dict.fromkeys(str(term).strip() for term in terms if str(term).strip()))
+    saved = 0
+    for phrase in phrases[:MAX_TERMS]:
+        if len(phrase) > 30:
+            continue
+        store.remember(f"{label}：{phrase}", platform=conversation[0] if conversation else "system",
+                       session=conversation[1] if conversation else None,
+                       scope="public", kind=kind, actor="bot")
+        saved += 1
+    return saved
 
 
 def save_bili_style(store, terms: list[str]) -> int:

@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from fatfish_core.memory import MemoryStore
+from fatfish_core.learning import save_style
 from bots.astrbot_plugin_fatfish_memory import style
 
 
@@ -50,3 +51,28 @@ class StyleScopeTests(unittest.TestCase):
         self.assertEqual(counts['expression_patterns'],4)
         self.assertEqual(counts['style'],1)
         self.assertEqual(style.style_phrases(self.store.path),[])
+
+    def test_legacy_long_batch_is_ranked_by_individual_phrase(self):
+        current=('qq','napcat:GroupMessage:a')
+        phrases=['短语编号'+str(i) for i in range(10)]+['苹果派多放糖']
+        self.store.remember('群友最近常这样说：'+'、'.join(phrases),
+                            kind='style',scope='public',platform=current[0],session=current[1])
+        block=style.build_style_block(self.store.path,'苹果派多放糖',conversation=current)
+        self.assertIn('苹果派多放糖',block)
+        self.assertNotIn('短语编号',block)
+        self.assertLessEqual(len(style.style_phrases(self.store.path,limit=3,conversation=current)),3)
+
+    def test_new_batches_store_separate_phrases_without_guessing_scope(self):
+        current=('qq','napcat:GroupMessage:a')
+        self.assertEqual(save_style(self.store,['苹果派多放糖','苹果派多放糖','奶油蛋糕别抢', '长'*31],conversation=current),2)
+        rows=self.store.recent(conversation=current,conversation_only=True,kinds=('style',))
+        self.assertEqual(len(rows),2)
+        self.assertTrue(all('、' not in row['content'] for row in rows))
+        save_style(self.store,['不能猜测来源的旧全局短语'])
+        self.assertNotIn('不能猜测来源的旧全局短语',style.style_phrases(self.store.path,conversation=current))
+
+    def test_legacy_batches_still_filter_scope_before_splitting(self):
+        current=('qq','napcat:GroupMessage:a')
+        for platform,session,scope in [('qq','napcat:GroupMessage:b','public'),('bilibili',current[1],'public'),('qq',current[1],'private'),('system',None,'public')]:
+            self.store.remember('群友最近常这样说：苹果派秘密一、苹果派秘密二',kind='style',platform=platform,session=session,scope=scope)
+        self.assertEqual(style.style_phrases(self.store.path,conversation=current),[])
