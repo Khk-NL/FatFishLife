@@ -1,0 +1,11 @@
+{
+  "desktop": "0.2.1-rc.3",
+  "onebot": {
+    "name": "dsh-onebot-qq",
+    "version": "0.9.6",
+    "tarball": "https://registry.npmjs.org/dsh-onebot-qq/-/dsh-onebot-qq-0.9.6.tgz",
+    "integrity": "sha512-FxeIJB0TI6BUpRIolLKrXZnbIYn9cdw7WLTlzbjVGZBC/ZPz89mEAmguZ1Gya1EmgcXBqEGuKbu6AHEDFbjSBg==",
+    "source": "https://github.com/mario841859784/dsh-onebot",
+    "license": "BSD-3-Clause"
+  }
+}
