@@ -1,6 +1,6 @@
 # 苹果乐迁移 DeepSeek Harness：插件选型、迁移步骤与验收
 
-更新时间：2026-10-27。目标是 DeepSeek 官方 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。本轮属于本机核查、源码选型与迁移设计；尚未安装下列 DSH 插件、改变 QQ 连接、迁移记忆或修改生产业务代码。
+更新时间：2026-10-28。目标是 DeepSeek 官方 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。本轮属于本机核查、源码选型与迁移设计；尚未安装下列 DSH 插件、改变 QQ 连接、迁移记忆或修改生产业务代码。
 
 ## 1. 采用逐项选择，不统一套一种做法
 
@@ -24,18 +24,19 @@
 
 “直接使用官方”表示复用其机制，不表示把每个官方包都再安装一遍。运行层已包含的服务，只做配置与组合。社区候选不统一按README一键装进当前真实账户。
 
-## 2. 本机现状：先补齐可运行程序
+## 2. 本机现状：复用已安装的桌面版
 
-已只读检查：
+2026-10-28根据用户提供的正确路径重新只读核对，撤回此前“运行程序缺失、必须重装”的判断。已确认：
 
-- `D:\DeepSeekHarness` 当前主要是4个启动脚本和 `data`。
-- 启动器默认指向 `D:\Code\dsh\deepseek-harness`，该位置只有残留 `.git/dsh-hooks`，没有可运行源码工作树或有效Git仓库。
-- 当前 PATH 未找到 `dsh.cmd`/`dsh.exe`。不能把“数据目录存在”当作可启动。
-- `data/profiles/web/package.json` 当前第三方依赖仅 `dsh-whale-widget`，安装版本0.3.9。
+- 实际程序是 `D:\dsh\DeepSeek Harness.exe`，文件版本与ASAR内 `@deepseek-ai/dsh-desktop` package版本均为 **0.2.1-rc.3**，已发现该目录的运行进程。
+- `D:\dsh\resources\runtime` 已包含 `bin`、`cli`、`primary-runtime` 等随桌面版提供的运行组件，无需为了迁移重复安装一套程序。
+- `D:\DeepSeekHarness` 是另一处旧启动器和数据目录；其脚本指向的 `D:\Code\dsh\deepseek-harness` 工作树缺失，仅能证明旧源码启动方式不可用。
+- PATH中没有全局 `dsh` 不代表桌面版没有安装。后续插件操作应核对桌面版提供的CLI与desktop profile，不直接改旧web profile。
+- 旧 `D:\DeepSeekHarness\data\profiles\web` 的第三方依赖仅确认鲸鱼挂件0.3.9；不能据此推断正在运行的桌面profile插件清单。
 - `whale-roles` 是鲸鱼挂件角色图片目录，`whale-audio` 是挂件音效目录；它们不代表聊天人设、TTS或STT。两目录本轮检查为空。
 - 当前 Node 24.21.0 满足官方npm运行层的Node要求。npm已确认发布 `@deepseek-ai/dsh@0.2.1-rc.3`。
 
-现有 `data` 里有凭据、会话和设置，应保留。不要覆盖整个目录，也不要因源码缺失而删除它。
+程序目录和数据目录分开。打包源码显示数据根优先取显式配置或 `DSH_HOME`，未覆盖时默认 `C:\Users\kongb\.dsh`，桌面profile位于 `profiles\desktop`；本机该默认根和desktop profile确实存在。当前运行进程是否另设覆盖值尚未确认，不将默认值冒充实际进程环境。旧 `D:\DeepSeekHarness\data` 也含用户资料，两处均保留，不覆盖、合并或删除。
 
 官方目前仍是开发预览并会发生接口变更，所以后续以固定版本验收。本文核对了0.2.1-rc.3实际发布包：`dsh-persona`存在 `prefix/suffix/complete/includeRuntimeContext`；`dsh-tools`类型声明存在 `restrict`、`guard`、`ToolRestriction`、`ToolGuard`。这比只读master README更强，但仍不是本机启动和兼容性验收。
 
@@ -234,10 +235,10 @@ Updream保持独立，导出的具体成片经过预览和主人确认后才投�
 
 1. 保留AstrBot现状和原数据，不卸载、不清理缓存式删除用户资料。
 2. 在停DSH后备份 `D:\DeepSeekHarness\data` 中会话、配置、凭据和插件清单；备份仅留本机。
-3. 补官方运行程序，固定0.2.1-rc.3，不使用目录里已失效的源码启动假设。
+3. 复用 `D:\dsh\DeepSeek Harness.exe` 桌面版0.2.1-rc.3，不使用旧目录里已失效的源码启动假设；确认当前数据根与desktop profile后再备份该根。
 4. 测试使用新的 `DSH_HOME`，不对现有data直接做新版自动迁移。
 
-可执行安装命令如下，供你决定开始该阶段时运行；本轮尚未执行：
+已安装的桌面版无需执行下面的npm安装。以下仅供确实需要另建独立Web测试运行层时使用；不切换当前桌面程序，本轮尚未执行：
 
 ```powershell
 npm install --prefix 'D:\DeepSeekHarness\runtime' '@deepseek-ai/dsh@0.2.1-rc.3'
