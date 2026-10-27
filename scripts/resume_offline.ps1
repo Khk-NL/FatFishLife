@@ -11,8 +11,14 @@ c = sqlite3.connect(db)
 row = c.execute("select value from runtime_state where namespace='offline' and key='control'").fetchone()
 if row:
     d = json.loads(row[0])
+    changed = False
     if d.get("manual") == "on":
         d["manual"] = "off"
+        changed = True
+    if d.get("silent"):
+        d["silent"] = False
+        changed = True
+    if changed:
         c.execute("update runtime_state set value=? where namespace='offline' and key='control'",
                   (json.dumps(d, ensure_ascii=False),))
         c.commit()
