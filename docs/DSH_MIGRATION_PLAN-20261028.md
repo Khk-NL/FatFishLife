@@ -23,6 +23,8 @@
 | P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：退出检测→`dsh plugin --profile desktop add`（`--profile`必须紧跟`plugin`）→MCP与preset写入profile patch | **部分跑通**：kb-knowledge-base 与 dsh-obsidian 生效（`kb.sqlite` 自动创建、MCP 子进程被 DSH 拉起、persona 渲染正确）；`dsh-onebot-qq` 装上了但**挂载失败**（见 P3.1） | KB与Obsidian已装desktop profile；QQ桥已卸载避免加载报错 | `.env` 规范化为 `DEEPSEEK_API_KEY` + `FATFISH_MEMORY_DB`（正斜杠，已 gitignore） |
 | P2.8 工具白名单纠错 | 原以为有`dsh-agent-tools`可配allow列表，实际不存在；已撤回，preset恢复零工具 | `--dump-default-config`里无该包，挂上去会让preset加载失败 | — | 工具白名单由preset的`plugins`本身决定，不挂`tool-*`即无工具 |
 | P3.1 QQ桥兼容 | `dsh-onebot-qq` 0.9.6 装入 profile 后挂载失败：`Cannot find package '@deepseek-ai/dsh-llm'`；备选 `@qqbot/dsh-plugin-qq` 0.2.0 同样依赖同类 peer | npm 上 `@deepseek-ai/dsh-llm` 只有 0.0.1-rc.1/0.1.0-rc.6，被 DSH 0.2.1-rc.3 版本门拒绝；peer 只存在于 `app.asar` 内 | **阻塞**：QQ 仍走 AstrBot | 按方案 §10「停止扩修，选备选或复用传输层」处理，未强行 allow-version |
+| P3.2 TTS 接 MCP | `fatfish_core/tts.py`：从 AstrBot provider 抽出纯逻辑（合成+ffmpeg规整），音色/语速/ffmpeg 走环境变量；MCP 新增 `tts_check`/`tts_speak` | 官方 MCP 客户端实测：11 个工具在线；`tts_check` 66832 字节 RIFF 正确；`tts_speak` 落盘 `outputs/tts/tts.wav` 66208 字节 | 未接 QQ 出口（依赖 P3.1） | 复用现有 CosyVoice2 克隆音色，未换服务 |
+| P3.3 STT | `fatfish_core` 暂未抽；AstrBot 用 SenseVoiceSmall（免费） | 未验证 | 未接 | 等 QQ 桥通了再抽，避免空转 |
 | P2～P6 | 待实施 | 待验证 | 未切换 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。

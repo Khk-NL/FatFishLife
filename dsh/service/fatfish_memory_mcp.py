@@ -38,6 +38,8 @@ from fatfish_core.extract import (  # noqa: E402
     promote_repeated,
     stats as candidate_stats,
 )
+from fatfish_core.tts import TTSConfig, TTSError, probe as tts_probe, synth_to_file  # noqa: E402
+from fatfish_core import observe  # noqa: E402
 
 MAX_LIMIT = 50
 
@@ -150,6 +152,34 @@ def extract(since_id: int = 0) -> str:
     result["promoted"] = promote_repeated(store())
     result["stats"] = candidate_stats(store())
     return _dump(result)
+
+
+@server.tool(description="合成一句语音，返回音频文件路径与大小（不直接发送）")
+def tts_speak(text: str) -> str:
+    """只负责合成落盘；发不发送由调用方决定。"""
+    if _readonly():
+        return _dump({"ok": False, "error": "服务以只读模式启动"})
+    body = str(text or "").strip()
+    if not body:
+        return _dump({"ok": False, "error": "文本为空"})
+    if len(body) > 200:
+        body = body[:200]
+    try:
+        config = TTSConfig.from_env()
+        out_dir = Path(os.environ.get("FATFISH_TTS_DIR") or "outputs/tts")
+        path = synth_to_file(config, body, out_dir)
+        return _dump({"ok": True, "path": str(path), "bytes": path.stat().st_size, "model": config.model})
+    except TTSError as exc:
+        observe.event("tts_failed", reason=str(exc))
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="TTS 连通性检查，不落盘")
+def tts_check() -> str:
+    try:
+        return _dump({"ok": True, **tts_probe(TTSConfig.from_env())})
+    except TTSError as exc:
+        return _dump({"ok": False, "error": str(exc)})
 
 
 def main() -> None:
