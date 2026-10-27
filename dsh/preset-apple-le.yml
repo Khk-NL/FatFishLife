@@ -1,6 +1,9 @@
-# 苹果乐社交 preset（P2）：单一权威人格，不挂任何工具。
-# 挂载方式：把下面整段追加到 $DSH_HOME/profiles/<profile>/cordis.patch.yml。
-# P1 阶段 tools 为空；P2/P3 再按审核过的能力逐项开放。
+# 苹果乐社交 preset：单一权威人格。
+# 挂载：追加到 $DSH_HOME/profiles/<profile>/cordis.patch.yml
+#
+# 工具策略：本 preset 的 plugins 就是白名单，不挂 tool-* 就没有工具。
+# P1/P2 阶段保持为空；记忆查询等能力在 P3 按审核结果逐项加入。
+# 不要为了让"看起来功能全"把 bash/fs/跨会话发送挂给会被陌生人 @ 的 bot。
 - insert:
     - id: preset-apple-le
       name: '@deepseek-ai/dsh-agent-preset'

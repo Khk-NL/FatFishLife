@@ -43,11 +43,11 @@ Say ""
 
 foreach ($p in $plugins) {
     if ($DryRun) {
-        Say "would run: dsh plugin add $($p.Name) --profile $Profile   # $($p.Why)"
+        Say "would run: dsh plugin --profile $Profile add $($p.Name)   # $($p.Why)"
         continue
     }
     Say "安装 $($p.Name) ..."
-    & $Cli plugin add $p.Name --profile $Profile
+    & $Cli plugin --profile $Profile add $p.Name
     if ($LASTEXITCODE -ne 0) {
         if ($p.Required) { Say "必装插件 $($p.Name) 失败，停止"; exit 1 }
         Say "可选插件 $($p.Name) 失败，跳过"
