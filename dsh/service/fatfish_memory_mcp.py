@@ -41,6 +41,9 @@ from fatfish_core.extract import (  # noqa: E402
 from fatfish_core.tts import TTSConfig, TTSError, probe as tts_probe, synth_to_file  # noqa: E402
 from fatfish_core import observe  # noqa: E402
 from fatfish_core import bili  # noqa: E402
+from fatfish_core import gallery  # noqa: E402
+from fatfish_core.steam import SteamStore, SteamError, format_result as steam_format  # noqa: E402
+from fatfish_core import local_llm  # noqa: E402
 
 MAX_LIMIT = 50
 
@@ -249,6 +252,87 @@ def bili_comments(bvid: str, limit: int = 10) -> str:
         ]
         return _dump({"ok": result.get("ok"), "comments": slim})
     except bili.BiliError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+# ---------- Steam（只读价格查询） ----------
+
+def _steam() -> SteamStore:
+    return SteamStore(
+        country=os.environ.get("FATFISH_STEAM_COUNTRY", "cn"),
+        proxy=os.environ.get("FATFISH_STEAM_PROXY", ""),
+        timeout=float(os.environ.get("FATFISH_STEAM_TIMEOUT", "20")),
+    )
+
+
+@server.tool(description="查 Steam 游戏当前区域价格，不需要 Web API Key")
+def steam_price(query: str) -> str:
+    try:
+        result = _steam().lookup(query)
+        return _dump({"ok": True, "text": steam_format(result), "data": result})
+    except SteamError as exc:
+        return _dump({"ok": False, "error": f"{exc}（代码 {exc.code}）"})
+    except ValueError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="按名字搜 Steam 游戏，返回候选")
+def steam_search(query: str, limit: int = 5) -> str:
+    try:
+        rows = _steam().search(query)[: _limit(limit, 5)]
+        return _dump({"ok": True, "items": [{"appid": r.get("id"), "name": r.get("name")} for r in rows]})
+    except SteamError as exc:
+        return _dump({"ok": False, "error": f"{exc}（代码 {exc.code}）"})
+
+
+# ---------- 图库 ----------
+
+@server.tool(description="图库统计：总数、分类、多少张有描述")
+def meme_stats() -> str:
+    try:
+        return _dump({"ok": True, **gallery.stats()})
+    except RuntimeError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="按标签或描述找表情包")
+def meme_find(query: str, limit: int = 3) -> str:
+    try:
+        hits = gallery.find(query, limit=_limit(limit, 3))
+        return _dump({"ok": True, "items": [{"path": h["path"], "tags": h["tags"], "caption": h["caption"][:80]} for h in hits]})
+    except RuntimeError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="随机挑一张表情包，可按分类限定")
+def meme_random(category: str = "") -> str:
+    try:
+        item = gallery.random_pick(category=category)
+        return _dump({"ok": bool(item), **({"path": item["path"], "category": item["category"], "tags": item["tags"]} if item else {"error": "没有匹配的表情"})})
+    except RuntimeError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+# ---------- 本地模型（峰谷切换时的高峰通道） ----------
+
+@server.tool(description="用本地模型回答，不走远程 API（高峰期省钱用）")
+def local_chat(prompt: str, system: str = "") -> str:
+    body = str(prompt or "").strip()
+    if not body:
+        return _dump({"ok": False, "error": "问题为空"})
+    try:
+        text = local_llm.chat(system, body)
+        return _dump({"ok": True, "text": text[:800]})
+    except local_llm.LocalLLMError as exc:
+        observe.event("local_llm_failed", reason=str(exc))
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="本地模型连通性检查（MiniCPM 与 Ollama 分别报）")
+def local_check() -> str:
+    try:
+        return _dump({"ok": True, "backends": local_llm.probe()})
+    except Exception as exc:  # noqa: BLE001
         return _dump({"ok": False, "error": str(exc)})
 
 

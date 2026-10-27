@@ -26,6 +26,9 @@
 | P3.2 TTS 接 MCP | `fatfish_core/tts.py`：从 AstrBot provider 抽出纯逻辑（合成+ffmpeg规整），音色/语速/ffmpeg 走环境变量；MCP 新增 `tts_check`/`tts_speak` | 官方 MCP 客户端实测：11 个工具在线；`tts_check` 66832 字节 RIFF 正确；`tts_speak` 落盘 `outputs/tts/tts.wav` 66208 字节 | 未接 QQ 出口（依赖 P3.1） | 复用现有 CosyVoice2 克隆音色，未换服务 |
 | P3.3 STT | `fatfish_core` 暂未抽；AstrBot 用 SenseVoiceSmall（免费） | 未验证 | 未接 | 等 QQ 桥通了再抽，避免空转 |
 | P4.1 B站接MCP | `fatfish_core/bili.py`：从插件抽出 CLI 调用（search/video/transcript/comments/feed/inbox），读默认开放，写需`FATFISH_BILI_WRITE=1` | 官方MCP客户端实测：16个工具在线；`bili_check` ok且writes=false；`bili_search` 返回真实结果；写操作被拦截 | 未接 QQ 出口 | 修正命令名：`bili auth status`（不是`account whoami`） |
+| P4.2 Steam+图库接MCP | `fatfish_core/gallery.py`（兼容两种目录布局）；MCP 新增 `steam_price`/`steam_search`/`meme_stats`/`meme_find`/`meme_random` | 官方MCP实测21工具：`steam_price` 返回「Portal 2（620，CN区）¥35.00」；`meme_stats` 164张/4分类/0损坏；`meme_find` 按标签命中；`meme_random` 可挑 | 未接 QQ 出口 | Steam 复用现有 `fatfish_core/steam.py`，无新依赖 |
+| P4.3 资产迁移 | `scripts/migrate_assets.py`：SQLite在线备份+目录复制到`FatFishLife/data/`；`scripts/import_knowledge_to_dsh.py` 导入DSH KB | memory.db 4845 events/209 candidates/5 journals/1 block；memes 164张40MB；knowledge 29文件→KB 28条入库并建FTS，检索「德克萨斯」「黑流树海」均命中 | **已迁到独立数据根** | `.env` 已指向 `data/memory.db`、`data/memes`；不再依赖 AstrBot 目录 |
+| P4.4 运营规矩迁移 | `dsh/rules.md`：B站刷首页+推荐理由、21:00标签学习、23:50日记与动态、峰谷模型切换、忙时固定话术、静默优先，逐条写明时间/阈值/出口 | 交叉验证发现配置与实际不符：`local_model_url` 6193 是 **MiniCPM5-2B(llama-server)**，不是 Ollama；Ollama 的 qwen2.5:1.5b 中文能力弱（问"你是谁"回英文），降为兜底 | 未接定时器 | `fatfish_core/local_llm.py` 双后端，实测 minicpm/ollama 均 ok |
 | P2～P6 | 待实施 | 待验证 | 未切换 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。
