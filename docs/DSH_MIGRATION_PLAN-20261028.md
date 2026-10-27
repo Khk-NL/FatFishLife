@@ -20,8 +20,9 @@
 | P2.4 公开KB选型 | **改用`htcqp802/dsh-knowledge-base` 0.1.5**（MIT，仅pdfjs-dist一个依赖，FTS5/BM25）；已下载到`.tools/dsh-vendor/kb`并核对SRI | 包335KB，SRI匹配，`cordis.patch.yml`提供kb_query/kb_import/kb_list/kb_update/kb_delete | 未装到profile | 否决`Soren-ABT/dsh-knowledge`：AGPL-3.0且带onnxruntime+transformers，体积与许可都不合适 |
 | P2.5 私人笔记选型 | `dsh-obsidian` 0.2.6（MIT，1个依赖yaml，npm可装）；已下载核对SRI | 包16.6KB，`cordis.patch.yml`单行挂载 | 未装到profile | `gxpppp/dsh-obsidian` 0.4.0零依赖更轻但未发npm；P2只用只读查询，写入留主人单独验收 |
 | P2.6 群风格候选整理 | `scripts/migrate_style_candidates.py`：从self_learning的expression_patterns迁到候选区，过滤系统噪声 | 源251条→去重后197条候选入库生产，重复项按hits累加 | **已写生产库** | status=candidate，需主人`/记忆 通过`才进长期记忆 |
-| P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：退出检测→`dsh plugin --profile desktop add`（注意`--profile`必须紧跟`plugin`）→写入MCP与preset到profile patch | **已跑通**：kb-knowledge-base/obsidian/onebot-qq 三包装进profile；`--dump-config`确认patch合法；启动后`kb.sqlite`自动创建；MCP子进程被DSH拉起（`fatfish_memory_mcp.py`）；persona文本正确渲染 | 已装到desktop profile | `.env`规范化为`DEEPSEEK_API_KEY`+`FATFISH_MEMORY_DB`（正斜杠，已gitignore） |
+| P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：退出检测→`dsh plugin --profile desktop add`（`--profile`必须紧跟`plugin`）→MCP与preset写入profile patch | **部分跑通**：kb-knowledge-base 与 dsh-obsidian 生效（`kb.sqlite` 自动创建、MCP 子进程被 DSH 拉起、persona 渲染正确）；`dsh-onebot-qq` 装上了但**挂载失败**（见 P3.1） | KB与Obsidian已装desktop profile；QQ桥已卸载避免加载报错 | `.env` 规范化为 `DEEPSEEK_API_KEY` + `FATFISH_MEMORY_DB`（正斜杠，已 gitignore） |
 | P2.8 工具白名单纠错 | 原以为有`dsh-agent-tools`可配allow列表，实际不存在；已撤回，preset恢复零工具 | `--dump-default-config`里无该包，挂上去会让preset加载失败 | — | 工具白名单由preset的`plugins`本身决定，不挂`tool-*`即无工具 |
+| P3.1 QQ桥兼容 | `dsh-onebot-qq` 0.9.6 装入 profile 后挂载失败：`Cannot find package '@deepseek-ai/dsh-llm'`；备选 `@qqbot/dsh-plugin-qq` 0.2.0 同样依赖同类 peer | npm 上 `@deepseek-ai/dsh-llm` 只有 0.0.1-rc.1/0.1.0-rc.6，被 DSH 0.2.1-rc.3 版本门拒绝；peer 只存在于 `app.asar` 内 | **阻塞**：QQ 仍走 AstrBot | 按方案 §10「停止扩修，选备选或复用传输层」处理，未强行 allow-version |
 | P2～P6 | 待实施 | 待验证 | 未切换 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。
@@ -303,3 +304,74 @@ P1默认先用模拟平台，不让两套Bot同时回复。P3/P4涉及真实API�
 - [dsh-obsidian](https://github.com/mingzeng21/dsh-obsidian)、[dsh-music](https://github.com/doitian/dsh-music)
 
 来源支持候选能力与接口设计，不代替目标版本安装、真实QQ或账号验收。
+
+---
+
+# 本轮验证报告（P2 收口 + P3 QQ 桥阻塞）
+
+## 一句话结论
+
+DSH 侧的**插件、人格、记忆 MCP、知识库已经跑通**；QQ 桥因为上游 peer 依赖在本机版本下不可解析，**QQ 链路暂时仍由 AstrBot 承担**，未做切换。
+
+## 一、跑通的部分（有运行时证据）
+
+| 能力 | 证据 | 怎么验的 |
+|---|---|---|
+| `dsh-knowledge-base` 生效 | `~/.dsh/knowledge-base/kb.sqlite` 自动创建，45KB | 启动后查文件系统 |
+| `dsh-obsidian` 装上 | `node_modules/dsh-obsidian` 存在，bundle patch 被加载 | `--dump-config` |
+| FatFish 记忆 MCP 连上 | 进程 `python.exe ...fatfish_memory_mcp.py` 由 DSH 拉起 | `Win32_Process.CommandLine` 过滤 |
+| 人格 preset 渲染正确 | `--dump-config` 展开出完整 2096 字符 persona + time-context | 用 web profile + `--patch` 验证 |
+| 工具白名单正确为空 | preset 的 plugins 只有 `persona`、`time-context` | yaml 解析 + dump |
+| 策略层测试 | 33 项全过（22 策略 + 11 端到端） | `node --test dsh/tests/*.test.mjs` |
+| 记忆候选入库 | `candidate: 197, verified: 12` | 直查 `memory.db` |
+| 凭据脱敏 | 6 类样本 0 泄漏 | `fatfish_core/observe.py` 的 `summary()` |
+
+## 二、QQ 桥为什么没通（根因，非配置错误）
+
+装 `dsh-onebot-qq@0.9.6` 成功，但挂载时报：
+
+```
+[dsh-onebot] 挂载失败：peer 依赖解析失败或关键模块缺失
+原始错误：Cannot find package '@deepseek-ai/dsh-llm'
+imported from .../dsh-onebot-qq/lib/bridge.js
+```
+
+逐层排查结果：
+
+1. `node_modules/@deepseek-ai` **不存在**——peer 依赖从未被安装；
+2. npm 上确实有 `@deepseek-ai/dsh-llm`，但只有 `0.0.1-rc.1` 和 `0.1.0-rc.6` 两条旧线；
+3. DSH 0.2.1-rc.3 的版本门直接拒绝：
+   ```
+   installation rejected: @deepseek-ai/dsh-llm@0.0.1-rc.1 is incompatible with dsh 0.2.1-rc.3
+   ```
+4. 与 0.2.1-rc.3 匹配的 peer 只存在于 `D:\dsh\resources\app.asar`（174MB 打包体）内，profile 层拿不到；
+5. 备选桥 `@qqbot/dsh-plugin-qq@0.2.0` 声明同样的 `@deepseek-ai/*` peer，问题一致。
+
+即：**两个 QQ 桥都依赖宿主内部包，而本机桌面版的解析层没有把它们暴露给 profile 插件**。这是上游兼容缺口，不是配置写错。
+
+按方案 §10 的口径处理：**不强行 `allow-version`**（版本豁免会把不兼容代码塞进运行链，计划里明确禁止用豁免充当成功），停止扩修，保留 AstrBot 承担 QQ。
+
+## 三、本轮修正的错误（都是自己踩的）
+
+| 问题 | 现象 | 修法 |
+|---|---|---|
+| `--profile` 位置 | `required option '--profile' not specified` | 必须是 `dsh plugin --profile X add pkg`，`--profile` 紧跟 `plugin` |
+| `.env` 不是 env 格式 | 只有一个裸 key；反斜杠路径被 `\a`/`\b` 转义成控制字符 | 规范化为 `KEY=value`，路径改正斜杠；`.env` 在 gitignore 内，`git ls-files` 确认未提交 |
+| 编造了 `dsh-agent-tools` | 该包不存在，挂上去会让 preset 加载失败 | 撤回；工具白名单由 preset 的 `plugins` 本身决定 |
+| 误判"装包不等于挂 patch" | 社区包自带 `dsh.bundle.patch`，DSH 自动读 | profile 的 patch 层只用于覆盖配置 |
+| `loadPolicy()` 硬依赖环境变量 | DSH 主进程不便注入 env，插件会崩 | 加固定路径回退 `dsh/policy.json`，环境变量优先 |
+
+## 四、当前可用状态
+
+- **DSH**：正常运行（5 进程），KB + Obsidian + 记忆 MCP + 人格 preset 就位，preset 零工具（安全起步）
+- **QQ**：仍由 AstrBot + NapCat 承担，**未切换**，所以 bot 没失联
+- **静默**：AstrBot 侧 `silent=true`，18:00 后由计划任务恢复
+- **数据**：`memory.db` 的候选 197 条待审核；`expression_patterns` 已迁入
+
+## 五、下一步的三种走法
+
+1. **等上游**：DSH 后续版本若把 `@deepseek-ai/*` 暴露给 profile，桥即可用；先做 P3 媒体（图库、TTS）不依赖 QQ 桥
+2. **换传输层**：只复用桥的 OneBot 传输/媒体部分，策略与业务仍走我们自己的 MCP 服务（方案 §4 允许）
+3. **自建极薄桥**：自己写 OneBot WS 客户端 + 调用 DSH 的 agent API。代价是要碰 Agent 循环，方案 §10 明确不建议
+
+建议先做 **1**：把 P3 媒体和 P4 业务接回做完，QQ 桥等到上游修好或换机再切。

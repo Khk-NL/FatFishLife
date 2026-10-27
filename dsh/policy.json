@@ -1,0 +1,17 @@
+{
+  "adapterId": "napcat-main",
+  "botId": "1670515707",
+  "ownerId": "3124904460",
+  "silent": true,
+  "groupCooldownMs": 10000,
+  "userCooldownMs": 60000,
+  "normalKeywords": [
+    "苹果派",
+    "啊噗噜派",
+    "苹果乐",
+    "能天使",
+    "拉特兰",
+    "德克萨斯",
+    "企鹅物流"
+  ]
+}

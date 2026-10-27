@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { FatFishPolicy } from './policy.mjs';
 
@@ -11,9 +11,14 @@ export async function ownerCommand(policy, run) {
 }
 
 export function loadPolicy() {
-  const path = process.env.FATFISH_POLICY_FILE;
-  if (!path) throw new Error('FATFISH_POLICY_FILE is required; no implicit production identity');
-  return new FatFishPolicy(JSON.parse(readFileSync(path, 'utf8').replace(/^\uFEFF/, '')));
+  // 环境变量优先；否则读项目内固定路径（DSH 主进程不方便注入 env）
+  const candidates = [
+    process.env.FATFISH_POLICY_FILE,
+    'D:/Code/Projects/FatFishLife/dsh/policy.json',
+  ].filter(Boolean);
+  const hit = candidates.find(candidate => existsSync(candidate));
+  if (!hit) throw new Error('FatFish policy not found; set FATFISH_POLICY_FILE or add dsh/policy.json');
+  return new FatFishPolicy(JSON.parse(readFileSync(hit, 'utf8').replace(/^\uFEFF/, '')));
 }
 
 export function scopedSessionId(policy, chatId) { return policy.sessionId(chatId); }
