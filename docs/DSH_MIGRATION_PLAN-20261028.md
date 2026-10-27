@@ -20,7 +20,8 @@
 | P2.4 公开KB选型 | **改用`htcqp802/dsh-knowledge-base` 0.1.5**（MIT，仅pdfjs-dist一个依赖，FTS5/BM25）；已下载到`.tools/dsh-vendor/kb`并核对SRI | 包335KB，SRI匹配，`cordis.patch.yml`提供kb_query/kb_import/kb_list/kb_update/kb_delete | 未装到profile | 否决`Soren-ABT/dsh-knowledge`：AGPL-3.0且带onnxruntime+transformers，体积与许可都不合适 |
 | P2.5 私人笔记选型 | `dsh-obsidian` 0.2.6（MIT，1个依赖yaml，npm可装）；已下载核对SRI | 包16.6KB，`cordis.patch.yml`单行挂载 | 未装到profile | `gxpppp/dsh-obsidian` 0.4.0零依赖更轻但未发npm；P2只用只读查询，写入留主人单独验收 |
 | P2.6 群风格候选整理 | `scripts/migrate_style_candidates.py`：从self_learning的expression_patterns迁到候选区，过滤系统噪声 | 源251条→去重后197条候选入库生产，重复项按hits累加 | **已写生产库** | status=candidate，需主人`/记忆 通过`才进长期记忆 |
-| P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：检测桌面版进程→`dsh plugin add`装KB/Obsidian/插件市场/QQ桥→写入MCP与preset到profile patch | `-DryRun` 可列出将执行的命令；桌面版运行时自动中止 | **待主人退出DSH后执行** | 生态评估写进`dsh/upstream-lock.json`的`ecosystem_review` |
+| P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：退出检测→`dsh plugin --profile desktop add`（注意`--profile`必须紧跟`plugin`）→写入MCP与preset到profile patch | **已跑通**：kb-knowledge-base/obsidian/onebot-qq 三包装进profile；`--dump-config`确认patch合法；启动后`kb.sqlite`自动创建；MCP子进程被DSH拉起（`fatfish_memory_mcp.py`）；persona文本正确渲染 | 已装到desktop profile | `.env`规范化为`DEEPSEEK_API_KEY`+`FATFISH_MEMORY_DB`（正斜杠，已gitignore） |
+| P2.8 工具白名单纠错 | 原以为有`dsh-agent-tools`可配allow列表，实际不存在；已撤回，preset恢复零工具 | `--dump-default-config`里无该包，挂上去会让preset加载失败 | — | 工具白名单由preset的`plugins`本身决定，不挂`tool-*`即无工具 |
 | P2～P6 | 待实施 | 待验证 | 未切换 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。
