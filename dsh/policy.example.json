@@ -1,0 +1,9 @@
+{
+  "adapterId": "napcat-main",
+  "botId": "10000001",
+  "ownerId": "10000002",
+  "silent": true,
+  "groupCooldownMs": 10000,
+  "userCooldownMs": 60000,
+  "normalKeywords": ["苹果派", "啊噗噜派"]
+}
