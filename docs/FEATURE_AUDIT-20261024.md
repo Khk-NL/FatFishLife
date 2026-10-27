@@ -1,5 +1,11 @@
 # 功能审查与复用清单（更新至 2026-10-28）
 
+## 2026-10-28：全面迁移DSH的实施方案（未实施）
+
+用户明确要求最终不再使用AstrBot，本轮先拟定方案。新增[完整方案](DSH_MIGRATION_PLAN-20261028.md)：盘点实际24个目录（20个未被原生禁用、4个禁用），覆盖核心与Steam/Pixiv/点歌/电子书/JM/空间等完整业务；现用cloudmusic是网易云接口，proactive_chat当前整体停用，不复活旧默认行为。
+
+进一步核实当前Host使用C:\Users\kongb\.dsh\profiles\desktop；随桌面版CLI为D:\dsh\resources\runtime\cli\bin\dsh.cmd，实际资源含persona/preset/tools等0.2.1-rc.3接口。计划从隔离测试、QQ身份/作息硬规则开始，逐阶段迁数据、媒体、外部工具，再单通道切换并移除对旧环境/路径/任务的依赖。候选插件兼容、完整DSH链路与真实账号尚未验收；本轮只改文档，没有安装/迁库/停服/发消息。
+
 ## 2026-10-28：更正DSH安装位置
 
 用户补充实际程序目录D:\dsh。只读核对DeepSeek Harness.exe文件版本、app.asar内桌面package版本均为0.2.1-rc.3，并确认运行进程及随程序打包的runtime。此前仅检查旧启动器指向的空源码目录便判断程序缺失，结论不准确；迁移复用现有桌面版，不要求重装。程序目录与数据根不同；默认用户.dsh及desktop profile存在，运行进程是否覆盖DSH_HOME尚未确认，不迁动或合并旧数据。已修正迁移手册；没有改应用、凭据、插件或QQ连接。

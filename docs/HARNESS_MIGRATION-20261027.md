@@ -1,5 +1,7 @@
 # 苹果乐迁移 DeepSeek Harness：插件选型、迁移步骤与验收
 
+完整实施范围、现用插件映射和阶段验收以[全面迁移实施方案](DSH_MIGRATION_PLAN-20261028.md)为准。本文件保留候选源码核查与技术选型依据。
+
 更新时间：2026-10-28。目标是 DeepSeek 官方 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness)。本轮属于本机核查、源码选型与迁移设计；尚未安装下列 DSH 插件、改变 QQ 连接、迁移记忆或修改生产业务代码。
 
 ## 1. 采用逐项选择，不统一套一种做法
