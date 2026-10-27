@@ -40,6 +40,7 @@ from fatfish_core.extract import (  # noqa: E402
 )
 from fatfish_core.tts import TTSConfig, TTSError, probe as tts_probe, synth_to_file  # noqa: E402
 from fatfish_core import observe  # noqa: E402
+from fatfish_core import bili  # noqa: E402
 
 MAX_LIMIT = 50
 
@@ -179,6 +180,75 @@ def tts_check() -> str:
     try:
         return _dump({"ok": True, **tts_probe(TTSConfig.from_env())})
     except TTSError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+# ---------- B 站（只读优先；写操作受 FATFISH_BILI_WRITE 控制） ----------
+
+@server.tool(description="B 站登录态与 CLI 连通性检查")
+def bili_check() -> str:
+    try:
+        data = bili.probe()
+        data.pop("who", None)
+        return _dump(data)
+    except Exception as exc:  # noqa: BLE001
+        return _dump({"ok": False, "error": type(exc).__name__})
+
+
+@server.tool(description="搜索 B 站视频")
+def bili_search(keyword: str, size: int = 5) -> str:
+    try:
+        result = bili.search(keyword, size=_limit(size, 5))
+        items = (result.get("data") or {}).get("items") or []
+        slim = [
+            {"title": str(i.get("title"))[:80], "bvid": i.get("bvid"), "author": i.get("author") or i.get("owner")}
+            for i in items[:10]
+        ]
+        return _dump({"ok": result.get("ok"), "items": slim})
+    except bili.BiliError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="读一个 B 站视频的基本信息")
+def bili_video(bvid: str) -> str:
+    try:
+        result = bili.video_info(bvid)
+        data = result.get("data") or {}
+        return _dump({
+            "ok": result.get("ok"),
+            "title": data.get("title"),
+            "desc": str(data.get("desc") or "")[:300],
+            "view": data.get("view"),
+            "owner": data.get("owner"),
+        })
+    except bili.BiliError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="读视频字幕或 AI 总结，用于把攻略视频转成文字")
+def bili_transcript(bvid: str) -> str:
+    try:
+        result = bili.video_transcript(bvid)
+        data = result.get("data") or {}
+        text = data.get("summary") or data.get("subtitle") or data.get("text") or ""
+        return _dump({"ok": result.get("ok"), "chars": len(str(text)), "text": str(text)[:2000]})
+    except bili.BiliError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="读视频热评，用于了解评论区表达")
+def bili_comments(bvid: str, limit: int = 10) -> str:
+    try:
+        result = bili.comments(bvid)
+        data = result.get("data") or {}
+        rows = data.get("comments") or data.get("items") or []
+        slim = [
+            {"user": str((c.get("member") or {}).get("uname") or c.get("user") or "")[:20],
+             "text": str(c.get("content") or c.get("message") or "")[:150]}
+            for c in rows[: _limit(limit, 10)]
+        ]
+        return _dump({"ok": result.get("ok"), "comments": slim})
+    except bili.BiliError as exc:
         return _dump({"ok": False, "error": str(exc)})
 
 
