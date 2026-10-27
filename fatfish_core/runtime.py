@@ -136,3 +136,13 @@ def read_offline(db_path: str | Path, legacy_path: str | Path | None = None) -> 
 @lru_cache(maxsize=32)
 def _runtime_store(path: str) -> RuntimeStore:
     return RuntimeStore(path)
+
+
+def is_silent(db_path: str | Path) -> bool:
+    """跨插件读取静默开关：只收不发，用于「暂停说话」。"""
+    try:
+        store = RuntimeStore(db_path)
+        control = store.get("offline", "control", {}) or {}
+        return bool(control.get("silent"))
+    except Exception:
+        return False

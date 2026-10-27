@@ -626,6 +626,11 @@ class Main(Star):
 
     def _offline(self) -> bool:
         try:
+            # 静默优先：主人要求暂停说话时，B 站也不再回复
+            from fatfish_core.runtime import is_silent
+
+            if is_silent(self.memory_db):
+                return True
             base = StarTools.get_data_dir("astrbot_plugin_fatfish_offline")
             return bool(read_offline(self.memory_db, base / "offline.json").get("offline"))
         except (AttributeError, RuntimeError, OSError, ValueError, sqlite3.Error) as exc:

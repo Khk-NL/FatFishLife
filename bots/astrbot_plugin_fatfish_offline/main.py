@@ -469,6 +469,13 @@ class Main(Star):
             return [Reply(id=message_id), *chain]
         return chain
 
+    @filter.on_decorating_result(priority=-3000)
+    async def block_when_silent(self, event: AstrMessageEvent):
+        """静默期间取消一切对外回复，包括命令回执；消息记录不受影响。"""
+        if getattr(self.state, "silent", False):
+            logger.debug("静默中，取消本轮回复")
+            event.stop_event()
+
     @filter.on_decorating_result(priority=-1200)
     async def quote_when_needed(self, event: AstrMessageEvent):
         result = event.get_result()
@@ -706,6 +713,11 @@ class Main(Star):
                 reply = smart
                 logger.info(f"本地模型兜底 group={group}")
         if reply is None:
+            event.stop_event()
+            return
+        # 静默模式：只收不发，用于「暂停说话」而不影响记忆和学习
+        if getattr(self.state, "silent", False):
+            logger.info(f"静默中，跳过发送 group={group} user={user}")
             event.stop_event()
             return
         try:

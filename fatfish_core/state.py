@@ -37,6 +37,18 @@ class StateStore:
         self.data["manual"] = value if value in ("on", "off") else None
         self._save()
 
+    @property
+    def silent(self) -> bool:
+        """闭麦：只收不发。独立于 manual，不受高峰时段影响。"""
+        data = self.data or {}
+        return bool(data.get("silent"))
+
+    def set_silent(self, value: bool) -> None:
+        if self.data is None:
+            self.data = {}
+        self.data["silent"] = bool(value)
+        self._save()
+
     def notified_today(self, group: str, day: str) -> bool:
         return self.data.get("notified", {}).get(group) == day
 
