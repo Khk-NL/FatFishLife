@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import secrets
 import hashlib
+import yaml
 import subprocess
 import time
 
@@ -50,6 +51,10 @@ def run() -> int:
         {"id": "dsh-onebot", "config": {"port": 0, "host": "127.0.0.1", "accessToken": secrets.token_urlsafe(24), "botQQ": "10000001", "dmPolicy": "disabled", "groupPolicy": "disabled", "workspacePath": str(home)}},
         {"insert": [{"id": "fatfish-native-smoke", "name": str(profile / "native-smoke-plugin.mjs")} ]},
     ]
+    preset_rows = yaml.safe_load((ROOT / 'dsh/preset-apple-le.yml').read_text(encoding='utf-8'))
+    patch.extend(preset_rows)
+    persona = preset_rows[0]['insert'][0]['config']['plugins'][0]['config']['prefix']
+    (home / 'expected-persona.txt').write_text(persona.strip(), encoding='utf-8', newline='\n')
     (profile / "cordis.patch.yml").write_text(json.dumps(patch), encoding="utf-8")
     report = home / f"report-{time.time_ns()}.json"
     env["FATFISH_SMOKE_REPORT"] = str(report)

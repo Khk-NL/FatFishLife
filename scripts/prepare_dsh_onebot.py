@@ -61,10 +61,15 @@ def prepare() -> Path:
         return source
 
     def bridge(source):
-        source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand } from './runtime-adapter.mjs';\n" + source
+        source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand, SOCIAL_CHANNEL_PROMPT } from './runtime-adapter.mjs';\n" + source
+        source = replace(source, "import { registerTools } from './tools.js';\n", '')
         source = replace(source, "    async handleInbound(event, opts = {}) {", "    async handleInbound(event, opts = {}) {\n        try {\n            const gated = await beforeInbound(this, event);\n            if (gated === false) return;\n            event = gated;\n        } catch (error) {\n            this.deps.log('error', 'FatFish ingress/delivery failed: ' + error.name);\n            return;\n        }")
         source = replace(source, "        return routeCommand(this.commandCtx, chatId, text, userId, nickname);", "        if (!this.deps.fatfishPolicy.owner(userId)) return Promise.resolve(false);\n        return ownerCommand(this.deps.fatfishPolicy, () => routeCommand(this.commandCtx, chatId, text, userId, nickname));")
         source = replace(source, "    installChannelScope(agentCtx) {", "    installChannelScope(agentCtx) {\n        installSocialScope(agentCtx, this);")
+        source = replace(source, 'text: buildPlatformPrompt(this.deps.config.restrictedMemberPrefix),', 'text: SOCIAL_CHANNEL_PROMPT,')
+        source = replace(source,
+            "        registerTools(agentCtx, this, this.deps.connection, {\n            maxImageBytes: this.deps.config.maxImageBytes,\n            maxVoiceBytes: this.deps.config.maxVoiceBytes,\n            maxFileBytes: this.deps.config.maxFileBytes,\n        });",
+            '        // P1 social scope exposes no QQ control tools; reviewed delivery remains host-owned.')
         source = replace(source, "    guardedConnectionCall(action, params, chatId) {", "    guardedConnectionCall(action, params, chatId) {\n        assertOutbound(this.deps.fatfishPolicy, action);")
         source = replace(source, "this.sendToChat(chatId, QUEUE_NOTICE_TEXT).catch", "Promise.resolve([]).catch")
         source = replace(source, "            this.interim.onTurnEnd(chatId, chat);", "            if (reason.kind !== 'completed') chat.loopPending = null;\n            this.interim.onTurnEnd(chatId, chat);")
@@ -72,7 +77,13 @@ def prepare() -> Path:
 
     def registry(source):
         source = "import { scopedSessionId } from './runtime-adapter.mjs';\n" + source
-        return replace(source, "sessionIdForChat(chatId)", "scopedSessionId(this.deps.config.fatfishPolicy, chatId)", 6)
+        source = replace(source, "sessionIdForChat(chatId)", "scopedSessionId(this.deps.config.fatfishPolicy, chatId)", 6)
+        source = replace(source, "    async joinPreset(agentCtx, preferred) {\n        if (this.deps.agentPresets === undefined)\n            return;",
+            "    async joinPreset(agentCtx, preferred) {\n        if (this.deps.agentPresets === undefined)\n            throw new Error('FatFish requires an available social preset service');")
+        source = replace(source,
+            "            this.deps.log('warn', 'agent preset mount failed (tools fall back to the global layer): ' + describeError(error));",
+            "            this.deps.log('error', 'social preset mount failed: ' + describeError(error));\n            throw error;")
+        return source
 
     def interim(source):
         source = replace(source, "        this.ctx.relayHostCards(chatId, message.content);", "        // Host control cards stay in the local management interface.\n        if (message.content.some(block => block.type === 'tool-call')) { chat.loopPending = null; return; }")
