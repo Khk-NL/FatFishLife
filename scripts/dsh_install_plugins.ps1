@@ -6,6 +6,7 @@
 param(
     [string]$Profile = "desktop",
     [switch]$DryRun,
+    [switch]$IncludeQqBridge,
     [switch]$SkipQqBridge
 )
 
@@ -33,8 +34,13 @@ $plugins = @(
     @{ Name = "dsh-obsidian";       Why = "私人笔记只读查询（MIT）";           Required = $true },
     @{ Name = "dsh-plugin-workshop"; Why = "应用内插件浏览器，之后自助装插件"; Required = $false }
 )
-if (-not $SkipQqBridge) {
-    $plugins += @{ Name = "dsh-onebot-qq"; Why = "QQ 接入（BSD-3，配套 FatFish 策略补丁）"; Required = $true }
+if ($IncludeQqBridge -and -not $SkipQqBridge) {
+    $archive = Join-Path $Repo ".tools\dsh-vendor\adapted\fatfish-onebot-0.9.6.tgz"
+    if (-not $DryRun) {
+        & (Join-Path $Repo ".tools\dsh-python\Scripts\python.exe") -X utf8 (Join-Path $Repo "scripts\prepare_dsh_onebot.py") --pack
+        if ($LASTEXITCODE -ne 0) { throw "QQ桥准备失败，停止安装" }
+    }
+    $plugins += @{ Name = "file:$($archive.Replace('\', '/'))"; Why = "QQ 接入（BSD-3，本地适配归档；仅P5明确启用）"; Required = $true }
 }
 
 Say "profile: $Profile"

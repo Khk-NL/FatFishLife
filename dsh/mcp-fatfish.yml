@@ -15,6 +15,6 @@
         args:
           - 'D:\Code\Projects\FatFishLife\dsh\service\fatfish_memory_mcp.py'
         env:
-          FATFISH_MEMORY_DB: 'D:\Code\Apps\AstrBot\data\plugin_data\astrbot_plugin_fatfish_memory\memory.db'
+          FATFISH_MEMORY_DB: 'D:\Code\Projects\FatFishLife\data\memory.db'
           FATFISH_SERVICE_READONLY: '1'
         cwd: !!js process.cwd()

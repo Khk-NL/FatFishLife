@@ -1,8 +1,8 @@
 # FatFishLife 全面迁移 DSH 实施方案
 
-日期：2026-10-28。状态：**实施中，MCP/资产已部分接入，QQ桥依赖加载仍阻塞**。目标为已安装的官方 DeepSeek Harness 桌面版，不再以 AstrBot 为运行底座。
+日期：2026-10-28。状态：**实施中；QQ桥已通过隔离DSH加载与本地模拟收发，生产未切换**。目标为已安装的官方 DeepSeek Harness 桌面版，不再以 AstrBot 为运行底座。
 
-后续已按下表部分接入desktop的KB/Obsidian/MCP与人格；QQ仍由旧系统承担，尚未完成最终切换。新验证使用独立Python和模拟平台，不凭安装或监听端口宣称接入完成。
+后续已按下表部分接入desktop的KB/Obsidian/MCP与人格；QQ仍由旧系统承担，尚未完成最终切换。最新核查发现生产MCP声明仍指向旧记忆库；资产复制与运行切换分开记状态。新验证使用独立Python和模拟平台，不凭安装或监听端口宣称接入完成。
 
 每个阶段开发前最好查查目前互联网上是否已有成熟项目代码或实现/架构值得复用, 不要重复造轮子
 
@@ -13,7 +13,8 @@
 | P0.1 数据与配置基线 | 已完成 | 1,618文件哈希一致；11个SQLite快照完整性检查通过；WAL恢复/禁止覆盖2项测试通过 | 只读旧环境，无切换 | `scripts/dsh_migration_baseline.py`；私有备份位于`outputs/dsh-migration/baseline-20261028-012734` |
 | P0.2 独立Python | 已完成 | Python3.12.10；base为系统Python，prefix为`.tools/dsh-python` | 未用于生产 | 不依赖AstrBot虚拟环境 |
 | P0.3 版本与来源 | 已记录DSH0.2.1-rc.3和QQ桥0.9.6 | 发布包已获取，后续准备脚本检查SRI与补丁匹配 | 社区插件尚未挂生产profile | `dsh/upstream-lock.json`；QQ桥BSD-3-Clause |
-| P1 QQ入口与工具边界 | 策略层`dsh/policy.mjs`+适配层`dsh/runtime-adapter.mjs`完成；桥补丁`scripts/prepare_dsh_onebot.py`（SRI校验+11处断言替换）；端到端冒烟`dsh/tests/smoke.e2e.test.mjs` | **33项通过**（22策略+11端到端）：工作时段的@/戳只发固定文案、非@静默、正常时段放行、静默覆盖一切、非主人命令当正文、跨会话拦截、message_id去重、异账号忽略、发送前复查 | 未连接真实QQ | `node --test dsh/tests/*.test.mjs`；策略随桥分发，不做独立bundle |
+| P1 QQ入口与工具边界 | 策略层`dsh/policy.mjs`+适配层`dsh/runtime-adapter.mjs`完成；桥补丁`scripts/prepare_dsh_onebot.py` | **33项通过**（22策略+11适配模拟，不能单独算完整DSH端到端）；已补足有效@下非主人命令继续传正文的断言 | 未连接真实QQ | `node --test dsh/tests/*.test.mjs`；真实宿主证据见P1.2 |
+| P1.2 真实宿主隔离验收 | 本地适配tarball安装进一次性Web profile；保留BSD许可证、上游SRI，未修改ASAR或放宽版本检查 | **8项通过**：原生peer解析、带鉴权loopback WS、忙时零模型调度、真实传输戳一戳、非主人命令无后台回执、主人命令、真实Agent作用域工具body被阻止；桥插件实际启动 | 未装生产desktop、未接NapCat、未发真实平台消息；普通聊天模型/完整人格请求尚未验收 | `scripts/dsh_native_smoke.py`；`outputs/dsh-migration/native-smoke/report-1793159212761171700.json` |
 | P2.1 人格preset | `dsh/preset-apple-le.yml`由`apple-le-core.md`生成：persona插件+time-context，tools为空 | YAML可解析；persona 2097字符；`<#0.6#>`禁标记规则在内；身份不写进人格，由policy的ownerId提供 | 未挂载到生产profile | `.tools/dsh-python`装pyyaml校验通过 |
 | P2.2 记忆MCP服务 | **改用官方 mcp SDK 2.x 的 MCPServer**（`FastMCP`已改名）；9个工具；挂载样例`dsh/mcp-fatfish.yml`走`@deepseek-ai/dsh-mcp-client` stdio | 官方MCP客户端stdio握手通过：工具列举、recall命中、只读模式下remember被拒 | 未接DSH宿主 | 手写JSON-RPC已删除；DSH官方有`guide/mcp-memory` |
 | P2.3 脱敏观察 | `fatfish_core/observe.py`：凭据键整段掩码、Bearer、QQ号、手机、邮箱、Windows路径 | 6类样本掩码正确，`summary()`检出0处泄漏 | 未接生产日志 | 未用presidio（重且对中文QQ号无优势），按明确范围自实现 |
@@ -22,15 +23,16 @@
 | P2.6 群风格候选整理 | `scripts/migrate_style_candidates.py`：从self_learning的expression_patterns迁到候选区，过滤系统噪声 | 源251条→去重后197条候选入库生产，重复项按hits累加 | **已写生产库** | status=candidate，需主人`/记忆 通过`才进长期记忆 |
 | P2.7 DSH插件安装 | `scripts/dsh_install_plugins.ps1`：退出检测→`dsh plugin --profile desktop add`（`--profile`必须紧跟`plugin`）→MCP与preset写入profile patch | **部分跑通**：kb-knowledge-base 与 dsh-obsidian 生效（`kb.sqlite` 自动创建、MCP 子进程被 DSH 拉起、persona 渲染正确）；`dsh-onebot-qq` 装上了但**挂载失败**（见 P3.1） | KB与Obsidian已装desktop profile；QQ桥已卸载避免加载报错 | `.env` 规范化为 `DEEPSEEK_API_KEY` + `FATFISH_MEMORY_DB`（正斜杠，已 gitignore） |
 | P2.8 工具白名单纠错 | 原以为有`dsh-agent-tools`可配allow列表，实际不存在；已撤回，preset恢复零工具 | `--dump-default-config`里无该包，挂上去会让preset加载失败 | — | 工具白名单由preset的`plugins`本身决定，不挂`tool-*`即无工具 |
-| P3.1 QQ桥兼容 | `dsh-onebot-qq` 0.9.6 装入 profile 后挂载失败：`Cannot find package '@deepseek-ai/dsh-llm'`；备选 `@qqbot/dsh-plugin-qq` 0.2.0 同样依赖同类 peer | npm 上 `@deepseek-ai/dsh-llm` 只有 0.0.1-rc.1/0.1.0-rc.6，被 DSH 0.2.1-rc.3 版本门拒绝；peer 只存在于 `app.asar` 内 | **阻塞**：QQ 仍走 AstrBot | 按方案 §10「停止扩修，选备选或复用传输层」处理，未强行 allow-version |
+| P3.1 QQ桥兼容（新证据覆盖旧阻塞判断） | 旧目录链接安装曾缺peer/自身ws依赖；改为适配tarball安装到profile包树 | 本机0.2.1-rc.3原生安装回退确实提供内部peer；桥已启动且P1.2通过，**不是必须安装npm旧版内部包或等待上游** | 生产仍未安装/切换；媒体出口与业务权限尚待整合 | `prepare_dsh_onebot.py --pack`；不使用allow-version、不复制ASAR包、不重写Agent |
 | P3.2 TTS 接 MCP | `fatfish_core/tts.py`：从 AstrBot provider 抽出纯逻辑（合成+ffmpeg规整），音色/语速/ffmpeg 走环境变量；MCP 新增 `tts_check`/`tts_speak` | 官方 MCP 客户端实测：11 个工具在线；`tts_check` 66832 字节 RIFF 正确；`tts_speak` 落盘 `outputs/tts/tts.wav` 66208 字节 | 未接 QQ 出口（依赖 P3.1） | 复用现有 CosyVoice2 克隆音色，未换服务 |
 | P3.3 STT | `fatfish_core` 暂未抽；AstrBot 用 SenseVoiceSmall（免费） | 未验证 | 未接 | 等 QQ 桥通了再抽，避免空转 |
 | P4.1 B站接MCP | `fatfish_core/bili.py`：从插件抽出 CLI 调用（search/video/transcript/comments/feed/inbox），读默认开放，写需`FATFISH_BILI_WRITE=1` | 官方MCP客户端实测：16个工具在线；`bili_check` ok且writes=false；`bili_search` 返回真实结果；写操作被拦截 | 未接 QQ 出口 | 修正命令名：`bili auth status`（不是`account whoami`） |
 | P4.2 Steam+图库接MCP | `fatfish_core/gallery.py`（兼容两种目录布局）；MCP 新增 `steam_price`/`steam_search`/`meme_stats`/`meme_find`/`meme_random` | 官方MCP实测21工具：`steam_price` 返回「Portal 2（620，CN区）¥35.00」；`meme_stats` 164张/4分类/0损坏；`meme_find` 按标签命中；`meme_random` 可挑 | 未接 QQ 出口 | Steam 复用现有 `fatfish_core/steam.py`，无新依赖 |
-| P4.3 资产迁移 | `scripts/migrate_assets.py`：SQLite在线备份+目录复制到`FatFishLife/data/`；`scripts/import_knowledge_to_dsh.py` 导入DSH KB | memory.db 4845 events/209 candidates/5 journals/1 block；memes 164张40MB；knowledge 29文件→KB 28条入库并建FTS，检索「德克萨斯」「黑流树海」均命中 | **已迁到独立数据根** | `.env` 已指向 `data/memory.db`、`data/memes`；不再依赖 AstrBot 目录 |
+| P4.3 资产迁移 | `scripts/migrate_assets.py`：SQLite在线备份+目录复制到`FatFishLife/data/`；`scripts/import_knowledge_to_dsh.py` 导入DSH KB | memory.db 4845 events/209 candidates/5 journals/1 block；memes 164张40MB；knowledge 29文件→KB 28条入库并建FTS，检索「德克萨斯」「黑流树海」均命中 | **资产副本已迁，生产MCP尚未切到新库** | `.env`指向新data不等于desktop MCP的显式env已改变；见P4.7 |
 | P4.4 运营规矩迁移 | `dsh/rules.md`：B站刷首页+推荐理由、21:00标签学习、23:50日记与动态、峰谷模型切换、忙时固定话术、静默优先，逐条写明时间/阈值/出口 | 交叉验证发现配置与实际不符：`local_model_url` 6193 是 **MiniCPM5-2B(llama-server)**，不是 Ollama；Ollama 的 qwen2.5:1.5b 中文能力弱（问"你是谁"回英文），降为兜底 | 未接定时器 | `fatfish_core/local_llm.py` 双后端，实测 minicpm/ollama 均 ok |
 | P4.5 自检脚本 | `scripts/dsh_selfcheck.py`：10 项一次跑完，PASS/WARN/FAIL 三档，`--json` 可机读 | 实测 **9/10 通过**：memory/图库/知识库28条/插件/preset/MCP23工具/本地模型/TTS/B站全 OK；唯一 FAIL 是 QQ 桥（未安装，QQ 仍由 AstrBot 承担） | 需手动跑 | 端口检测改用 socket，避免 netstat 中文编码炸 |
 | P4.6 自检验收纠正（10/28上午，覆盖P4.5旧结论） | 默认TTS检查改为本地preflight；真实合成须显式`--live-tts`；MCP的tts_check不再合成；本地模型只探端口、不推理；拒绝把端口/包声明当运行验收 | **实测5 PASS / 4 WARN / 1 FAIL（QQ桥）**；9项新增测试、33项既有桥策略测试通过；官方MCP客户端握手23工具，实际调用tts_check返回synthesis_requests=0、synthesis_verified=false | 未改desktop profile、未重启DSH、未连接QQ；旧MCP常驻子进程需下次重载才能取得新实现 | JSON模式的FAIL返回非零，Windows编码回归通过；TTS不再把DeepSeek key当硅基key；回执`outputs/dsh-selfcheck-20261028/` |
+| P4.7 并发修改复核与安装模板 | 保留用户新增MCP/资产代码；仓库MCP模板改指向项目data；自检加入资产库/生产MCP声明路径不一致提醒；补全KB/Obsidian的完整SRI；安装器默认不装QQ，显式启用时安装适配tarball | 新增2项归档测试通过；自检回归现10项通过；PowerShell安装器语法解析通过 | **生产MCP仍指旧库**，本轮未重启/改desktop配置；自检仍应报QQ未切换 | `.env.bak`未读未改未提交；后续受控退出DSH、备份profile再切MCP路径，不能覆盖新产生的数据 |
 | P2～P6 | 以上已列明部分单元，其余待实施 | 依逐项记录，不作整阶段通过 | 最终切换未完成 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。
@@ -56,7 +58,7 @@
 | 随桌面版CLI | `D:\dsh\resources\runtime\cli\bin\dsh.cmd` |
 | 实际使用的数据根 | `C:\Users\kongb\.dsh`；当前Host进程明确使用其中的desktop profile |
 | 实际profile | `C:\Users\kongb\.dsh\profiles\desktop` |
-| 桌面第三方依赖清单 | 当前dependencies为空；默认组合为dsh-base与dsh-web-app |
+| 桌面第三方依赖清单 | 初始快照为空；当前已声明dsh-knowledge-base与dsh-obsidian，QQ桥未装生产 |
 | 旧D盘目录 | `D:\DeepSeekHarness`是旧启动器/数据，保留但不自动合并 |
 | AstrBot插件目录 | 当前24个：20个未被原生禁用，4个禁用；安装/启用不等于真人功能全部通过 |
 | 既有纯业务 | MemoryStore、Steam、查询证据、成长、图谱、投稿草稿等已有可复用代码 |
@@ -315,7 +317,9 @@ P1默认先用模拟平台，不让两套Bot同时回复。P3/P4涉及真实API�
 
 ---
 
-# 本轮验证报告（P2 收口 + P3 QQ 桥阻塞）
+# 早期验证报告（历史快照，QQ阻塞判断已被P1.2/P3.1新证据更新）
+
+以下保留旧现象及当时处理。最新真实隔离宿主已通过peer解析与WS收发；“本机解析层没有暴露内部包、只能等上游”的根因推断不再成立。生产仍未切换，MCP配置仍有旧库路径，以上表最新记录为准。
 
 ## 一句话结论
 

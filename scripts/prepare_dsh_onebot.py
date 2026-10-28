@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import argparse
 import hashlib
 import json
 import shutil
@@ -92,5 +93,21 @@ def prepare() -> Path:
     return target
 
 
+def pack(prepared: Path) -> Path:
+    destination = prepared.parent / "adapted/fatfish-onebot-0.9.6.tgz"
+    destination.parent.mkdir(exist_ok=True)
+    with tarfile.open(destination, "w:gz") as bundle:
+        for name in ("package.json", "cordis.patch.yml", "LICENSE", "README.md", "README.en.md", "lib"):
+            bundle.add(prepared / name, arcname="package/" + name)
+    return destination
+
+
 if __name__ == "__main__":
-    print(prepare())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--pack", action="store_true", help="build an installable tarball, keeping the pinned upstream archive intact")
+    args = parser.parse_args()
+    prepared = prepare()
+    if args.pack:
+        print(pack(prepared))
+    else:
+        print(prepared)

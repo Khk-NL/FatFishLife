@@ -112,8 +112,10 @@ test('普通用户的后台命令当作正文，不触发控制路由', async ()
   const policy = policyAt('19:30');
   const bridge = fakeBridge(policy);
   const event = await beforeInbound(bridge, groupText('/reset', {
-    message: [{ type: 'text', data: { text: '/reset' } }],
+    message: [{ type: 'at', data: { qq: BOT } }, { type: 'text', data: { text: '/reset' } }],
   }));
+  assert.ok(event, '有效 @ 下非主人命令作为社交正文继续传递');
+  assert.equal(event.message.at(-1).data.text, '/reset');
   assert.equal(bridge.calls.length, 0, '非主人不回复拒绝模板');
 });
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -117,6 +118,11 @@ def check_preset() -> None:
     has_preset = "preset-apple-le" in text
     has_mcp = "mcp-fatfish-memory" in text
     detail = f"preset={'有' if has_preset else '缺'}，MCP={'有' if has_mcp else '缺'}"
+    memory_path = re.search(r"(?m)^\s*FATFISH_MEMORY_DB:\s*([^\r\n]+)", text)
+    if memory_path:
+        configured = memory_path.group(1).strip().strip("'\"")
+        if os.path.normcase(os.path.normpath(configured)) != os.path.normcase(os.path.normpath(MEMORY_DB)):
+            detail += "；运行MCP声明的记忆路径与已迁data/memory.db不同，尚未完成数据切换"
     check("人格 preset", "WARN", detail + "；静态配置不代表运行时已挂载")
 
 

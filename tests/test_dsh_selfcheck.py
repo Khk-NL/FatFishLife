@@ -15,6 +15,14 @@ from scripts import dsh_selfcheck as checks
 
 
 class DshSelfcheckTests(unittest.TestCase):
+    def test_migrated_assets_do_not_hide_legacy_mcp_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(checks, 'PROFILE', Path(tmp)):
+            (Path(tmp) / 'cordis.patch.yml').write_text(
+                "# preset-apple-le mcp-fatfish-memory\n  FATFISH_MEMORY_DB: 'D:/legacy/memory.db'\n", encoding='utf-8')
+            checks.check_preset()
+        self.assertEqual(checks.results[-1]['status'], 'WARN')
+        self.assertIn('尚未完成数据切换', checks.results[-1]['detail'])
+
     def setUp(self):
         checks.results.clear()
         self.config=tts.TTSConfig(api_key='test-local-key',voice='test-voice')
