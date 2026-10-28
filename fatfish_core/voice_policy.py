@@ -25,8 +25,7 @@ DEFAULT_POLICY = {
     "max_text_length": 80, "manual_trigger": True, "fallback_to_text": True,
     "text_alongside_voice": False, "disable_during_economy_mode": True,
 }
-MANUAL_REQUEST = re.compile(r"(?:用|发|来|转|说|读).{0,8}(?:语音|声音)|(?:语音|声音).{0,8}(?:说|读|回复|回答|来|发)|念(?:一下|一遍|给我听)|读给我听|^\s*(?:语音|声音)(?:呢|呀|啊|来一个|来一条)?[？?！!。\s]*$")
-VOICE_OPT_OUT = re.compile(r"(?:别|不要|不用|不必|不想|禁止).{0,4}(?:语音|声音)|(?:用文字|打字回复|文字就好)")
+from .media_intent import VOICE_REQUEST as MANUAL_REQUEST, VOICE_OPT_OUT
 _CURRENT_PROBABILITY = ContextVar("fatfish_voice_probability", default=None)
 _CURRENT_MANUAL = ContextVar("fatfish_manual_voice", default=False)
 

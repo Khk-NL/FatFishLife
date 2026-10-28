@@ -8,8 +8,7 @@ from .progressive_probability import MissCounters, progressive_probability
 
 STATE = "_fatfish_meme_probability_state"
 LOG = logging.getLogger(__name__)
-MANUAL_REQUEST = re.compile(r"(?:发|来|给我|找|整|丢|甩|求).{0,12}表情(?:包|图)?|用.{0,10}表情(?:包|图)?.{0,8}(?:回复|回答|表达)|表情(?:包|图)(?:来|发)(?:一|个|张)")
-MEME_OPT_OUT = re.compile(r"(?:别|不要|不用|不必|禁止).{0,6}(?:表情|配图|发图)|(?:纯文字|只用文字|文字就好)")
+from .media_intent import MEME_REQUEST as MANUAL_REQUEST, MEME_OPT_OUT
 
 
 def _manual_requested(plugin, event):

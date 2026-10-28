@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import urllib.error
 import urllib.request
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -102,24 +103,30 @@ def synth(config: TTSConfig, text: str) -> bytes:
 
 
 def normalize_wav(config: TTSConfig, source: Path, target: Path) -> Path:
-    """统一成 24k 单声道，QQ 播放更稳。没有 ffmpeg 就原样复制。"""
+    """Decode all streamed PCM and verify complete 24kHz mono frames."""
     ffmpeg = config.ffmpeg or shutil.which("ffmpeg") or ""
     if not ffmpeg or not Path(ffmpeg).is_file():
-        target.write_bytes(source.read_bytes())
-        return target
-    result = subprocess.run(
-        [
-            ffmpeg, "-y", "-loglevel", "error",
-            "-i", str(source),
-            "-ac", "1", "-ar", "24000",
-            "-c:a", "pcm_s16le",
-            str(target),
-        ],
-        capture_output=True,
-        timeout=config.timeout,
-    )
+        raise TTSError('FFmpeg不可用，无法验证QQ音频格式')
+    try:
+        result = subprocess.run(
+            [ffmpeg, "-nostdin", "-y", "-loglevel", "error",
+             "-f", "wav", "-ignore_length", "1", "-i", str(source),
+             "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", str(target)],
+            capture_output=True,
+            timeout=config.timeout,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise TTSError('音频解码失败') from exc
     if result.returncode != 0 or not target.is_file() or target.stat().st_size < 44:
-        target.write_bytes(source.read_bytes())
+        raise TTSError('FFmpeg未生成有效音频')
+    try:
+        with wave.open(str(target), 'rb') as audio:
+            expected = audio.getnframes() * audio.getnchannels() * audio.getsampwidth()
+            actual = len(audio.readframes(audio.getnframes()))
+            if (audio.getnchannels(), audio.getsampwidth(), audio.getframerate()) != (1, 2, 24000) or expected <= 0 or expected != actual:
+                raise TTSError('QQ音频帧数或格式无效')
+    except (wave.Error, EOFError) as exc:
+        raise TTSError('QQ音频无法读取') from exc
     return target
 
 

@@ -33,6 +33,8 @@
 | P4.5 自检脚本 | `scripts/dsh_selfcheck.py`：10 项一次跑完，PASS/WARN/FAIL 三档，`--json` 可机读 | 实测 **9/10 通过**：memory/图库/知识库28条/插件/preset/MCP23工具/本地模型/TTS/B站全 OK；唯一 FAIL 是 QQ 桥（未安装，QQ 仍由 AstrBot 承担） | 需手动跑 | 端口检测改用 socket，避免 netstat 中文编码炸 |
 | P4.6 自检验收纠正（10/28上午，覆盖P4.5旧结论） | 默认TTS检查改为本地preflight；真实合成须显式`--live-tts`；MCP的tts_check不再合成；本地模型只探端口、不推理；拒绝把端口/包声明当运行验收 | **实测5 PASS / 4 WARN / 1 FAIL（QQ桥）**；9项新增测试、33项既有桥策略测试通过；官方MCP客户端握手23工具，实际调用tts_check返回synthesis_requests=0、synthesis_verified=false | 未改desktop profile、未重启DSH、未连接QQ；旧MCP常驻子进程需下次重载才能取得新实现 | JSON模式的FAIL返回非零，Windows编码回归通过；TTS不再把DeepSeek key当硅基key；回执`outputs/dsh-selfcheck-20261028/` |
 | P4.7 并发修改复核与安装模板 | 保留用户新增MCP/资产代码；仓库MCP模板改指向项目data；自检加入资产库/生产MCP声明路径不一致提醒；补全KB/Obsidian的完整SRI；安装器默认不装QQ，显式启用时安装适配tarball | 新增2项归档测试通过；自检回归现10项通过；PowerShell安装器语法解析通过 | **生产MCP仍指旧库**，本轮未重启/改desktop配置；自检仍应报QQ未切换 | `.env.bak`未读未改未提交；后续受控退出DSH、备份profile再切MCP路径，不能覆盖新产生的数据 |
+| P3.4 发送概率基线与回执决策 | `dsh_behavior_snapshot.py`只导出行为字段；复用`progressive_probability`实现`fatfish_core/delivery.py`，MCP提供prepare/finish；明确拒绝把生成/选图当发送成功 | 8项新回归通过，`test_dsh_*`现22项、原概率3项通过。**实际原生TTS15%**；10%/180秒/80字属于未安装旧路由残留；表情35%+10至90%；动态20%+20至100%且有意愿/安全/平台权重 | 配置快照已存本地data；**最终回复媒体出口尚未挂入生产**；动态和评论执行器未迁完 | 插件停用状态从preferences读取，proactive保持停用；用户已授权完整DSH验收后停AstrBot再验并卸载，条件尚未满足 |
+| P3.5 音频规整与隔离 | 复用旧适配的`-ignore_length 1`解码流式WAV，核验24k单声道完整帧；解码失败显式失败供文字兜底；每次TTS独立目录避免并发覆盖 | 解码失败与完整帧mock通过；本轮无收费合成/真实QQ播放 | 等媒体出口联验 | memory只读权限保持，单独MEDIA_WRITE不授权记忆写入 |
 | P2～P6 | 以上已列明部分单元，其余待实施 | 依逐项记录，不作整阶段通过 | 最终切换未完成 | 按下文顺序推进 |
 
 基线使用SQLite在线备份API，每个库各自一致；运行中的多个文件不构成同一瞬间的全局快照。P5切换仍须停止旧写入、备份最后增量。私有备份含登录态，位于Git忽略目录，不提交其内容或清单。

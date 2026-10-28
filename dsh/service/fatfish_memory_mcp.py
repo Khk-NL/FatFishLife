@@ -27,6 +27,8 @@ import os
 import sys
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
+from threading import Lock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -44,6 +46,7 @@ from fatfish_core import bili  # noqa: E402
 from fatfish_core import gallery  # noqa: E402
 from fatfish_core.steam import SteamStore, SteamError, format_result as steam_format  # noqa: E402
 from fatfish_core import local_llm  # noqa: E402
+from fatfish_core.delivery import DeliveryPolicy  # noqa: E402
 
 MAX_LIMIT = 50
 
@@ -56,6 +59,28 @@ server = MCPServer(
 )
 
 _store: MemoryStore | None = None
+_delivery: DeliveryPolicy | None = None
+_delivery_lock = Lock()
+
+
+def delivery() -> DeliveryPolicy:
+    global _delivery
+    with _delivery_lock:
+        if _delivery is None:
+            path = Path(os.environ.get('FATFISH_BEHAVIOR_FILE') or Path(__file__).resolve().parents[2] / 'data/dsh/behavior.json')
+            _delivery = DeliveryPolicy(json.loads(path.read_text(encoding='utf-8')))
+    return _delivery
+
+
+@server.tool(description="宿主内部最终回复的媒体概率决策；社交模型不得直接调用")
+def delivery_prepare(scope: str, text: str, incoming: str = '') -> str:
+    plan = delivery().prepare(scope, text, incoming)
+    return _dump({key: plan[key] for key in ('id', 'voice', 'meme')})
+
+
+@server.tool(description="宿主内部记录实际发送回执；生成、选中不等于已发送")
+def delivery_finish(plan_id: str, replied: bool, voice_sent: bool = False, meme_sent: bool = False) -> str:
+    return _dump(delivery().finish(plan_id, replied=replied, voice_sent=voice_sent, meme_sent=meme_sent))
 
 
 def store() -> MemoryStore:
@@ -161,16 +186,14 @@ def extract(since_id: int = 0) -> str:
 @server.tool(description="合成一句语音，返回音频文件路径与大小（不直接发送）")
 def tts_speak(text: str) -> str:
     """只负责合成落盘；发不发送由调用方决定。"""
-    if _readonly():
+    if _readonly() and os.environ.get('FATFISH_MEDIA_WRITE') != '1':
         return _dump({"ok": False, "error": "服务以只读模式启动"})
     body = str(text or "").strip()
     if not body:
         return _dump({"ok": False, "error": "文本为空"})
-    if len(body) > 200:
-        body = body[:200]
     try:
         config = TTSConfig.from_env()
-        out_dir = Path(os.environ.get("FATFISH_TTS_DIR") or "outputs/tts")
+        out_dir = Path(os.environ.get("FATFISH_TTS_DIR") or Path(__file__).resolve().parents[2] / "outputs/dsh-media/tts") / uuid4().hex
         path = synth_to_file(config, body, out_dir)
         return _dump({"ok": True, "path": str(path), "bytes": path.stat().st_size, "model": config.model})
     except TTSError as exc:
