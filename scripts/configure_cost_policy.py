@@ -51,9 +51,10 @@ def configure(astrbot: Path, model_root: Path, *, apply=False):
     platform.setdefault("segmented_reply", {})["enable"] = False
     agent = main["agent_runner"]["config"]
     agent["model"]["request_max_retries"] = 1
-    # The native manager applies the turn cap before summarization; keep the
-    # token budget as the bound so the task's first turn reaches the summary.
-    agent["compression"].update(max_turns=-1, trim_turns=2, overflow_strategy="llm_compress", provider_id=LOCAL_ID,
+    # Keep the token budget, but use native truncation on the reply path:
+    # synchronous local summaries can time out before chat even starts.
+    # The dormant summary settings remain available for separate/offline use.
+    agent["compression"].update(max_turns=-1, trim_turns=2, overflow_strategy="truncate_by_turns", provider_id=LOCAL_ID,
                                 instruction=SUMMARY_PROMPT, keep_recent_ratio=.3, fallback_max_tokens=12000)
     agent["misc"].update(max_steps=6, tool_schema_mode="skills_like", sanitize_context_by_modalities=True)
     main["kb_agentic_mode"] = True
