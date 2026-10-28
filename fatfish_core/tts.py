@@ -4,7 +4,7 @@
 音色、语速、ffmpeg 路径从环境变量取，不写死在代码里。
 
 环境变量：
-    FATFISH_TTS_API_KEY    硅基流动 key（也接受 DEEPSEEK_API_KEY 之外的独立 key）
+    FATFISH_TTS_API_KEY    硅基流动专用 key，不回退到 DeepSeek key
     FATFISH_TTS_BASE       API base，默认 https://api.siliconflow.cn/v1
     FATFISH_TTS_MODEL      默认 FunAudioLLM/CosyVoice2-0.5B
     FATFISH_TTS_VOICE      克隆音色 ID
@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -44,10 +45,7 @@ class TTSConfig:
 
     @classmethod
     def from_env(cls) -> "TTSConfig":
-        key = (
-            os.environ.get("FATFISH_TTS_API_KEY", "").strip()
-            or os.environ.get("DEEPSEEK_API_KEY", "").strip()
-        )
+        key = os.environ.get("FATFISH_TTS_API_KEY", "").strip()
         return cls(
             api_key=key,
             api_base=os.environ.get("FATFISH_TTS_BASE", DEFAULT_BASE).strip(),
@@ -138,3 +136,16 @@ def probe(config: TTSConfig, text: str = "喂喂，听得见不") -> dict:
     """给验收用：合成一句，返回大小与头部，不落盘。"""
     data = synth(config, text)
     return {"bytes": len(data), "riff": data[:4] == WAV_HEADER, "model": config.model, "voice": config.voice}
+
+
+def preflight(config: TTSConfig) -> dict:
+    """Local readiness only: never submit text or credentials to a provider."""
+    config.validate()
+    if not math.isfinite(config.speed) or not 0.25 <= config.speed <= 4:
+        raise TTSError("TTS 语速必须在0.25至4之间")
+    if not math.isfinite(config.timeout) or config.timeout <= 0:
+        raise TTSError("TTS 超时必须为正数")
+    ffmpeg = config.ffmpeg or shutil.which("ffmpeg")
+    return {"ok": True, "configuration_ready": True,
+            "decoder_ready": bool(ffmpeg and Path(ffmpeg).is_file()),
+            "synthesis_verified": False, "synthesis_requests": 0}

@@ -8,6 +8,9 @@
 用法：
     python scripts/dsh_selfcheck.py
     python scripts/dsh_selfcheck.py --json
+    python scripts/dsh_selfcheck.py --live-tts  # 明确发起一次可能收费的合成
+
+默认不合成语音、不唤醒本地模型、不发送QQ/B站消息。
 """
 
 from __future__ import annotations
@@ -102,7 +105,7 @@ def check_plugins() -> None:
         check("DSH 插件", "FAIL", str(exc))
         return
     community = [b for b in bundles if not b.startswith("@deepseek-ai/")]
-    check("DSH 插件", "PASS" if community else "WARN", f"社区插件 {community}")
+    check("DSH 插件", "WARN", f"profile声明社区插件 {community}；未证明宿主已加载")
 
 
 def check_preset() -> None:
@@ -114,7 +117,7 @@ def check_preset() -> None:
     has_preset = "preset-apple-le" in text
     has_mcp = "mcp-fatfish-memory" in text
     detail = f"preset={'有' if has_preset else '缺'}，MCP={'有' if has_mcp else '缺'}"
-    check("人格 preset", "PASS" if has_preset and has_mcp else "WARN", detail)
+    check("人格 preset", "WARN", detail + "；静态配置不代表运行时已挂载")
 
 
 def check_mcp_tools() -> None:
@@ -149,29 +152,39 @@ def check_mcp_tools() -> None:
 
 
 def check_local_llm() -> None:
+    # A normal self-check must not wake the idle model or occupy its memory.
+    import socket
+    from urllib.parse import urlsplit
+    connected = []
+    for name, key in (("minicpm", "FATFISH_LOCAL_LLM_URL"), ("ollama", "FATFISH_OLLAMA_URL")):
+        url = os.environ.get(key, "").strip()
+        if not url:
+            continue
+        try:
+            parsed = urlsplit(url)
+            with socket.create_connection((parsed.hostname, parsed.port or (443 if parsed.scheme == 'https' else 80)), timeout=2):
+                connected.append(name)
+        except (OSError, ValueError):
+            continue
+    check("本地模型", "WARN" if connected else "FAIL", f"端口可连接 {connected}；未推理、不唤醒权重，模型响应未验收")
+
+
+def check_tts(*, live: bool = False) -> None:
     try:
-        from fatfish_core import local_llm
-
-        backends = local_llm.probe()
-    except Exception as exc:  # noqa: BLE001
-        check("本地模型", "FAIL", str(exc))
-        return
-    ok = [k for k, v in backends.items() if v.get("ok")]
-    check("本地模型", "PASS" if ok else "FAIL", f"可用后端 {ok}")
-
-
-def check_tts() -> None:
-    try:
-        from fatfish_core.tts import TTSConfig, probe
+        from fatfish_core.tts import TTSConfig, preflight, probe
     except Exception as exc:  # noqa: BLE001
         check("TTS", "FAIL", str(exc))
         return
     try:
-        info = probe(TTSConfig.from_env())
+        config = TTSConfig.from_env()
+        info = probe(config) if live else preflight(config)
     except Exception as exc:  # noqa: BLE001
-        check("TTS", "FAIL", str(exc)[:80])
+        check("TTS", "FAIL", f"检查失败：{type(exc).__name__}")
         return
-    check("TTS", "PASS" if info.get("riff") else "WARN", f"{info.get('bytes')} 字节，RIFF={info.get('riff')}")
+    if live:
+        check("TTS", "PASS" if info.get("riff") else "WARN", f"真实合成 {info.get('bytes')} 字节，RIFF={info.get('riff')}；尚未验证QQ投递")
+    else:
+        check("TTS", "WARN", f"配置可读，解码器就绪={info['decoder_ready']}；未合成、不收费，真实语音未验收")
 
 
 def check_bili() -> None:
@@ -198,8 +211,10 @@ def check_qq_bridge() -> None:
             listening = sock.connect_ex(("127.0.0.1", 8643)) == 0
     except OSError:
         pass
-    if listening:
-        check("QQ 桥", "PASS", "8643 在监听")
+    if listening and has_pkg:
+        check("QQ 桥", "WARN", "包存在且8643监听；宿主挂载、OneBot鉴权与账号尚未验收")
+    elif listening:
+        check("QQ 桥", "FAIL", "8643监听但QQ桥包缺失，不能证明该端口属于DSH桥")
     elif has_pkg:
         check("QQ 桥", "WARN", "包在但未监听（peer 依赖阻塞）")
     else:
@@ -209,12 +224,14 @@ def check_qq_bridge() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--live-tts", action="store_true", help="明确执行一次可能收费的真实TTS合成；默认不调用")
     args = parser.parse_args()
 
+    results.clear()
     load_env()
     for fn in (
         check_memory, check_gallery, check_kb, check_plugins, check_preset,
-        check_mcp_tools, check_local_llm, check_tts, check_bili, check_qq_bridge,
+        check_mcp_tools, check_local_llm, lambda: check_tts(live=args.live_tts), check_bili, check_qq_bridge,
     ):
         try:
             fn()
@@ -222,15 +239,16 @@ def main() -> int:
             check(fn.__name__, "FAIL", f"检查本身出错：{type(exc).__name__}")
 
     if args.json:
-        print(json.dumps(results, ensure_ascii=False, indent=2))
-        return 0
+        # Machine-readable output survives Windows native pipe code pages.
+        print(json.dumps(results, ensure_ascii=True, indent=2))
+        return 1 if any(row["status"] == "FAIL" for row in results) else 0
 
     icon = {"PASS": "[OK]  ", "WARN": "[WARN]", "FAIL": "[FAIL]"}
     for row in results:
         print(f"{icon.get(row['status'], '[?]')} {row['name']:<12} {row['detail']}")
     passed = sum(1 for r in results if r["status"] == "PASS")
     print(f"\n{passed}/{len(results)} 项通过")
-    return 0 if passed == len(results) else 1
+    return 1 if any(row["status"] == "FAIL" for row in results) else 0
 
 
 if __name__ == "__main__":

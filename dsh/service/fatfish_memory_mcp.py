@@ -38,7 +38,7 @@ from fatfish_core.extract import (  # noqa: E402
     promote_repeated,
     stats as candidate_stats,
 )
-from fatfish_core.tts import TTSConfig, TTSError, probe as tts_probe, synth_to_file  # noqa: E402
+from fatfish_core.tts import TTSConfig, TTSError, preflight as tts_preflight, synth_to_file  # noqa: E402
 from fatfish_core import observe  # noqa: E402
 from fatfish_core import bili  # noqa: E402
 from fatfish_core import gallery  # noqa: E402
@@ -178,10 +178,10 @@ def tts_speak(text: str) -> str:
         return _dump({"ok": False, "error": str(exc)})
 
 
-@server.tool(description="TTS 连通性检查，不落盘")
+@server.tool(description="TTS本地配置检查，不合成、不收费；不代表真实语音已验收")
 def tts_check() -> str:
     try:
-        return _dump({"ok": True, **tts_probe(TTSConfig.from_env())})
+        return _dump(tts_preflight(TTSConfig.from_env()))
     except TTSError as exc:
         return _dump({"ok": False, "error": str(exc)})
 

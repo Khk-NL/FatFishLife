@@ -1,5 +1,11 @@
 # 功能审查与复用清单（更新至 2026-10-28）
 
+## 2026-10-28上午：DSH迁移与验收边界更新
+
+目标改为官方DSH桌面版，复用MCP SDK与已迁fatfish_core；QQ仍被社区桥依赖加载阻塞。迁移进度以`DSH_MIGRATION_PLAN-20261028.md`为准，不继续扩大AstrBot原生补丁。
+
+纠正新自检中的隐式TTS付费与监听端口假验收：默认只读配置/连接，MCP的tts_check本地preflight、真实语音走tts_speak；CLI真实合成须显式`--live-tts`。TTS专用密钥与DeepSeek key分开，不替代服务商认证。实测5 PASS/4 WARN/1 FAIL（QQ桥），9项新增回归、33项桥策略测试及官方MCP23工具/零合成检查通过。本轮未改desktop profile、未重启DSH、未发布平台消息，旧常驻MCP需下次重载取得新实现。
+
 ## 2026-10-28：DSH迁移开始，基线验证通过
 
 已落实P0.1：只读备份实际`.dsh`及旧data，1,618文件逐份哈希校验一致，11个SQLite快照`integrity_check=ok`；WAL提交数据恢复和已有目录禁止覆盖共2项测试通过。独立Python3.12.10环境位于`.tools/dsh-python`，不复用AstrBot的venv。锁定DSH0.2.1-rc.3与上游QQ桥0.9.6/BSD-3-Clause；P1入口策略适配进行中。生产配置、连接与服务暂未改动，当前群聊问题尚不能视为修复。逐项状态见[实施记录](DSH_MIGRATION_PLAN-20261028.md)。
