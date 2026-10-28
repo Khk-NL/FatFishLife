@@ -80,6 +80,21 @@ class RuntimeStore:
                 (namespace, key, payload, datetime.now().astimezone().isoformat(timespec="seconds")),
             )
 
+    def merge(self, namespace: str, key: str, changes: dict) -> dict:
+        """Merge owned fields atomically, preserving controls changed by another writer."""
+        with self._connect() as connection:
+            connection.execute('BEGIN IMMEDIATE')
+            row = connection.execute('SELECT value FROM runtime_state WHERE namespace=? AND key=?',
+                                     (namespace, key)).fetchone()
+            value = json.loads(row[0]) if row else {}
+            value.update(changes)
+            connection.execute(
+                'INSERT INTO runtime_state VALUES (?,?,?,?) ON CONFLICT(namespace,key) '
+                'DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at',
+                (namespace, key, json.dumps(value, ensure_ascii=False), datetime.now().astimezone().isoformat(timespec='seconds')),
+            )
+        return value
+
     def import_json(self, namespace: str, key: str, source: str | Path, default=None):
         """Atomically initialize once; never replay an older JSON after a reload."""
         current = self.get(namespace, key)

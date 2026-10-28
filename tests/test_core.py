@@ -49,6 +49,32 @@ class SharedCoreTests(unittest.TestCase):
         self.assertEqual(memory.stats()["events"], 0)
         self.assertEqual(build_context(memory, scopes=("public", "private")), "")
 
+    def test_external_resume_reaches_an_existing_state_store(self):
+        state = StateStore(self.root / 'offline', db_path=self.db)
+        state.set_manual('on')
+        state.set_silent(True)
+        external = RuntimeStore(self.db)
+        data = external.get('offline', 'control')
+        data.update(manual='off', silent=False)
+        external.set('offline', 'control', data)
+        self.assertFalse(state.silent)
+        self.assertEqual(state.manual, 'off')
+
+    def test_usage_save_cannot_put_old_control_flags_back(self):
+        state = StateStore(self.root / 'offline', db_path=self.db)
+        state.set_silent(True)
+        second = StateStore(self.root / 'other', db_path=self.db)
+        second.set_silent(False)
+        second.set_manual('off')
+        state.bump_usage('2026-10-28T19')
+        saved = RuntimeStore(self.db).get('offline', 'control')
+        self.assertFalse(saved['silent'])
+        self.assertEqual(saved['manual'], 'off')
+        self.assertEqual(saved['usage']['count'], 1)
+        state.set_silent(True)
+        self.assertTrue(second.silent)
+        self.assertEqual(second.manual, 'off')
+
     def test_seen_import_keeps_legacy_file_but_never_replays_deleted_preview(self):
         source = self.root / "seen.json"
         source.write_text(json.dumps({"keys": ["preview:123", "comment:456"]}), encoding="utf-8")

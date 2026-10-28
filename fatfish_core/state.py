@@ -25,29 +25,29 @@ class StateStore:
         self.data.setdefault("manual", None)
         self.runtime.import_json("offline", "signal", self.offline_path, {})
 
-    def _save(self) -> None:
-        self.runtime.set("offline", "control", self.data)
+    def _save(self, **controls) -> None:
+        # Scheduled resume and management commands share these controls. Usage
+        # or recent-line writes must not restore this instance's stale flags.
+        changes = {key: value for key, value in self.data.items() if key not in ('manual', 'silent')}
+        changes.update(controls)
+        self.data = self.runtime.merge('offline', 'control', changes)
 
     @property
     def manual(self) -> str | None:
-        value = self.data.get("manual")
+        value = self.runtime.get('offline', 'control', self.data).get('manual')
         return value if value in ("on", "off") else None
 
     def set_manual(self, value: str | None) -> None:
-        self.data["manual"] = value if value in ("on", "off") else None
-        self._save()
+        self._save(manual=value if value in ('on', 'off') else None)
 
     @property
     def silent(self) -> bool:
         """闭麦：只收不发。独立于 manual，不受高峰时段影响。"""
-        data = self.data or {}
+        data = self.runtime.get('offline', 'control', self.data)
         return bool(data.get("silent"))
 
     def set_silent(self, value: bool) -> None:
-        if self.data is None:
-            self.data = {}
-        self.data["silent"] = bool(value)
-        self._save()
+        self._save(silent=bool(value))
 
     def notified_today(self, group: str, day: str) -> bool:
         return self.data.get("notified", {}).get(group) == day
