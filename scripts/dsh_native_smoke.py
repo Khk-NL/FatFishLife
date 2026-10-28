@@ -10,12 +10,13 @@ import hashlib
 import yaml
 import subprocess
 import time
+import argparse
 
 ROOT = Path(__file__).resolve().parents[1]
 CLI = Path("D:/dsh/resources/runtime/cli/bin/dsh.cmd")
 
 
-def run() -> int:
+def run(community=False) -> int:
     # The test profile is deliberately separate from both desktop and earlier probes.
     home = ROOT / "outputs/dsh-migration/native-smoke"
     home.mkdir(parents=True, exist_ok=True)
@@ -44,6 +45,19 @@ def run() -> int:
                                    cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120)
     if installed.returncode:
         print(json.dumps({"ok": False, "stage": "install", "log": str(log)})); return 1
+    if community:
+        artifacts = json.loads((ROOT / '.tools/dsh-vendor/adapted/community-current.json').read_text(encoding='utf-8'))
+        specs = []
+        for item in artifacts:
+            path = Path(item['archive'])
+            if hashlib.sha256(path.read_bytes()).hexdigest() != item['sha256']:
+                raise RuntimeError('Community archive hash mismatch')
+            specs.append('file:' + path.as_posix())
+        with log.open('a', encoding='utf-8') as output:
+            subprocess.run([str(CLI), 'plugin', '--profile', 'web', 'add', *specs, '--ignore-scripts'],
+                           cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120, check=True)
+        shutil.copy2(ROOT / 'scripts/dsh_community_check.mjs', profile / 'community-check.mjs')
+        env['FATFISH_COMMUNITY_REPORT'] = str(home / 'community-check.json')
     shutil.copy2(ROOT / "dsh/tests/native-smoke-plugin.mjs", profile / "native-smoke-plugin.mjs")
     patch = [
         {'id': 'fatfish-control', 'config': {'identity': {'botId': '10000001', 'ownerId': '10000002', 'adapterId': 'native-test'},
@@ -63,7 +77,7 @@ def run() -> int:
                                    stdout=output, stderr=subprocess.STDOUT,
                                    creationflags=subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP)
         try:
-            deadline = time.monotonic() + 30
+            deadline = time.monotonic() + (55 if community else 30)
             while not report.exists() and process.poll() is None and time.monotonic() < deadline:
                 time.sleep(0.2)
             result = json.loads(report.read_text(encoding="utf-8")) if report.exists() else {"ok": False, "stage": "host/no-test-report"}
@@ -80,4 +94,6 @@ def run() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(run())
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--community', action='store_true', help='Verify reviewed text plugins using public read-only requests')
+    raise SystemExit(run(parser.parse_args().community))

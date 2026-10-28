@@ -27,13 +27,14 @@ export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { s
 }
 
 export class FatFishPolicy {
-  constructor(config, { now = Date.now } = {}) {
+  constructor(config, { now = Date.now, getConfig } = {}) {
     if (!id(config.ownerId) || !id(config.botId) || !config.adapterId?.trim()) {
       throw new Error('FatFish requires explicit ownerId, botId and adapterId');
     }
     this.config = { silent: true, groupCooldownMs: 10000, userCooldownMs: 60000,
       dedupMs: 300000, normalKeywords: [], ...config };
     this.now = now;
+    this.getConfig = getConfig;
     this.seen = new Map();
     this.cooldowns = new Map();
   }
@@ -50,6 +51,7 @@ export class FatFishPolicy {
   owner(userId) { return id(userId) === String(this.config.ownerId); }
 
   decide(event, access) {
+    if (this.getConfig) Object.assign(this.config, this.getConfig());
     if (id(event.self_id) !== String(this.config.botId)) return { kind: 'ignore', reason: 'account' };
     const userId = id(event.user_id);
     if (!userId || userId === String(this.config.botId)) return { kind: 'ignore', reason: 'sender' };
@@ -112,6 +114,7 @@ export class FatFishPolicy {
   }
 
   canSend({ busy = false, returnHour } = {}) {
+    if (this.getConfig) Object.assign(this.config, this.getConfig());
     if (this.config.silent) return false;
     const hour = workWindow(this.now(), this.config.busyWindows);
     return busy ? hour !== undefined && hour === returnHour : hour === undefined;

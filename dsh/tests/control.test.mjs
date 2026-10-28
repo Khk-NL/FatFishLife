@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 import { compileSettings, persistSettings, DEFAULT_WINDOWS } from '../control/settings.mjs';
 import { FatFishPolicy, workWindow } from '../policy.mjs';
+import { loadPolicy } from '../runtime-adapter.mjs';
 
 function config() {
   return { identity:{botId:'1',ownerId:'2',adapterId:'test'}, reply:{silent:false,normalKeywords:[],groupCooldownSeconds:10,userCooldownSeconds:60,dedupSeconds:300},
@@ -40,6 +41,23 @@ test('invalid cross-field settings are rejected', () => {
   assert.throws(()=>compileSettings(value));
   const second=config(); second.busyWindows=[{start:'10:00',end:'10:00'}];
   assert.throws(()=>compileSettings(second));
+});
+
+test('an existing bridge sees edited settings on both inbound and final outbound checks', () => {
+  const value = config();
+  value.reply.silent = false;
+  value.busyWindows = [];
+  const settings = compileSettings(value);
+  const policy = loadPolicy(settings);
+  assert.equal(policy.canSend(), true);
+  const seen = policy.seen;
+  settings.policy = { ...settings.policy, silent: true };
+  assert.equal(policy.canSend(), false);
+  settings.policy = { ...settings.policy, silent: false, normalKeywords: ['新触发词'] };
+  const decision = policy.decide({ post_type: 'message', message_type: 'group', self_id: 1, user_id: 3,
+    group_id: 4, message_id: 15, message: [{ type: 'text', data: { text: '新触发词' } }] }, { groupPolicy: 'open' });
+  assert.equal(decision.kind, 'social');
+  assert.equal(policy.seen, seen);
 });
 
 test('applied JSON files match the revision and changed values change that revision', async t => {

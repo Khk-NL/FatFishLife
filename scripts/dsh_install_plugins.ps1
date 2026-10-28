@@ -7,6 +7,7 @@ param(
     [string]$Profile = "desktop",
     [switch]$DryRun,
     [switch]$IncludeQqBridge,
+    [switch]$IncludeCommunity,
     [switch]$SkipQqBridge
 )
 
@@ -31,9 +32,24 @@ if (-not (Test-Path $ProfileDir)) { Say "找不到 profile：$ProfileDir"; exit 
 # 2. 插件清单：名称、用途、是否必装
 $plugins = @(
     @{ Name = "dsh-knowledge-base"; Why = "公开设定资料 KB（MIT，FTS5/BM25）"; Required = $true },
-    @{ Name = "dsh-obsidian";       Why = "私人笔记只读查询（MIT）";           Required = $true },
-    @{ Name = "dsh-plugin-workshop"; Why = "应用内插件浏览器，之后自助装插件"; Required = $false }
+    @{ Name = "dsh-obsidian";       Why = "私人笔记只读查询（MIT）";           Required = $true }
 )
+# 插件工坊1.6.2写死web profile，暂不装进Desktop。
+# B站文本/插件发现使用prepare_dsh_community.py的固定来源适配归档。
+if ($IncludeCommunity) {
+    if ($DryRun) {
+        Say 'would prepare reviewed community archives: dsh-plugin-bilibili 0.2.4 / dsh-find-plugin 0.4.0'
+    } else {
+        & (Join-Path $Repo '.tools/dsh-python/Scripts/python.exe') (Join-Path $Repo 'scripts/prepare_dsh_community.py')
+        if ($LASTEXITCODE -ne 0) { throw '社区归档准备失败' }
+        $community = Get-Content (Join-Path $Repo '.tools/dsh-vendor/adapted/community-current.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+        foreach ($item in $community) {
+            $actual = (Get-FileHash -LiteralPath $item.archive -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $item.sha256) { throw '社区归档SHA256不一致' }
+            $plugins += @{ Name = "file:$($item.archive.Replace('\', '/'))"; Why = '固定版本社区适配包（MIT）'; Required = $true }
+        }
+    }
+}
 if ($IncludeQqBridge -and -not $SkipQqBridge) {
     $manifest = Get-Content (Join-Path $ProfileDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     if ($manifest.dsh.profile.bundles -notcontains 'dsh-fatfish-life') {
@@ -58,7 +74,7 @@ foreach ($p in $plugins) {
         continue
     }
     Say "安装 $($p.Name) ..."
-    & $Cli plugin --profile $Profile add $p.Name
+    & $Cli plugin --profile $Profile add $p.Name --ignore-scripts
     if ($LASTEXITCODE -ne 0) {
         if ($p.Required) { Say "必装插件 $($p.Name) 失败，停止"; exit 1 }
         Say "可选插件 $($p.Name) 失败，跳过"

@@ -1,6 +1,6 @@
 // Runs only in the disposable profile created by scripts/dsh_native_smoke.py.
 import assert from 'node:assert/strict';
-import { writeFile, mkdir, readFile } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 
 export const name = 'fatfish-native-smoke';
-export const inject = ['fatfishSettings', 'llm', 'agents', 'sessions', 'tools', 'agentPresets', 'sessionPersistence', 'workspaceRegistry'];
+export const inject = ['fatfishSettings', 'settings', 'llm', 'agents', 'sessions', 'tools', 'agentPresets', 'sessionPersistence', 'workspaceRegistry'];
 
 export function apply(ctx) {
   queueMicrotask(async () => {
@@ -18,11 +18,39 @@ export function apply(ctx) {
     let connection;
     let socket;
     const record = (name, fn) => Promise.resolve().then(fn).then(() => checks.push(name));
+    const finish = async result => {
+      const target = process.env.FATFISH_SMOKE_REPORT;
+      await writeFile(target + '.tmp', JSON.stringify(result));
+      await rename(target + '.tmp', target);
+    };
     try {
       await ctx.get('loader').await();
       assert.equal(ctx.fatfishSettings.behavior.voice.base, .15);
       assert.equal(ctx.fatfishSettings.policy.busyWindows.length, 2);
       checks.push('native-control-bundle-active');
+      await record('native-settings-visible-and-live', async () => {
+        const form = ctx.settings.describe().find(item => item.ns === 'fatfish-control');
+        assert.ok(form?.autoGenerate);
+        assert.match(JSON.stringify(form.schema), /"voice"/);
+        assert.match(JSON.stringify(form.schema), /"busyWindows"/);
+        const original = ctx.fatfishSettings.behavior.voice.base;
+        await ctx.settings.update('fatfish-control', { voice: { basePercent: 16 } }, form.revision);
+        for (let i = 0; i < 100 && ctx.fatfishSettings.behavior.voice.base !== .16; i++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(ctx.fatfishSettings.behavior.voice.base, .16);
+        const saved = JSON.parse(await readFile(join(process.env.DSH_HOME, 'fatfish-settings/runtime-behavior.json'), 'utf8'));
+        assert.equal(saved.voice.base, .16);
+        await ctx.settings.update('fatfish-control', { voice: { basePercent: original * 100 } });
+        for (let i = 0; i < 100 && ctx.fatfishSettings.behavior.voice.base !== original; i++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(ctx.fatfishSettings.behavior.voice.base, original);
+      });
+      if (process.env.FATFISH_COMMUNITY_REPORT) {
+        const { check } = await import('./community-check.mjs');
+        const community = await check({ live: true });
+        await writeFile(process.env.FATFISH_COMMUNITY_REPORT, JSON.stringify(community, null, 2));
+        assert.equal(community.videoMetadata.ok, true);
+        assert.equal(community.discovery.ok, true);
+        checks.push('native-community-readonly-tools');
+      }
       const lib = dirname(fileURLToPath(import.meta.resolve('dsh-onebot-qq')));
       const load = file => import(pathToFileURL(join(lib, file)).href);
       const [{ ChatBridge }, { FatFishPolicy }, adapter, { defineTool }, { OneBotConnection }, { LlmAdapter }] = await Promise.all([
@@ -180,9 +208,9 @@ export function apply(ctx) {
         assert.equal(sends.length, before);
         assert.equal(bridge.chats.has('group:10000008'), false);
       });
-      await writeFile(process.env.FATFISH_SMOKE_REPORT, JSON.stringify({ ok: true, checks, mockModelRequests: modelRequests.length, paidRequests: 0, realPlatformSends: 0 }));
+      await finish({ ok: true, checks, mockModelRequests: modelRequests.length, paidRequests: 0, realPlatformSends: 0 });
     } catch (error) {
-      await writeFile(process.env.FATFISH_SMOKE_REPORT, JSON.stringify({ ok: false, checks, error: String(error.stack ?? error) }));
+      await finish({ ok: false, checks, error: String(error.stack ?? error) });
     } finally {
       await handle?.dispose();
       await bridge?.stop();

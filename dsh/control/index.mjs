@@ -54,14 +54,35 @@ export const Config = z.object({
   }).default({}).description('运营执行器尚未注册：这里保存目标计划，当前不会据此自动发动态、评论或定时消息'),
 });
 
+// DSH Settings projects only volatile fields. A schema alone loads correctly
+// but produces no editable card. Keep identity and storage paths ordinary.
+const liveFields = ['reply', 'busyWindows', 'voice', 'meme', 'workflows'];
+for (const key of liveFields) Config.dict[key] = Config.dict[key].volatile();
+
 export async function apply(ctx, config) {
-  const compiled = await persistSettings(config);
+  const snapshot = () => Object.fromEntries(Object.entries(config).map(([key, value]) =>
+    [key, liveFields.includes(key) ? value.get() : value]));
+  const compiled = await persistSettings(snapshot());
   const status = { appliedRevision: compiled.revision, appliedAt: new Date().toISOString(),
     policy: '运行缓存已写入；QQ接入时从此服务读取', media: '概率参数已导出，生产媒体出口未完成',
     workflows: '目标计划已保存，调度执行器尚未注册', productionCutover: false };
-  ctx.provide('fatfishSettings', { ...compiled, status });
+  const settings = { ...compiled, status };
+  ctx.provide('fatfishSettings', settings);
+  let pending = Promise.resolve();
+  ctx.on('loader/volatile-update', () => {
+    const current = snapshot();
+    const save = async () => {
+      const next = await persistSettings(current);
+      Object.assign(settings, next);
+      status.appliedRevision = next.revision;
+      status.appliedAt = new Date().toISOString();
+    };
+    pending = pending.then(save, save);
+    return pending;
+  });
   ctx.tools.register(defineTool({ name: 'fatfish_status', description: '查看FatFish配置生效版本、门禁参数与尚未完成的执行器；不调用模型或平台',
     parameters: {}, output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
-    execute: async () => ({ ...status, busyWindows: config.busyWindows, voice: config.voice, meme: config.meme, workflows: config.workflows }) }));
+    execute: async () => { await pending; const current = snapshot(); return { ...status,
+      busyWindows: current.busyWindows, voice: current.voice, meme: current.meme, workflows: current.workflows }; } }));
   ctx.logger.info('FatFish配置已应用，版本 ' + compiled.revision.slice(0, 12) + '；运营执行器仍待接入');
 }

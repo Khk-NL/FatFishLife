@@ -37,9 +37,34 @@ node --test dsh/tests/*.test.mjs
 .\.tools\dsh-python\Scripts\python.exe -X utf8 scripts/dsh_install_control.py --dry-run
 ```
 
-完全退出DSH后，运行同一命令去掉`--dry-run`。它备份原profile文件、通过随桌面CLI安装本地包，只新增控制行，不接NapCat、不停止AstrBot、不覆盖其他patch或已有管理参数。启动后应在原生插件页查找“FatFishLife 管理”；实际桌面点击/保存仍需现场验收。权威配置由DSH保存，插件生成`data/dsh/runtime-policy.json`和`runtime-behavior.json`供适配层使用，MCP决策会读回更新并保留遗漏次数。
+完全退出DSH后，运行同一命令去掉`--dry-run`。它备份原profile文件、通过随桌面CLI安装本地包，只新增控制行，不接NapCat、不停止AstrBot、不覆盖其他patch或已有管理参数。2026-10-28已获用户授权装入日常desktop并重启，原生插件页已看见“FatFishLife 管理”运行。回复、时间段、媒体和工作流分组采用DSH volatile表单；保存监听更新同一服务与生效版本。身份/目录需通过配置文件修改。权威配置由DSH保存，插件生成`data/dsh/runtime-policy.json`和`runtime-behavior.json`供适配层使用，MCP决策会读回更新并保留遗漏次数。
+
+原生宿主已验证保存15→16→15与缓存同步；最后桌面鼠标保存因电脑工具拒绝访问尚未验收，安装、加载与原生保存证据分开记录。默认静默、语音15%、表情35%、收费合成关闭。
 
 当前运营工作流只保存目标计划，执行器尚未注册；媒体最终投递也未挂生产。界面描述和`fatfish_status`均保留这些限制，不能把“文件已写出”当成“已在QQ生效”。
+
+## 已安装的社区补充插件
+
+- [moxingovo/dsh-bilibili](https://github.com/moxingovo/dsh-bilibili) 0.2.4：只保留`bilibili_search`、`bilibili_video`、`bilibili_subtitles`；不会注册抽帧/直链工具，不打包相关视频技能。
+- [awesome-dsh-plugin/dsh-find-plugin](https://github.com/awesome-dsh-plugin/dsh-find-plugin) 0.4.0：联网发现插件，限流时明确降级；安装提示指向desktop。搜索结果不会自动执行。
+- 原知识库0.1.5、Obsidian0.2.6保留。bili-cli0.6.0已在本机，继续服务已有账号业务，不重复安装或重置登录。
+
+固定提交与MIT许可见`upstream-lock.json`；`prepare_dsh_community.py`使用上游提交的构建产物，不执行安装/构建脚本，保留LICENSE。需复装时先完全退出DSH，再运行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/dsh_install_plugins.ps1 -IncludeCommunity
+```
+
+只验证插件原生加载与公开读取（无收费模型/TTS、无平台写入）：
+
+```powershell
+.\.tools\dsh-python\Scripts\python.exe scripts/prepare_dsh_control.py
+.\.tools\dsh-python\Scripts\python.exe scripts/prepare_dsh_onebot.py --pack
+.\.tools\dsh-python\Scripts\python.exe scripts/prepare_dsh_community.py
+.\.tools\dsh-python\Scripts\python.exe scripts/dsh_native_smoke.py --community
+```
+
+插件工坊1.6.2多处写死`profiles/web`及`--profile web`，当前暂不安装，避免误改另一个profile。原生插件安装管理仍用DSH自带入口；不增加第二套定时器、记忆或语音Agent。
 
 ## 可选配音服务
 

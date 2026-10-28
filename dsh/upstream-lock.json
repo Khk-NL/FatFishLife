@@ -32,6 +32,25 @@
       "gxpppp/dsh-obsidian": "0.4.0 零依赖且host-only更轻，但未发布到npm，需从git装，暂不作为首选"
     }
   },
+  "community_desktop": {
+    "dsh-plugin-bilibili": {
+      "version": "0.2.4",
+      "revision": "42cd1c9e7d975fc46cf62bd86024a134c37501d7",
+      "source": "https://github.com/moxingovo/dsh-bilibili",
+      "license": "MIT",
+      "adaptation": "只注册search/video/subtitles三项文本工具；移除抽帧/媒体直链注册和相关系统提示，不打包视频技能；使用桌面内置0.2.1-rc.3 peers"
+    },
+    "dsh-find-plugin": {
+      "version": "0.4.0",
+      "revision": "afce1cd43f98b8a8b02e4a35cd6a65d6444de412",
+      "source": "https://github.com/awesome-dsh-plugin/dsh-find-plugin",
+      "license": "MIT",
+      "adaptation": "保留联网发现和限流降级，安装提示改为desktop；适配并验证当前内置dsh-tools，不自动执行搜索结果"
+    },
+    "packager": "scripts/prepare_dsh_community.py",
+    "proof": "scripts/dsh_native_smoke.py --community",
+    "bili_cli": {"version": "0.6.0", "path": "D:/Code/Apps/bili-venv/Scripts/bili.exe", "decision": "已装，复用现有账号业务，不重复安装或重置登录"}
+  },
   "ecosystem_review": {
     "evaluated": {
       "dsh-mnemon": {
@@ -42,9 +61,9 @@
         "why": "通用三层记忆，面向编程 agent；23 个依赖含多套 provider。我们的场景是 QQ 群跨平台记忆、按群隔离、候选审核、中文风格，fatfish_core 已实现且零 AstrBot 依赖，换过去是净损失"
       },
       "dsh-plugin-workshop": {
-        "version": "unknown",
-        "decision": "可选安装",
-        "why": "应用内插件浏览器，装完后主人可自助浏览与安装，省得每次改脚本"
+        "version": "1.6.2",
+        "decision": "暂不安装",
+        "why": "源码将profiles/web和多处CLI --profile web写死，会管理错误profile；本轮安装只读dsh-find-plugin，未来若需要图形安装器再独立适配"
       },
       "dsh-voice-webspeech": {
         "decision": "暂不安装",

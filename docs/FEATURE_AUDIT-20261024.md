@@ -1,5 +1,15 @@
 # 功能审查与复用清单（更新至 2026-10-28）
 
+## 2026-10-28：日常desktop安装与原生表单修复
+
+用户明确授权退出重启DSH、直接安装合适插件。日常`desktop`现已安装并启用`dsh-fatfish-life`、`dsh-plugin-bilibili`0.2.4（文本适配）、`dsh-find-plugin`0.4.0，保留原KB0.1.5和Obsidian0.2.6。本机bili-cli0.6.0原已安装，账号业务继续复用；新文本插件供DSH原生搜索、资料、已有字幕，不替代既有收件箱、评论去重或发布控制。
+
+实际桌面检查发现：仅声明Config会加载成功，却没有可编辑表单。根因为DSH Settings仅投影volatile字段。现将回复规则、时间窗、媒体和工作流分组标记volatile，监听`loader/volatile-update`，更新同一设置服务、缓存与生效版本；身份和存储路径仍为普通配置。现有QQ策略原先复制初始化配置，已补入口/最终出口读取最新设置，并保留去重/冷却状态。没有把工作流计划误当作已注册执行器。
+
+社区适配从固定Git提交打包，保留MIT许可证；B站不注册frames/playurl，也不携带引导下载的视频技能；发现插件保留联网搜索与限流降级，安装提示改用desktop，不自动执行搜索结果。工坊1.6.2因多处写死web profile暂不安装，来源和原因写入`dsh/upstream-lock.json`，安装脚本不再尝试错误包名。
+
+验证：Node39项、Python迁移26项；原生16项检查，包括实际Settings描述、保存15%→16%、缓存/服务生效后恢复15%，以及B站真实资料读取、GitHub联网查得3个插件结果（未降级）。报告`outputs/dsh-migration/native-smoke/report-1793184072006285100.json`与同目录`community-check.json`。收费请求0，真实平台发送0。日常DSH已重启并重写运行缓存，读回语音15%、表情35%、silent=true、allowSynthesis=false。桌面已看见管理模块运行及插件列表；最后的鼠标保存验收因电脑工具持续报`GetCursorPos failed: 拒绝访问 (0x80070005)`未完成，不能冒称桌面点击已通过。AstrBot/NapCat和生产QQ未切换。
+
 ## 2026-10-28心跳：普通消息经过真实Agent与完整人格请求
 
 补上原冒烟缺失的普通聊天链：同一原生宿主里用官方LlmAdapter注册纯本地mock，真实QQ桥接收loopback WS→创建Agent→挂apple-social→构造模型请求→最终文本回WS。首次比对遇到Windows测试文件CRLF差异，规范测试夹具换行后确认完整2096字人格确实进入请求，不能据首次断言失败误判人格丢失。
