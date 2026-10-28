@@ -42,6 +42,10 @@ def initial_config():
 def add_patch(text: str, config: dict) -> str:
     # Preserve native !!js expressions, user comments, credentials and other rows.
     # Existing managed settings are kept so an upgrade never resets UI choices.
+    # An earlier profile assembly glued the end marker onto a quoted module
+    # name. Boot's parser accepts it, but Settings' round-trip YAML parser does
+    # not, so every editor save fails before its requested field is changed.
+    text = re.sub(r"(?m)(['\"])(# <<< fatfish-managed)[ \t]*$", r"\1\n\2", text)
     if '# >>> fatfish-control' in text:
         return text
     significant = '\n'.join(line for line in text.splitlines() if line.strip() and not line.lstrip().startswith('#')).strip()

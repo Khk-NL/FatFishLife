@@ -17,3 +17,13 @@ class ControlInstallTests(unittest.TestCase):
     def test_existing_unmanaged_control_row_is_not_duplicated(self):
         for source in ('- id: fatfish-control\n','- {"id":"fatfish-control","config":{}}\n'):
             with self.assertRaises(RuntimeError): add_patch(source,{})
+
+    def test_joined_old_marker_is_repaired_without_resetting_installed_controls(self):
+        existing = ('- id: time-context\n  name: "@deepseek-ai/dsh-time-context"# <<< fatfish-managed\n\n'
+                    '# >>> fatfish-control\n- {"id":"fatfish-control","config":{"voice":{"basePercent":15}}}\n'
+                    '# <<< fatfish-control\n')
+        repaired = add_patch(existing, {'voice': {'basePercent': 99}})
+        self.assertIn('"@deepseek-ai/dsh-time-context"\n# <<< fatfish-managed', repaired)
+        self.assertIn('"basePercent":15', repaired)
+        self.assertNotIn('99', repaired)
+        self.assertEqual(add_patch(repaired, {}), repaired)

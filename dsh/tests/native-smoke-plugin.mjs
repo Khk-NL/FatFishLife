@@ -42,6 +42,14 @@ export function apply(ctx) {
         await ctx.settings.update('fatfish-control', { voice: { basePercent: original * 100 } });
         for (let i = 0; i < 100 && ctx.fatfishSettings.behavior.voice.base !== original; i++) await new Promise(resolve => setTimeout(resolve, 20));
         assert.equal(ctx.fatfishSettings.behavior.voice.base, original);
+        const refreshed = ctx.settings.describe().find(item => item.ns === 'fatfish-control');
+        const reply = refreshed.value.reply;
+        await ctx.settings.mutate('fatfish-control', [{ op: 'set', path: ['reply'], value: { ...reply, groupCooldownSeconds: 11 } }], refreshed.revision);
+        for (let i = 0; i < 100 && ctx.fatfishSettings.policy.groupCooldownMs !== 11000; i++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(ctx.fatfishSettings.policy.groupCooldownMs, 11000);
+        await ctx.settings.update('fatfish-control', { reply });
+        for (let i = 0; i < 100 && ctx.fatfishSettings.policy.groupCooldownMs !== reply.groupCooldownSeconds * 1000; i++) await new Promise(resolve => setTimeout(resolve, 20));
+        assert.equal(ctx.fatfishSettings.policy.groupCooldownMs, reply.groupCooldownSeconds * 1000);
       });
       if (process.env.FATFISH_COMMUNITY_REPORT) {
         const { check } = await import('./community-check.mjs');
