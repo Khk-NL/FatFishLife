@@ -17,6 +17,13 @@ CONFIG = {'voice': {'enabled': True, 'base': .15, 'step': 0, 'max': 1},
 
 
 class DeliveryTests(unittest.TestCase):
+    def test_reconfiguration_applies_without_resetting_pending_miss_counts(self):
+        policy=DeliveryPolicy(copy.deepcopy(CONFIG),rng=Mock(random=lambda:.99))
+        first=policy.prepare(SCOPE,'苹果派','');policy.finish(first['id'],replied=True)
+        changed=copy.deepcopy(CONFIG);changed['meme']['base']=.4
+        policy.reconfigure(changed)
+        self.assertAlmostEqual(policy.prepare(SCOPE,'苹果派','')['meme']['probability'],.5)
+
     def test_progression_depends_on_actual_receipt(self):
         policy = DeliveryPolicy(copy.deepcopy(CONFIG), rng=Mock(random=lambda: .99))
         first = policy.prepare(SCOPE, '苹果派真好吃', '')

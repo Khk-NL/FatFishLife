@@ -52,7 +52,8 @@ def prepare() -> Path:
 
     def entry(source):
         source = "import { loadPolicy } from './runtime-adapter.mjs';\n" + source
-        source = replace(source, "    config = resolveDeprecatedConfig(config);", "    const fatfishPolicy = loadPolicy();\n    config = { ...resolveDeprecatedConfig(config), requireMention: false, interimMessages: false, sendErrorNotice: false, deferredTimeoutMs: 0, newMessagePolicy: 'queue', autoSteerPolicy: 'admin' };")
+        source = replace(source, "export const inject = ['tools',", "export const inject = ['fatfishSettings', 'tools',")
+        source = replace(source, "    config = resolveDeprecatedConfig(config);", "    const fatfishPolicy = loadPolicy(ctx.fatfishSettings);\n    config = { ...resolveDeprecatedConfig(config), requireMention: false, interimMessages: false, sendErrorNotice: false, deferredTimeoutMs: 0, newMessagePolicy: 'queue', autoSteerPolicy: 'admin' };")
         source = replace(source, "const mediaDir = config.mediaDir !== '' ? config.mediaDir : defaultMediaDir();", "const mediaDir = join(config.mediaDir !== '' ? config.mediaDir : defaultMediaDir(), fatfishPolicy.sessionId('private:' + fatfishPolicy.config.botId));")
         source = replace(source, "    const policy = resolvePolicy(config);", "    const policy = { ...resolvePolicy(config), adminUsers: [String(fatfishPolicy.config.ownerId)] };")
         source = replace(source, "    const bridge = new ChatBridge({\n        ctx,", "    const bridge = new ChatBridge({\n        fatfishPolicy,\n        ctx,")
@@ -99,7 +100,11 @@ def pack(prepared: Path) -> Path:
     with tarfile.open(destination, "w:gz") as bundle:
         for name in ("package.json", "cordis.patch.yml", "LICENSE", "README.md", "README.en.md", "lib"):
             bundle.add(prepared / name, arcname="package/" + name)
-    return destination
+    digest = hashlib.sha256(destination.read_bytes()).hexdigest()
+    addressed = destination.with_stem(destination.stem + '-' + digest[:12])
+    destination.replace(addressed)
+    (destination.parent / 'onebot-current.json').write_text(json.dumps({'archive': str(addressed), 'sha256': digest}), encoding='utf-8')
+    return addressed
 
 
 if __name__ == "__main__":

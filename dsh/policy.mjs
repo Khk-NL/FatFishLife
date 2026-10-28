@@ -10,11 +10,20 @@ export function commandText(value) {
   return /^[\/\\][\p{L}\p{N}_-]/u.test(candidate) ? candidate.replace(/^\\/, '/') : undefined;
 }
 
-export function workWindow(now) {
+export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }]) {
   // Fixed UTC+8 avoids host timezone and daylight-saving differences.
   const local = new Date(Number(now) + 8 * 60 * 60 * 1000);
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
-  return minute >= 540 && minute < 720 ? 12 : minute >= 840 && minute < 1080 ? 18 : undefined;
+  const day = local.getUTCDay();
+  const toMinutes = value => Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+  for (const window of windows) {
+    const start = toMinutes(window.start), end = toMinutes(window.end);
+    const days = window.weekdays ?? [0, 1, 2, 3, 4, 5, 6];
+    const active = start < end ? minute >= start && minute < end && days.includes(day)
+      : start > end && (minute >= start && days.includes(day) || minute < end && days.includes((day + 6) % 7));
+    if (active) return end % 60 === 0 ? end / 60 : window.end;
+  }
+  return undefined;
 }
 
 export class FatFishPolicy {
@@ -75,7 +84,7 @@ export class FatFishPolicy {
     // Old CQ string events are decoded by the upstream parser only AFTER this
     // gate. Accept only an actual structured @ here; raw textual claims do not count.
     const explicit = poke || mentioned || body.includes('苹果乐');
-    const returnHour = workWindow(now);
+    const returnHour = workWindow(now, this.config.busyWindows);
     if (returnHour !== undefined) {
       if (!explicit) return { kind: 'ignore', reason: 'work-unaddressed' };
       this.prune(this.cooldowns, now, Math.max(this.config.groupCooldownMs, this.config.userCooldownMs));
@@ -89,7 +98,7 @@ export class FatFishPolicy {
       this.cooldowns.set(groupKey, now);
       this.cooldowns.set(userKey, now);
       return { kind: 'busy', chatId, userId, returnHour,
-        text: `老板，现在在忙着送快递，${returnHour}点再聊啦。` };
+        text: `老板，现在在忙着送快递，${typeof returnHour === 'number' ? returnHour + '点' : returnHour}再聊啦。` };
     }
     if (kind === 'group' && !explicit && !this.config.normalKeywords.some(word => word && body.includes(word))) {
       return { kind: 'ignore', reason: 'unaddressed' };
@@ -104,7 +113,7 @@ export class FatFishPolicy {
 
   canSend({ busy = false, returnHour } = {}) {
     if (this.config.silent) return false;
-    const hour = workWindow(this.now());
+    const hour = workWindow(this.now(), this.config.busyWindows);
     return busy ? hour !== undefined && hour === returnHour : hour === undefined;
   }
 

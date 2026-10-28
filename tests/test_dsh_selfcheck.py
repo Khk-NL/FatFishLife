@@ -28,7 +28,7 @@ class DshSelfcheckTests(unittest.TestCase):
         self.config=tts.TTSConfig(api_key='test-local-key',voice='test-voice')
 
     def test_deepseek_key_is_not_sent_to_unrelated_tts_provider(self):
-        with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'unrelated-key'},clear=True):
+        with patch.dict(os.environ,{'DEEPSEEK_API_KEY':'unrelated-key'},clear=True), patch.object(tts,'managed_voice',return_value={}):
             self.assertEqual(tts.TTSConfig.from_env().api_key,'')
 
     def test_preflight_never_calls_network_or_synthesis(self):
@@ -59,12 +59,14 @@ class DshSelfcheckTests(unittest.TestCase):
         source=Path('dsh/service/fatfish_memory_mcp.py').read_text(encoding='utf-8')
         node=next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=='tts_check')
         node.decorator_list=[]
-        namespace={'TTSConfig':tts.TTSConfig,'TTSError':tts.TTSError,'tts_preflight':tts.preflight,'_dump':json.dumps}
+        namespace={'TTSConfig':tts.TTSConfig,'TTSError':tts.TTSError,'tts_preflight':tts.preflight,'_dump':json.dumps,
+                   '_readonly':lambda:True,'synthesis_allowed':lambda:False}
         exec(compile(ast.fix_missing_locations(ast.Module(body=[node],type_ignores=[])),'mcp-tts-check','exec'),namespace)
         with patch.object(tts.TTSConfig,'from_env',return_value=self.config),patch.object(tts,'synth',side_effect=AssertionError('paid request')):
             result=json.loads(namespace['tts_check']())
         self.assertFalse(result['synthesis_verified'])
         self.assertEqual(result['synthesis_requests'],0)
+        self.assertFalse(result['synthesis_allowed'])
 
     def test_an_arbitrary_listening_port_cannot_pass_qq_acceptance(self):
         with tempfile.TemporaryDirectory() as tmp,patch.object(checks,'PROFILE',Path(tmp)),patch('socket.socket') as sock:

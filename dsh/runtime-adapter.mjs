@@ -10,7 +10,8 @@ export async function ownerCommand(policy, run) {
   finally { state.active = false; }
 }
 
-export function loadPolicy() {
+export function loadPolicy(settings) {
+  if (settings?.policy) return new FatFishPolicy(settings.policy);
   // 环境变量优先；否则读项目内固定路径（DSH 主进程不方便注入 env）
   const candidates = [
     process.env.FATFISH_POLICY_FILE,

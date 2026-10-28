@@ -22,12 +22,35 @@ import subprocess
 import urllib.error
 import urllib.request
 import wave
+import io
+from urllib.parse import quote, urlencode
+
+from .local_credentials import read_value
 from dataclasses import dataclass
 from pathlib import Path
 
 DEFAULT_BASE = "https://api.siliconflow.cn/v1"
 DEFAULT_MODEL = "FunAudioLLM/CosyVoice2-0.5B"
 WAV_HEADER = b"RIFF"
+PROVIDERS = {
+    'siliconflow': {'base': DEFAULT_BASE, 'model': DEFAULT_MODEL},
+    'elevenlabs': {'base': 'https://api.elevenlabs.io/v1', 'model': 'eleven_multilingual_v2'},
+    'minimax': {'base': 'https://api.minimax.io/v1', 'model': 'speech-2.8-hd'},
+}
+
+
+def managed_voice() -> dict:
+    path = Path(os.environ.get('FATFISH_BEHAVIOR_FILE') or Path(__file__).resolve().parents[1] / 'data/dsh/runtime-behavior.json')
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text(encoding='utf-8')).get('voice', {})
+    except (OSError, ValueError) as exc:
+        raise TTSError('DSH配音配置无法读取') from exc
+
+
+def synthesis_allowed() -> bool:
+    return os.environ.get('FATFISH_MEDIA_WRITE') == '1' or managed_voice().get('allow_synthesis') is True
 
 
 class TTSError(RuntimeError):
@@ -43,59 +66,106 @@ class TTSConfig:
     speed: float = 1.1
     ffmpeg: str = ""
     timeout: float = 40.0
+    provider: str = 'siliconflow'
 
     @classmethod
     def from_env(cls) -> "TTSConfig":
-        key = os.environ.get("FATFISH_TTS_API_KEY", "").strip()
+        settings = managed_voice()
+        provider = settings.get('provider') or os.environ.get('FATFISH_TTS_PROVIDER', 'siliconflow').strip()
+        if provider not in PROVIDERS:
+            raise TTSError('未知配音服务')
+        selected = settings.get('providers', {}).get(provider, {})
+        if provider == 'siliconflow':
+            key = os.environ.get('FATFISH_TTS_API_KEY', '').strip()
+            base = selected.get('apiBase') or os.environ.get('FATFISH_TTS_BASE', DEFAULT_BASE)
+            model = selected.get('modelId') or os.environ.get('FATFISH_TTS_MODEL', DEFAULT_MODEL)
+            voice = selected.get('voiceId') or os.environ.get('FATFISH_TTS_VOICE', '')
+            speed = selected.get('speed', os.environ.get('FATFISH_TTS_SPEED', '1.1'))
+        else:
+            prefix = 'FATFISH_' + provider.upper()
+            key = os.environ.get(prefix + '_API_KEY') or os.environ.get(provider.upper() + '_API_KEY', '')
+            credential_file = selected.get('envFile') or os.environ.get(prefix + '_ENV_FILE', '')
+            if not key and not credential_file and provider == 'elevenlabs':
+                try:
+                    credential_file = str(Path.home() / 'Desktop/.env')
+                except RuntimeError as exc:
+                    raise TTSError('请明确设置ElevenLabs密钥文件路径') from exc
+            if not key and credential_file:
+                aliases = (provider.upper() + '_API_KEY', prefix + '_API_KEY', 'XI_API_KEY', 'API_KEY') if provider == 'elevenlabs' else ('MINIMAX_API_KEY', prefix + '_API_KEY')
+                key = read_value(credential_file, aliases, allow_bare=provider == 'elevenlabs')
+            base = selected.get('apiBase') or os.environ.get(prefix + '_BASE', PROVIDERS[provider]['base'])
+            model = selected.get('modelId') or os.environ.get(prefix + '_MODEL', PROVIDERS[provider]['model'])
+            voice = selected.get('voiceId') or os.environ.get(prefix + '_VOICE', '')
+            speed = selected.get('speed', os.environ.get(prefix + '_SPEED', '1.0'))
         return cls(
             api_key=key,
-            api_base=os.environ.get("FATFISH_TTS_BASE", DEFAULT_BASE).strip(),
-            model=os.environ.get("FATFISH_TTS_MODEL", DEFAULT_MODEL).strip(),
-            voice=os.environ.get("FATFISH_TTS_VOICE", "").strip(),
-            speed=float(os.environ.get("FATFISH_TTS_SPEED", "1.1")),
+            api_base=str(base).strip(), model=str(model).strip(), voice=str(voice).strip(), speed=float(speed),
             ffmpeg=os.environ.get("FATFISH_FFMPEG", "").strip(),
             timeout=float(os.environ.get("FATFISH_TTS_TIMEOUT", "40")),
+            provider=provider,
         )
 
     def validate(self) -> None:
+        if self.provider not in PROVIDERS:
+            raise TTSError('未知配音服务')
         if not self.api_key:
-            raise TTSError("缺少 TTS API key（FATFISH_TTS_API_KEY）")
+            raise TTSError(f"缺少{self.provider}专用API key")
         if not self.voice:
-            raise TTSError("缺少音色 ID（FATFISH_TTS_VOICE）")
+            raise TTSError(f"缺少{self.provider}音色ID，请在配音配置中选择")
+        low, high = (.7, 1.2) if self.provider == 'elevenlabs' else (.5, 2.) if self.provider == 'minimax' else (.25, 4.)
+        if not math.isfinite(self.speed) or not low <= self.speed <= high:
+            raise TTSError(f'{self.provider}语速范围为{low}至{high}')
 
 
 def synth(config: TTSConfig, text: str) -> bytes:
-    """调 SiliconFlow 合成，返回 WAV 字节。失败抛 TTSError。"""
+    """Provider-specific auth and payloads; always return WAV bytes."""
     config.validate()
-    body = json.dumps(
-        {
+    if config.provider == 'siliconflow':
+        url, payload = config.api_base.rstrip('/') + '/audio/speech', {
             "model": config.model,
             "input": text,
             "voice": config.voice,
             "response_format": "wav",
             "speed": config.speed,
         }
-    ).encode()
-    request = urllib.request.Request(
-        config.api_base.rstrip("/") + "/audio/speech",
-        data=body,
-        headers={
-            "Authorization": f"Bearer {config.api_key}",
-            "Content-Type": "application/json",
-        },
-    )
+    elif config.provider == 'elevenlabs':
+        url = config.api_base.rstrip('/') + '/text-to-speech/' + quote(config.voice, safe='') + '?' + urlencode({'output_format': 'pcm_24000'})
+        payload = {'text': text, 'model_id': config.model, 'voice_settings': {'speed': config.speed}}
+    else:
+        url = config.api_base.rstrip('/') + '/t2a_v2'
+        payload = {'model': config.model, 'text': text, 'stream': False, 'output_format': 'hex',
+                   'voice_setting': {'voice_id': config.voice, 'speed': config.speed, 'vol': 1, 'pitch': 0},
+                   'audio_setting': {'sample_rate': 24000, 'format': 'wav', 'channel': 1}}
+    auth = {'xi-api-key': config.api_key} if config.provider == 'elevenlabs' else {'Authorization': 'Bearer ' + config.api_key}
+    request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers={**auth, 'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(request, timeout=config.timeout) as response:
+            if config.provider == 'elevenlabs':
+                content_type = response.headers.get('Content-Type', '').partition(';')[0]
+                if content_type and not (content_type.startswith('audio/') or content_type == 'application/octet-stream'):
+                    raise TTSError('ElevenLabs返回非音频响应')
             data = response.read()
     except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = exc.read().decode("utf-8", "replace")[:200]
-        except OSError:
-            pass
-        raise TTSError(f"TTS HTTP {exc.code}: {detail}") from exc
+        raise TTSError(f"{config.provider} TTS HTTP {exc.code}") from exc
     except (urllib.error.URLError, TimeoutError) as exc:
-        raise TTSError(f"TTS 网络失败：{exc}") from exc
+        raise TTSError(f"{config.provider} TTS网络失败：{type(exc).__name__}") from exc
+
+    if config.provider == 'elevenlabs':
+        if not data or len(data) % 2:
+            raise TTSError('ElevenLabs返回无效PCM帧')
+        buffer = io.BytesIO()
+        with wave.open(buffer, 'wb') as audio:
+            audio.setnchannels(1); audio.setsampwidth(2); audio.setframerate(24000); audio.writeframes(data)
+        data = buffer.getvalue()
+    elif config.provider == 'minimax':
+        try:
+            result = json.loads(data)
+            code = result.get('base_resp', {}).get('status_code')
+            if code != 0:
+                raise TTSError(f'MiniMax业务错误码{code}')
+            data = bytes.fromhex(result['data']['audio'])
+        except (ValueError, TypeError, KeyError) as exc:
+            raise TTSError('MiniMax返回无效音频数据') from exc
 
     if not data or not data.startswith(WAV_HEADER):
         raise TTSError(f"TTS 返回非 WAV 内容（{len(data)} 字节）")
@@ -155,4 +225,4 @@ def preflight(config: TTSConfig) -> dict:
     ffmpeg = config.ffmpeg or shutil.which("ffmpeg")
     return {"ok": True, "configuration_ready": True,
             "decoder_ready": bool(ffmpeg and Path(ffmpeg).is_file()),
-            "synthesis_verified": False, "synthesis_requests": 0}
+            "synthesis_verified": False, "synthesis_requests": 0, "provider": config.provider}

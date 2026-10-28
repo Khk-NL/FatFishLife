@@ -8,7 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 
 export const name = 'fatfish-native-smoke';
-export const inject = ['agents', 'sessions', 'tools', 'agentPresets', 'sessionPersistence', 'workspaceRegistry'];
+export const inject = ['fatfishSettings', 'agents', 'sessions', 'tools', 'agentPresets', 'sessionPersistence', 'workspaceRegistry'];
 
 export function apply(ctx) {
   queueMicrotask(async () => {
@@ -20,6 +20,9 @@ export function apply(ctx) {
     const record = (name, fn) => Promise.resolve().then(fn).then(() => checks.push(name));
     try {
       await ctx.get('loader').await();
+      assert.equal(ctx.fatfishSettings.behavior.voice.base, .15);
+      assert.equal(ctx.fatfishSettings.policy.busyWindows.length, 2);
+      checks.push('native-control-bundle-active');
       const lib = dirname(fileURLToPath(import.meta.resolve('dsh-onebot-qq')));
       const load = file => import(pathToFileURL(join(lib, file)).href);
       const [{ ChatBridge }, { FatFishPolicy }, adapter, { defineTool }, { OneBotConnection }] = await Promise.all([

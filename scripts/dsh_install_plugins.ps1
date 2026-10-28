@@ -35,10 +35,15 @@ $plugins = @(
     @{ Name = "dsh-plugin-workshop"; Why = "应用内插件浏览器，之后自助装插件"; Required = $false }
 )
 if ($IncludeQqBridge -and -not $SkipQqBridge) {
-    $archive = Join-Path $Repo ".tools\dsh-vendor\adapted\fatfish-onebot-0.9.6.tgz"
+    $manifest = Get-Content (Join-Path $ProfileDir 'package.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($manifest.dsh.profile.bundles -notcontains 'dsh-fatfish-life') {
+        throw 'QQ适配需要FatFish管理服务；先完全退出DSH并运行 scripts/dsh_install_control.py'
+    }
+    $archive = "<prepare_dsh_onebot.py --pack生成的归档>"
     if (-not $DryRun) {
         & (Join-Path $Repo ".tools\dsh-python\Scripts\python.exe") -X utf8 (Join-Path $Repo "scripts\prepare_dsh_onebot.py") --pack
         if ($LASTEXITCODE -ne 0) { throw "QQ桥准备失败，停止安装" }
+        $archive = (Get-Content (Join-Path $Repo '.tools\dsh-vendor\adapted\onebot-current.json') -Raw -Encoding UTF8 | ConvertFrom-Json).archive
     }
     $plugins += @{ Name = "file:$($archive.Replace('\', '/'))"; Why = "QQ 接入（BSD-3，本地适配归档；仅P5明确启用）"; Required = $true }
 }

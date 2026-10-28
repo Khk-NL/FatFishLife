@@ -40,7 +40,7 @@ from fatfish_core.extract import (  # noqa: E402
     promote_repeated,
     stats as candidate_stats,
 )
-from fatfish_core.tts import TTSConfig, TTSError, preflight as tts_preflight, synth_to_file  # noqa: E402
+from fatfish_core.tts import TTSConfig, TTSError, preflight as tts_preflight, synth_to_file, synthesis_allowed  # noqa: E402
 from fatfish_core import observe  # noqa: E402
 from fatfish_core import bili  # noqa: E402
 from fatfish_core import gallery  # noqa: E402
@@ -61,14 +61,21 @@ server = MCPServer(
 _store: MemoryStore | None = None
 _delivery: DeliveryPolicy | None = None
 _delivery_lock = Lock()
+_delivery_source: str | None = None
 
 
 def delivery() -> DeliveryPolicy:
-    global _delivery
+    global _delivery, _delivery_source
     with _delivery_lock:
+        root = Path(__file__).resolve().parents[2] / 'data/dsh'
+        default = root / 'runtime-behavior.json' if (root / 'runtime-behavior.json').exists() else root / 'behavior.json'
+        path = Path(os.environ.get('FATFISH_BEHAVIOR_FILE') or default)
+        content = path.read_text(encoding='utf-8')
         if _delivery is None:
-            path = Path(os.environ.get('FATFISH_BEHAVIOR_FILE') or Path(__file__).resolve().parents[2] / 'data/dsh/behavior.json')
-            _delivery = DeliveryPolicy(json.loads(path.read_text(encoding='utf-8')))
+            _delivery = DeliveryPolicy(json.loads(content))
+        elif content != _delivery_source:
+            _delivery.reconfigure(json.loads(content))
+        _delivery_source = content
     return _delivery
 
 
@@ -186,7 +193,7 @@ def extract(since_id: int = 0) -> str:
 @server.tool(description="合成一句语音，返回音频文件路径与大小（不直接发送）")
 def tts_speak(text: str) -> str:
     """只负责合成落盘；发不发送由调用方决定。"""
-    if _readonly() and os.environ.get('FATFISH_MEDIA_WRITE') != '1':
+    if _readonly() and not synthesis_allowed():
         return _dump({"ok": False, "error": "服务以只读模式启动"})
     body = str(text or "").strip()
     if not body:
@@ -204,7 +211,9 @@ def tts_speak(text: str) -> str:
 @server.tool(description="TTS本地配置检查，不合成、不收费；不代表真实语音已验收")
 def tts_check() -> str:
     try:
-        return _dump(tts_preflight(TTSConfig.from_env()))
+        result = tts_preflight(TTSConfig.from_env())
+        result['synthesis_allowed'] = not _readonly() or synthesis_allowed()
+        return _dump(result)
     except TTSError as exc:
         return _dump({"ok": False, "error": str(exc)})
 

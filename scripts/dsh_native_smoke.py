@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import secrets
+import hashlib
 import subprocess
 import time
 
@@ -21,20 +22,31 @@ def run() -> int:
         "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT", "PROGRAMDATA",
     }}
     env.update(DSH_HOME=str(home), FATFISH_POLICY_FILE=str(ROOT / "dsh/policy.example.json"))
-    archive = ROOT / ".tools/dsh-vendor/adapted/fatfish-onebot-0.9.6.tgz"
-    if not archive.is_file():
-        raise RuntimeError("Run scripts/prepare_dsh_onebot.py --pack first")
+    def artifact(name):
+        reference = ROOT / f'.tools/dsh-vendor/adapted/{name}-current.json'
+        item = json.loads(reference.read_text(encoding='utf-8'))
+        path = Path(item['archive'])
+        if hashlib.sha256(path.read_bytes()).hexdigest() != item['sha256']:
+            raise RuntimeError('Prepared archive hash mismatch')
+        return path
+    archive, control_archive = artifact('onebot'), artifact('control')
     profile = home / "profiles/web"
     log = home / "host.private.log"
     # CLI installs outside the production profile. A tarball, unlike a linked
     # source directory, gets its own dependencies inside the profile tree.
     with log.open("w", encoding="utf-8") as output:
+        controls = subprocess.run([str(CLI), 'plugin', '--profile', 'web', 'add', 'file:' + control_archive.as_posix(), '--ignore-scripts'],
+                                  cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120)
+        if controls.returncode:
+            raise RuntimeError('Control bundle installation failed; see private log')
         installed = subprocess.run([str(CLI), "plugin", "--profile", "web", "add", "file:" + archive.as_posix(), "--ignore-scripts"],
                                    cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120)
     if installed.returncode:
         print(json.dumps({"ok": False, "stage": "install", "log": str(log)})); return 1
     shutil.copy2(ROOT / "dsh/tests/native-smoke-plugin.mjs", profile / "native-smoke-plugin.mjs")
     patch = [
+        {'id': 'fatfish-control', 'config': {'identity': {'botId': '10000001', 'ownerId': '10000002', 'adapterId': 'native-test'},
+                                         'dataDirectory': str(home / 'fatfish-settings')}},
         {"id": "dsh-onebot", "config": {"port": 0, "host": "127.0.0.1", "accessToken": secrets.token_urlsafe(24), "botQQ": "10000001", "dmPolicy": "disabled", "groupPolicy": "disabled", "workspacePath": str(home)}},
         {"insert": [{"id": "fatfish-native-smoke", "name": str(profile / "native-smoke-plugin.mjs")} ]},
     ]

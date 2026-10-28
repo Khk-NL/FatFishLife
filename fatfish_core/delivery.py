@@ -32,6 +32,13 @@ class DeliveryPolicy:
             item = config[channel]
             progressive_probability(item["base"], item["step"], 0, ceiling=item["max"])
 
+    @synchronized
+    def reconfigure(self, config):
+        for channel in ('voice', 'meme'):
+            item = config[channel]
+            progressive_probability(item['base'], item['step'], 0, ceiling=item['max'])
+        self.config = config
+
     @staticmethod
     def _scope(value):
         scope = json.loads(value)
