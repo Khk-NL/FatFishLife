@@ -139,24 +139,21 @@ test('authenticated command context is isolated and expires for detached tasks',
   await detached;
 });
 
-test('native scope registers both inherited mask and monotonic guard', () => {
+test('scope relies on the guard alone so MCP tools stay reachable', () => {
   const f = fixture('20:00:00');
   const installed = {};
   installSocialScope({ tools: { restrict(value) { installed.filter = value; }, guard(value) { installed.guard = value; } } },
     { ...f.bridge, chatForSession: () => 'group:4' });
-  // restrict 只认已注册的全域工具名；白名单里桥自带的名字传进去会抛错，所以继续全屏蔽，
-  // 放行判断交给 guard。
-  assert.deepEqual(installed.filter, { allow: [] });
-  // 2026-10-29：只放行桥上游的两个媒体工具，其余仍然全拒。
-  const allowedMedia = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
-  for (const name of allowedMedia) {
+  // 不再调用 restrict：它会连 MCP 的 meme_*/tts_* 一起屏蔽，表情和语音就没法用。
+  assert.equal(installed.filter, undefined);
+  const allowed = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
+  for (const name of allowed) {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }
-  for (const name of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task', 'recall', 'kb_query']) {
+  for (const name of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task', 'recall', 'kb_query', 'bilibili_search']) {
     assert.ok(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }));
   }
-  // 跨会话目标仍然拒绝
-  assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', allowedMedia));
+  assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', allowed));
 });
 
 test('invalid identity has no permissive default', () => {

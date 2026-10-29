@@ -106,9 +106,9 @@ export async function beforeInbound(bridge, event) {
 export const SOCIAL_MEDIA_TOOLS = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
 
 export function installSocialScope(ctx, bridge) {
-  // restrict 只接受"已注册的全域工具名"；桥自带的 qq_send_* 在挂载时还不算全域工具，
-  // 传进去会直接抛错（2026-10-30 实测）。继承面继续全屏蔽，白名单交给 guard 判定。
-  ctx.tools.restrict({ allow: [] });
+  // 不再用 restrict 全屏蔽继承面：它会把 MCP 提供的 meme_*/tts_* 一起挡死，
+  // 而这些正是表情和语音要用的。改为只挂 guard —— 每个工具调用都要过白名单，
+  // 不在 SOCIAL_MEDIA_TOOLS 里的一律拒绝（bash/read/write/记忆/知识库/命令）。
   ctx.tools.guard(exec => bridge.deps.fatfishPolicy.toolDenial(exec, bridge.chatForSession(exec.agent?.session.id), SOCIAL_MEDIA_TOOLS));
 }
 
