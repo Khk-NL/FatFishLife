@@ -79,9 +79,21 @@
 
 | 规矩 | 代码 | DSH 侧状态 |
 |---|---|---|
-| B 站刷首页+推荐理由 | `fatfish_core/bili.py`、`_auto_scroll` | 业务可调，**定时器未接**（等 QQ 桥/P5） |
-| B 站标签学习 | `study.py`、`bili_style` | 同上 |
-| 每日日记与动态 | `fatfish_life`、`journals` 表 | 数据已迁，生成逻辑待接 |
+| B 站刷首页+推荐理由 | `fatfish_core/bili.py`、`_auto_scroll` | 业务可调；**时间判断已迁**（`dsh/schedule.mjs`，12 项测试），**执行器未接** |
+| B 站标签学习 | `study.py`、`bili_style` | 同上（21:00 已在 schedule.mjs 的任务表里） |
+| 每日日记与动态 | `fatfish_life`、`journals` 表 | 数据已迁；23:50 已在任务表，生成与发布待接 |
 | 峰谷模型切换 | `fatfish_core/logic.py` | 规则保留，**落地方式待定**（DSH 单 provider） |
 | 忙时固定话术 | `dsh/policy.mjs` | ✅ 已实现并有测试 |
 | 静默 | `dsh/policy.json` + policy.mjs | ✅ 已实现 |
+
+## 定时任务的落地进度（2026-10-29）
+
+已拆成两层，避免把"几点做什么"和"谁去触发"混在一起：
+
+1. **判断层**：`dsh/schedule.mjs`（纯函数）。`dueTasks(now, {lastRun})` 返回此刻该跑的任务，
+   `nextRun(now)` 返回下一个。规则：到点才触发、宽限 60 分钟内补跑、同一天只跑一次、
+   停机太久不补跑（避免重启后一次放出四件事）。12 项测试覆盖边界（提前/迟到/跨天/边缘）。
+2. **执行层**：**未实现**。计划是在 `dsh/control` 里加一个 tick，调用 `dueTasks` 再走各业务；
+   不另起第二套定时器，也不依赖系统 cron。
+
+> 判断层可测，不代表定时真的会跑。在执行层落地并观察到真实触发之前，这张表不能写"已迁移"。
