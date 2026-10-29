@@ -83,12 +83,17 @@ export class FatFishPolicy {
     if (this.config.silent) return { kind: 'ignore', reason: 'silent' };
     const mentioned = Array.isArray(event.message) && event.message.some(segment =>
       segment.type === 'at' && id(segment.data?.qq) === String(this.config.botId));
-    // Old CQ string events are decoded by the upstream parser only AFTER this
-    // gate. Accept only an actual structured @ here; raw textual claims do not count.
-    const explicit = poke || mentioned || body.includes('苹果乐');
+    // 非忙碌时仍然认「正文叫名字」；忙碌时的判定见下面 addressed。
+    const named = body.includes('苹果乐');
+    const explicit = poke || mentioned || named;
     const returnHour = workWindow(now, this.config.busyWindows);
-    if (returnHour !== undefined) {
-      if (!explicit) return { kind: 'ignore', reason: 'work-unaddressed' };
+    // 和老大本人的私聊不受忙碌窗口限制：峰时也用正常模型回他。
+    const ownerPrivate = kind === 'private' && this.owner(userId);
+    if (returnHour !== undefined && !ownerPrivate) {
+      // 忙碌时段只认「真 @」和「戳」：正文里出现名字、被引用、被提及都不算。
+      // 2026-10-29 按老大要求改的 —— 峰时不该因为别人提到关键词就冒泡。
+      const addressed = poke || mentioned;
+      if (!addressed) return { kind: 'ignore', reason: 'work-unaddressed' };
       this.prune(this.cooldowns, now, Math.max(this.config.groupCooldownMs, this.config.userCooldownMs));
       const groupKey = `chat:${scope}`;
       const userKey = `user:${scope}:${userId}`;

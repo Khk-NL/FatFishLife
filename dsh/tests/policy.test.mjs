@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { FatFishPolicy, commandText, workWindow } from '../policy.mjs';
 import { beforeInbound, assertOutbound, ownerCommand, installSocialScope } from '../runtime-adapter.mjs';
 
+// 测试里不连本地模型：那句忙时回复用固定文案，保证确定性与速度。
+process.env.FATFISH_BUSY_BRIEF = 'fixed';
+
 const clock = value => Date.parse(`2026-10-31T${value}+08:00`); // Saturday is intentionally a work day.
 const access = { groupPolicy: 'open', dmPolicy: 'open', adminUsers: ['2'], allowAllUsers: true };
 const event = (body = '苹果乐', extra = {}) => ({ post_type: 'message', message_type: 'group',
@@ -42,10 +45,12 @@ test('work triggers are current text, real bot mention or targeted poke', () => 
     const { policy } = fixture();
     assert.equal(policy.decide(event(body, { reply: { text: '苹果乐' }, sender: { nickname: '苹果乐' } }), access).kind, 'ignore');
   }
-  for (const current of [event(), event('', { message: [{ type: 'at', data: { qq: '1' } }] }),
+  for (const current of [event('', { message: [{ type: 'at', data: { qq: '1' } }] }),
     event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 1 })]) {
     assert.equal(fixture().policy.decide(current, access).kind, 'busy');
   }
+  // 2026-10-29：峰时正文里出现"苹果乐"不再算被叫到，没有真 @ 就不该冒泡
+  assert.equal(fixture().policy.decide(event(), access).reason, 'work-unaddressed');
   assert.equal(fixture().policy.decide(event('', { message: [{ type: 'at', data: { qq: '999' } }] }), access).kind, 'ignore');
   assert.equal(fixture().policy.decide(event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 999 }), access).kind, 'ignore');
 });
@@ -61,8 +66,8 @@ test('ten simultaneous pokes produce only one fixed text and no model/media disp
 
 test('afternoon fixed text and bot-account isolation', async () => {
   const f = fixture('14:00:00');
-  assert.equal(await beforeInbound(f.bridge, event('苹果乐', { self_id: 9 })), false);
-  await beforeInbound(f.bridge, event());
+  assert.equal(await beforeInbound(f.bridge, event('', { self_id: 9, message: [{ type: 'at', data: { qq: '1' } }] })), false);
+  await beforeInbound(f.bridge, event('', { message: [{ type: 'at', data: { qq: '1' } }] }));
   assert.match(f.sends[0].params.message[0].data.text, /18点/);
 });
 
@@ -77,12 +82,13 @@ test('dedup includes full conversation and expires', () => {
 
 test('group and per-user cooldowns both apply', () => {
   const f = fixture();
-  assert.equal(f.policy.decide(event(), access).kind, 'busy');
+  const at = (extra = {}) => event('', { message: [{ type: 'at', data: { qq: '1' } }], ...extra });
+  assert.equal(f.policy.decide(at(), access).kind, 'busy');
   f.setTime('10:00:11');
-  assert.equal(f.policy.decide(event(), access).reason, 'cooldown');
-  assert.equal(f.policy.decide(event('苹果乐', { user_id: 8 }), access).kind, 'busy');
+  assert.equal(f.policy.decide(at(), access).reason, 'cooldown');
+  assert.equal(f.policy.decide(at({ user_id: 8 }), access).kind, 'busy');
   f.setTime('10:01:02');
-  assert.equal(f.policy.decide(event(), access).kind, 'busy');
+  assert.equal(f.policy.decide(at(), access).kind, 'busy');
 });
 
 test('scope separates accounts, adapters, private and group conversations', () => {
@@ -97,7 +103,7 @@ test('scope separates accounts, adapters, private and group conversations', () =
 test('access policy precedes busy replies', async () => {
   const f = fixture();
   f.bridge.deps.policy = { ...access, groupPolicy: 'disabled' };
-  await beforeInbound(f.bridge, event());
+  await beforeInbound(f.bridge, event('', { message: [{ type: 'at', data: { qq: '1' } }] }));
   assert.equal(f.sends.length, 0);
 });
 
@@ -147,4 +153,50 @@ test('native scope registers both inherited mask and monotonic guard', () => {
 
 test('invalid identity has no permissive default', () => {
   assert.throws(() => new FatFishPolicy({}));
+});
+test('峰时和老大私聊不拦，仍然走正常模型', () => {
+  const f = fixture('10:00:00');
+  const privateEvent = { post_type: 'message', message_type: 'private', self_id: 1, user_id: 2,
+    message: [{ type: 'text', data: { text: '在吗' } }] };
+  assert.equal(f.policy.decide(privateEvent, access).kind, 'social');
+});
+
+test('峰时别人的私聊不会因为正文叫名字就冒泡', () => {
+  const f = fixture('10:00:00');
+  const strangerPrivate = { post_type: 'message', message_type: 'private', self_id: 1, user_id: 8,
+    message: [{ type: 'text', data: { text: '苹果乐 在吗' } }] };
+  assert.equal(f.policy.decide(strangerPrivate, access).reason, 'work-unaddressed');
+});
+
+test('峰时被@时那句可以来自本地小模型，失败才用固定文案', async () => {
+  const f = fixture('10:00:00');
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, async json() {
+    return { choices: [{ message: { content: '在送货呢，12点回来哈' } }] };
+  } });
+  try {
+    process.env.FATFISH_BUSY_BRIEF = 'qwen';
+    await beforeInbound(f.bridge, event('', { message: [{ type: 'at', data: { qq: '1' } }] }));
+  } finally {
+    globalThis.fetch = original;
+    process.env.FATFISH_BUSY_BRIEF = 'fixed';
+  }
+  assert.equal(f.sends.length, 1);
+  assert.equal(f.sends[0].params.message[0].data.text, '在送货呢，12点回来哈');
+});
+
+test('小模型跑题或超长时退回固定文案', async () => {
+  const f = fixture('10:00:00');
+  const original = globalThis.fetch;
+  globalThis.fetch = async () => ({ ok: true, async json() {
+    return { choices: [{ message: { content: '今天天气不错我们来聊聊别的吧，顺便问问你吃饭了吗' } }] };
+  } });
+  try {
+    process.env.FATFISH_BUSY_BRIEF = 'qwen';
+    await beforeInbound(f.bridge, event('', { message: [{ type: 'at', data: { qq: '1' } }] }));
+  } finally {
+    globalThis.fetch = original;
+    process.env.FATFISH_BUSY_BRIEF = 'fixed';
+  }
+  assert.equal(f.sends[0].params.message[0].data.text, '老板，现在在忙着送快递，12点再聊啦。');
 });

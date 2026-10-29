@@ -26,16 +26,57 @@ export function loadPolicy(settings) {
 
 export function scopedSessionId(policy, chatId) { return policy.sessionId(chatId); }
 
+// 忙碌时那句"12/18点再聊"由本地小模型生成，语气自然一点，不像模板自动回复。
+// 硬约束（写死在提示词里，不交给模型自由发挥）：
+//   · 只能表达"在忙"和"几点回来"
+//   · 不能聊别的话题、不能承诺别的、不能解释技术细节
+//   · 超过 40 字或格式不对就直接用固定文案兜底
+// 本地模型不可用时同样兜底，绝不让这一句话的失败影响主流程。
+const FIXED_BUSY_BRIEF = hour => `老板，现在在忙着送快递，${typeof hour === 'number' ? hour + '点' : hour}再聊啦。`;
+
+async function busyBrief(returnHour, timeoutMs = 2500) {
+  if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return null;
+  const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:6193').replace(/\/+$/, '');
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(base + '/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: process.env.FATFISH_LOCAL_LLM_MODEL || 'fatfish-context',
+        temperature: 0.3,
+        max_tokens: 60,
+        messages: [
+          { role: 'system', content: `你在QQ群里被@了，但现在是忙碌时段，不能聊天。只回一句话：说明自己在忙着送快递，${returnHour}点再聊。必须提到"${returnHour}点"，不超过25个字，不加引号，不解释原因，不承诺别的事，不接对方的话头。` },
+          { role: 'user', content: '（被艾特了）' },
+        ],
+      }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const text = String(data?.choices?.[0]?.message?.content ?? '').trim().replace(/^["'「]|["'」]$/g, '');
+    if (!text || text.length > 40 || !text.includes(`${returnHour}点`)) return null;
+    return text;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function beforeInbound(bridge, event) {
   const policy = bridge.deps.fatfishPolicy;
   const decision = policy.decide(event, bridge.deps.policy);
   if (decision.kind === 'ignore') return false;
   if (decision.kind === 'busy') {
     if (policy.canSend({ busy: true, returnHour: decision.returnHour })) {
+      const text = (await busyBrief(decision.returnHour)) ?? FIXED_BUSY_BRIEF(decision.returnHour);
       const [kind, target] = decision.chatId.split(':');
       const receipt = await bridge.deps.connection.call('send_msg', {
         message_type: kind, [kind === 'group' ? 'group_id' : 'user_id']: Number(target),
-        message: [{ type: 'text', data: { text: decision.text } }],
+        message: [{ type: 'text', data: { text } }],
       });
       if (receipt?.message_id == null) throw new Error('Busy reply has no OneBot message_id');
     }
