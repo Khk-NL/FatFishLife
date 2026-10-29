@@ -222,7 +222,10 @@ def check_qq_bridge() -> None:
     elif listening:
         check("QQ 桥", "FAIL", "8643监听但QQ桥包缺失，不能证明该端口属于DSH桥")
     elif has_pkg:
-        check("QQ 桥", "WARN", "包在但未监听（peer 依赖阻塞）")
+        # Do not name a cause we have not observed. A missing listener after a
+        # restart can be a failed mount, a stale host process, or a wrong port;
+        # only the host log can tell which.
+        check("QQ 桥", "WARN", "包在但 8643 未监听（未重启宿主 / 挂载失败 / 端口不符，需看宿主日志确认）")
     else:
         check("QQ 桥", "FAIL", "未安装；QQ 仍由 AstrBot 承担")
 
