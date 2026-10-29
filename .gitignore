@@ -18,3 +18,6 @@ scripts/.pixiv_verifier
 .DS_Store
 Thumbs.db
 
+
+# 人设同步脚本的备份不进仓库
+*.yml.bak-*

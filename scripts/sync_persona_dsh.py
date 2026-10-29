@@ -65,7 +65,9 @@ def replace_prefix(path: Path, body: str, dry: bool) -> tuple[int, int]:
     pad = " " * (indent + 2)
     new_lines = [pad + line if line.strip() else "" for line in body.splitlines()]
     if not dry:
-        shutil.copy2(path, path.with_suffix(path.suffix + f".bak-{datetime.now():%Y%m%d-%H%M%S}"))
+        backup_dir = ROOT / "outputs/persona-backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, backup_dir / f"{path.name}.{datetime.now():%Y%m%d-%H%M%S}")
         path.write_text("\n".join(lines[: start + 1] + new_lines + lines[end:]) + "\n", encoding="utf-8")
     return old_chars, len(body)
 
