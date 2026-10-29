@@ -58,6 +58,19 @@ def prepare() -> Path:
         source = replace(source, "    const policy = resolvePolicy(config);", "    const policy = { ...resolvePolicy(config), adminUsers: [String(fatfishPolicy.config.ownerId)] };")
         source = replace(source, "    const bridge = new ChatBridge({\n        ctx,", "    const bridge = new ChatBridge({\n        fatfishPolicy,\n        ctx,")
         source = replace(source, "        config: {\n            botQQ:", "        config: {\n            fatfishPolicy,\n            botQQ:")
+        # P-B 的第一步：把"发语音 / 发图"收成一个服务边界。
+        # 只给这两个动作，不接受任意 segment —— 让 media 出口可被控制插件调用，
+        # 同时不把 qq_send_* 那套工具重新塞回模型的可选工具面（P1 特意撤掉的）。
+        # 发送仍然走 outbound，静默与发送前检查照旧生效。
+        source = replace(
+            source,
+            "    ctx.effect(() => {",
+            "    ctx.provide('fatfishMedia', {\n"
+            "        sendVoice: (chatId, file) => bridge.sendSegments(chatId, [{ type: 'record', data: { file } }]),\n"
+            "        sendImage: (chatId, file) => bridge.sendSegments(chatId, [{ type: 'image', data: { file } }]),\n"
+            "    });\n"
+            "    ctx.effect(() => {",
+        )
         return source
 
     def bridge(source):

@@ -57,3 +57,25 @@
 
 1. 是否接受**改动上游适配**（B 的前提）。不改就得选 A，接受概率不可控
 2. 语音合成默认仍关闭（`allowSynthesis=false`）；启用后是**按次收费**，要不要先只接「表情/图片」、语音留到你当场看着试
+## 进展（2026-10-29 19:35）：桥侧服务边界已就位
+
+按方案 B 的第一步，桥现在暴露一个**只含两个动作**的 host 服务：
+
+```js
+ctx.provide('fatfishMedia', {
+  sendVoice: (chatId, file) => bridge.sendSegments(chatId, [{ type: 'record', data: { file } }]),
+  sendImage: (chatId, file) => bridge.sendSegments(chatId, [{ type: 'image', data: { file } }]),
+});
+```
+
+几个刻意的限制：
+
+- **不接受任意 segment**：只有发语音、发图两个动作，避免把 `qq_send_*` 那套完整写入能力重新开出来
+- 仍然走 `outbound`，静默与发送前检查照旧生效
+- 模型工具面**没有变化**（P1 撤掉的工具没有回来），调用方只能是宿主内的插件
+
+验证：`prepare_dsh_onebot.py --pack` 断言全过，打出的 `lib/index.js` 里确认含该服务；
+`dsh_native_smoke.py` 重跑 **15 项全绿**，`bridgePluginActivated=true`，收费请求与真实发送均为 0。
+
+**还没做**：控制插件侧的消费（谁在回合结束按概率决定发不发、失败如何保原文）。
+这一段涉及产品取舍（语音 15%、表情 35%、失败兜底），未擅自实现。
