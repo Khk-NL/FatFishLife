@@ -121,8 +121,12 @@ export function apply(ctx) {
       checks.push('authenticated-loopback-onebot');
       const event = (body, n, sender = 10000003) => ({ post_type: 'message', message_type: 'group', self_id: 10000001,
         group_id: 10000004, user_id: sender, message_id: n, message: [{ type: 'text', data: { text: body } }] });
+      // 忙碌时段只认真 @（2026-10-29 改），所以这里必须带真的 at 段
+      const mention = (body, n, sender = 10000003) => ({ post_type: 'message', message_type: 'group', self_id: 10000001,
+        group_id: 10000004, user_id: sender, message_id: n,
+        message: [{ type: 'at', data: { qq: '10000001' } }, { type: 'text', data: { text: body } }] });
       await record('busy-bypasses-real-bridge-dispatch', async () => {
-        await inbound(event('苹果乐', 1));
+        await inbound(mention('苹果乐', 1));
         assert.equal(sends.length, 1); assert.equal(dispatches.length, 0);
         assert.match(sends[0].params.message[0].data.text, /12点/);
       });
@@ -178,7 +182,15 @@ export function apply(ctx) {
         assert.equal(modelRequests.length, 1, 'One ordinary message must make one mock model request');
         const expected = (await readFile(join(process.env.DSH_HOME, 'expected-persona.txt'), 'utf8')).replace(/\r\n/g, '\n').trim();
         assert.ok(JSON.stringify(modelRequests[0]).includes(JSON.stringify(expected).slice(1,-1)), 'Complete persona must reach the model');
-        assert.ok((modelRequests[0].tools ?? []).every(tool => tool.name === 'run_code'), 'Social requests must not inherit management tools');
+        // 2026-10-29：媒体发送改为复用桥上游的两个工具（qq_send_voice / qq_send_image）。
+        // 除它们与内核的 run_code 外，社交请求不该带任何管理/文件/其它 QQ 工具。
+        const socialTools = new Set(['run_code', 'qq_send_voice', 'qq_send_image']);
+        const toolNames = (modelRequests[0].tools ?? []).map(tool => tool.name);
+        assert.ok(toolNames.every(name => socialTools.has(name)),
+          'Social requests must not inherit management tools: ' + toolNames.join(','));
+        for (const forbidden of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_video']) {
+          assert.ok(!toolNames.includes(forbidden), 'forbidden tool leaked into the social surface: ' + forbidden);
+        }
       });
       const settled = async chatId => {
         await bridge.chats.get(chatId).agent.whenIdle();

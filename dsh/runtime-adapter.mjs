@@ -93,11 +93,15 @@ export async function beforeInbound(bridge, event) {
   return event;
 }
 
+// 只有这两个媒体动作允许模型自己调用（上游已带限额与审计）。
+// 其余 qq_send_*、qq_napcat_api 等继续被 guard 拒绝。
+export const SOCIAL_MEDIA_TOOLS = ['qq_send_voice', 'qq_send_image'];
+
 export function installSocialScope(ctx, bridge) {
-  // P1 exposes no model tools. P2/P3 add reviewed capabilities explicitly;
-  // backend commands remain a separate authenticated route.
+  // Inherited surface stays empty; the two media tools are registered by the
+  // bridge itself and pass the guard below.
   ctx.tools.restrict({ allow: [] });
-  ctx.tools.guard(exec => bridge.deps.fatfishPolicy.toolDenial(exec, bridge.chatForSession(exec.agent?.session.id), []));
+  ctx.tools.guard(exec => bridge.deps.fatfishPolicy.toolDenial(exec, bridge.chatForSession(exec.agent?.session.id), SOCIAL_MEDIA_TOOLS));
 }
 
 export function assertOutbound(policy, action) {

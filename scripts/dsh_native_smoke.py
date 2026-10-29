@@ -24,6 +24,8 @@ def run(community=False) -> int:
         "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT", "PROGRAMDATA",
     }}
     env.update(DSH_HOME=str(home), FATFISH_POLICY_FILE=str(ROOT / "dsh/policy.example.json"))
+    # 忙时那句默认会问本地小模型；验收要确定性，固定用文案
+    env.update(FATFISH_BUSY_BRIEF='fixed')
     def artifact(name):
         reference = ROOT / f'.tools/dsh-vendor/adapted/{name}-current.json'
         item = json.loads(reference.read_text(encoding='utf-8'))

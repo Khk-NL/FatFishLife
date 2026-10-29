@@ -145,10 +145,16 @@ test('native scope registers both inherited mask and monotonic guard', () => {
   installSocialScope({ tools: { restrict(value) { installed.filter = value; }, guard(value) { installed.guard = value; } } },
     { ...f.bridge, chatForSession: () => 'group:4' });
   assert.deepEqual(installed.filter, { allow: [] });
-  for (const name of ['bash', 'read', 'qq_napcat_api', 'qq_send_image', 'delegate_task']) {
+  // 2026-10-29：只放行桥上游的两个媒体工具，其余仍然全拒。
+  const allowedMedia = ['qq_send_voice', 'qq_send_image'];
+  for (const name of allowedMedia) {
+    assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
+  }
+  for (const name of ['bash', 'read', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task']) {
     assert.ok(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }));
   }
-  assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', ['qq_send_image']));
+  // 跨会话目标仍然拒绝
+  assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', allowedMedia));
 });
 
 test('invalid identity has no permissive default', () => {

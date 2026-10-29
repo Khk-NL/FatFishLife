@@ -58,31 +58,16 @@ def prepare() -> Path:
         source = replace(source, "    const policy = resolvePolicy(config);", "    const policy = { ...resolvePolicy(config), adminUsers: [String(fatfishPolicy.config.ownerId)] };")
         source = replace(source, "    const bridge = new ChatBridge({\n        ctx,", "    const bridge = new ChatBridge({\n        fatfishPolicy,\n        ctx,")
         source = replace(source, "        config: {\n            botQQ:", "        config: {\n            fatfishPolicy,\n            botQQ:")
-        # P-B 的第一步：把"发语音 / 发图"收成一个服务边界。
-        # 只给这两个动作，不接受任意 segment —— 让 media 出口可被控制插件调用，
-        # 同时不把 qq_send_* 那套工具重新塞回模型的可选工具面（P1 特意撤掉的）。
-        # 发送仍然走 outbound，静默与发送前检查照旧生效。
-        source = replace(
-            source,
-            "    ctx.effect(() => {",
-            "    ctx.provide('fatfishMedia', {\n"
-            "        sendVoice: (chatId, file) => bridge.sendSegments(chatId, [{ type: 'record', data: { file } }]),\n"
-            "        sendImage: (chatId, file) => bridge.sendSegments(chatId, [{ type: 'image', data: { file } }]),\n"
-            "    });\n"
-            "    ctx.effect(() => {",
-        )
         return source
 
     def bridge(source):
         source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand, SOCIAL_CHANNEL_PROMPT } from './runtime-adapter.mjs';\n" + source
-        source = replace(source, "import { registerTools } from './tools.js';\n", '')
         source = replace(source, "    async handleInbound(event, opts = {}) {", "    async handleInbound(event, opts = {}) {\n        try {\n            const gated = await beforeInbound(this, event);\n            if (gated === false) return;\n            event = gated;\n        } catch (error) {\n            this.deps.log('error', 'FatFish ingress/delivery failed: ' + error.name);\n            return;\n        }")
         source = replace(source, "        return routeCommand(this.commandCtx, chatId, text, userId, nickname);", "        if (!this.deps.fatfishPolicy.owner(userId)) return Promise.resolve(false);\n        return ownerCommand(this.deps.fatfishPolicy, () => routeCommand(this.commandCtx, chatId, text, userId, nickname));")
         source = replace(source, "    installChannelScope(agentCtx) {", "    installChannelScope(agentCtx) {\n        installSocialScope(agentCtx, this);")
         source = replace(source, 'text: buildPlatformPrompt(this.deps.config.restrictedMemberPrefix),', 'text: SOCIAL_CHANNEL_PROMPT,')
-        source = replace(source,
-            "        registerTools(agentCtx, this, this.deps.connection, {\n            maxImageBytes: this.deps.config.maxImageBytes,\n            maxVoiceBytes: this.deps.config.maxVoiceBytes,\n            maxFileBytes: this.deps.config.maxFileBytes,\n        });",
-            '        // P1 social scope exposes no QQ control tools; reviewed delivery remains host-owned.')
+        # 上游的 registerTools 原样保留（发语音/发图的实现、限额、审计都是现成的）；
+        # 只注册哪几个工具由 tools.js 的白名单决定，见下面的 tools() 补丁。
         source = replace(source, "    guardedConnectionCall(action, params, chatId) {", "    guardedConnectionCall(action, params, chatId) {\n        assertOutbound(this.deps.fatfishPolicy, action);")
         source = replace(source, "this.sendToChat(chatId, QUEUE_NOTICE_TEXT).catch", "Promise.resolve([]).catch")
         source = replace(source, "            this.interim.onTurnEnd(chatId, chat);", "            if (reason.kind !== 'completed') chat.loopPending = null;\n            this.interim.onTurnEnd(chatId, chat);")
@@ -105,11 +90,24 @@ def prepare() -> Path:
     def connection(source):
         return replace(source, "            // notice / request events are intentionally ignored (v1).", "            if (event.post_type === 'notice' && event.notice_type === 'notify' && event.sub_type === 'poke') this.onMessage(event);\n            // Other notices and requests stay ignored.")
 
+    def tools(source):
+        # 恢复上游的媒体发送工具，但只放行「发语音 / 发图」两个。
+        # 其余 qq_send_*（视频/文件/转发/任意 segment）与 qq_napcat_api 继续不注册，
+        # 避免把它们重新塞回模型的可选工具面（P1 撤掉它们是有原因的）。
+        return replace(source,
+            "    const register = (tool) => {\n        disposers.push(ctx.tools.register(tool));\n    };",
+            "    const MEDIA_ALLOW = new Set(['qq_send_voice', 'qq_send_image']);\n"
+            "    const register = (tool) => {\n"
+            "        if (!MEDIA_ALLOW.has(tool.name)) return;\n"
+            "        disposers.push(ctx.tools.register(tool));\n"
+            "    };")
+
     patch("index.js", entry)
     patch("bridge.js", bridge)
     patch("registry.js", registry)
     patch("interim.js", interim)
     patch("connection.js", connection)
+    patch("tools.js", tools)
     evidence = {"upstream": lock, "adapted_files": {
         str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted((target / "lib").glob("*")) if path.is_file()
