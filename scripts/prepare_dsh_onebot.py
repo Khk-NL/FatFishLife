@@ -61,9 +61,31 @@ def prepare() -> Path:
         return source
 
     def bridge(source):
-        source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand, SOCIAL_CHANNEL_PROMPT } from './runtime-adapter.mjs';\n" + source
+        source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand, parseNewTarget, SOCIAL_CHANNEL_PROMPT } from './runtime-adapter.mjs';\n" + source
         source = replace(source, "    async handleInbound(event, opts = {}) {", "    async handleInbound(event, opts = {}) {\n        try {\n            const gated = await beforeInbound(this, event);\n            if (gated === false) return;\n            event = gated;\n        } catch (error) {\n            this.deps.log('error', 'FatFish ingress/delivery failed: ' + error.name);\n            return;\n        }")
-        source = replace(source, "        return routeCommand(this.commandCtx, chatId, text, userId, nickname);", "        if (!this.deps.fatfishPolicy.owner(userId)) return Promise.resolve(false);\n        return ownerCommand(this.deps.fatfishPolicy, () => routeCommand(this.commandCtx, chatId, text, userId, nickname));")
+        # 主人可在私聊用 /new group:<群号> 或 /new all 重置指定群会话（群里不出现字样）
+        source = replace(
+            source,
+            "    tryHandleCommand(chatId, text, userId, nickname) {",
+            """    tryHandleCommand(chatId, text, userId, nickname) {
+        if (!this.deps.fatfishPolicy.owner(userId)) return Promise.resolve(false);
+        const targeted = parseNewTarget(text);
+        if (targeted) {
+            const scopes = targeted.scope === 'all'
+                ? [...this.chats.keys()].filter(id => id.startsWith('group:'))
+                : [targeted.scope];
+            return ownerCommand(this.deps.fatfishPolicy, async () => {
+                let done = 0;
+                for (const scope of scopes) {
+                    try { await this.commandCtx.resetChat(scope); done += 1; } catch {}
+                }
+                if (String(chatId).startsWith('private:')) {
+                    await this.sendToChat(chatId, '已重置 ' + done + ' 个群会话').catch(() => {});
+                }
+                return true;
+            });
+        }""",
+        )
         source = replace(source, "    installChannelScope(agentCtx) {", "    installChannelScope(agentCtx) {\n        installSocialScope(agentCtx, this);")
         source = replace(source, 'text: buildPlatformPrompt(this.deps.config.restrictedMemberPrefix),', 'text: SOCIAL_CHANNEL_PROMPT,')
         # 上游的 registerTools 原样保留（发语音/发图的实现、限额、审计都是现成的）；

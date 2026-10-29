@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { FatFishPolicy, commandText, workWindow } from '../policy.mjs';
-import { beforeInbound, assertOutbound, ownerCommand, installSocialScope } from '../runtime-adapter.mjs';
+import { beforeInbound, assertOutbound, ownerCommand, installSocialScope, parseNewTarget } from '../runtime-adapter.mjs';
 
 // 测试里不连本地模型：那句忙时回复用固定文案，保证确定性与速度。
 process.env.FATFISH_BUSY_BRIEF = 'fixed';
@@ -205,4 +205,14 @@ test('小模型跑题或超长时退回固定文案', async () => {
     process.env.FATFISH_BUSY_BRIEF = 'fixed';
   }
   assert.equal(f.sends[0].params.message[0].data.text, '拉特兰通讯现在是峰时收费，12点再聊');
+});
+
+test('/new 的定向写法能被识别，其它写法不受影响', () => {
+  assert.deepEqual(parseNewTarget('/new group:1027577412'), { scope: 'group:1027577412' });
+  assert.deepEqual(parseNewTarget('  /new  all '), { scope: 'all' });
+  assert.equal(parseNewTarget('/new'), null);
+  assert.equal(parseNewTarget('/new group:12'), null);        // 群号太短，不认
+  assert.equal(parseNewTarget('/new group:abc'), null);
+  assert.equal(parseNewTarget('/newx group:1027577412'), null);
+  assert.equal(parseNewTarget('你好'), null);
 });

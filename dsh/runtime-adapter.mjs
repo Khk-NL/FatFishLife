@@ -64,6 +64,13 @@ async function busyBrief(returnHour, template, timeoutMs = 2500) {
   }
 }
 
+/** 解析 /new 的定向写法：/new group:<群号> 或 /new all。其余返回 null。 */
+export function parseNewTarget(text) {
+  const match = /^\/new\s+(group:(\d{5,12})|all)\s*$/i.exec(String(text ?? '').trim());
+  if (!match) return null;
+  return { scope: match[2] ? 'group:' + match[2] : 'all' };
+}
+
 export async function beforeInbound(bridge, event) {
   const policy = bridge.deps.fatfishPolicy;
   const decision = policy.decide(event, bridge.deps.policy);
