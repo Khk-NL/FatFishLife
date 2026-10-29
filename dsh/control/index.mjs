@@ -1,6 +1,7 @@
 import z from '@deepseek-ai/schemastery';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { DEFAULT_WINDOWS, persistSettings } from './settings.mjs';
+import { dueTasks, nextRun, readState, writeState } from './schedule.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 
 export const name = 'fatfish-control';
@@ -65,9 +66,41 @@ export async function apply(ctx, config) {
   const compiled = await persistSettings(snapshot());
   const status = { appliedRevision: compiled.revision, appliedAt: new Date().toISOString(),
     policy: '运行缓存已写入；QQ接入时从此服务读取', media: '概率参数已导出，生产媒体出口未完成',
-    workflows: '目标计划已保存，调度执行器尚未注册', productionCutover: false };
+    workflows: '目标计划已保存；定时触发器在跑，但业务出口（推荐/学习/日记）尚未接入',
+    schedule: { executor: '每 30 秒检查一次（进程内定时器，不用系统 cron）', lastDue: null, next: null },
+    productionCutover: false };
   const settings = { ...compiled, status };
   ctx.provide('fatfishSettings', settings);
+
+  // 定时触发层：判断交给 schedule.mjs（12 项测试），这里只负责"到点就叫"。
+  // 现在到点只记录 + 更新状态，不调用任何业务 —— 业务出口（B站推荐、标签学习、
+  // 日记生成）还没接，不能让它看起来像已经会自己干活。
+  const scheduleDir = String(config.dataDirectory ?? 'D:/Code/Projects/FatFishLife/data/dsh')
+  const runDue = (now = new Date()) => {
+    try {
+      const state = readState(scheduleDir)
+      const due = dueTasks(now, { lastRun: state.lastRun ?? {} })
+      if (due.length) {
+        const lastRun = { ...(state.lastRun ?? {}) }
+        for (const item of due) {
+          lastRun[item.id] = now.toISOString()
+          status.schedule.lastDue = { id: item.id, scheduledFor: item.scheduledFor, lateMinutes: item.lateMinutes, recordedAt: now.toISOString() }
+          ctx.logger.info(`[fatfish] 定时任务到点 ${item.id}（迟到 ${item.lateMinutes} 分钟）；业务未接，仅记录触发`)
+        }
+        writeState(scheduleDir, { ...state, lastRun })
+      }
+      const next = nextRun(now)
+      status.schedule.next = next ? { id: next.id, at: next.at, when: next.when.toISOString() } : null
+    } catch (error) {
+      ctx.logger.warn('[fatfish] 定时检查失败：' + (error?.message ?? String(error)))
+    }
+  }
+  ctx.effect(() => {
+    runDue()
+    const timer = setInterval(runDue, 30_000)
+    if (typeof timer.unref === 'function') timer.unref()
+    return () => clearInterval(timer)
+  })
   let pending = Promise.resolve();
   ctx.on('loader/volatile-update', () => {
     const current = snapshot();

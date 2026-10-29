@@ -6,6 +6,9 @@
 //
 // 规则来源：dsh/rules.md。改时间先改这里，再改文档，别只改文档。
 
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 /** 每天的运营任务。`at` 是本地时间 HH:MM。 */
 export const TASKS = [
   { id: 'bili-recommend-noon', kind: 'bili-recommend', at: '12:30', label: 'B站刷首页+推荐' },
@@ -76,4 +79,24 @@ export function nextRun(now, tasks = TASKS) {
     })
     .sort((a, b) => a.when - b.when)
   return upcoming[0] ?? null
+}
+// ── 状态持久化 ───────────────────────────────────────────────
+// 只存"上次跑过的时间"，重启后不重复触发。文件放在插件的 dataDirectory，
+// 和设置缓存同处，方便一起备份。
+
+export function statePath(dir) {
+  return join(dir, 'schedule-state.json')
+}
+
+export function readState(dir) {
+  try {
+    return JSON.parse(readFileSync(statePath(dir), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+export function writeState(dir, state) {
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(statePath(dir), JSON.stringify(state, null, 2) + '\n')
 }

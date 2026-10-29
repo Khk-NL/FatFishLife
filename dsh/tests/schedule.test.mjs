@@ -1,7 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-import { TASKS, dueTasks, minutesOfDay, nextRun, scheduledFor, DEFAULT_GRACE_MINUTES } from '../schedule.mjs'
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { TASKS, dueTasks, minutesOfDay, nextRun, scheduledFor, DEFAULT_GRACE_MINUTES, readState, writeState, statePath } from '../control/schedule.mjs'
 
 const at = (hhmmss) => {
   const [h, m, s = '00'] = hhmmss.split(':')
@@ -82,4 +86,27 @@ test('nextRun 在当天全部结束后指向明天的第一个', () => {
 
 test('任务表与 rules.md 的四个时间点一致', () => {
   assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:30', '20:30', '21:00', '23:50'])
+})
+test('状态读写往返，重启后不重复触发靠它', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ff-sched-'))
+  try {
+    assert.deepEqual(readState(dir), {})
+    writeState(dir, { lastRun: { diary: '2026-10-29T15:50:00.000Z' } })
+    assert.equal(readState(dir).lastRun.diary, '2026-10-29T15:50:00.000Z')
+    // 写进去的记录必须能挡住当天的重复触发
+    const now = new Date(2026, 9, 29, 23, 55, 0)
+    assert.equal(dueTasks(now, { lastRun: readState(dir).lastRun }).length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('状态文件损坏时返回空对象而不是抛错', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ff-sched-'))
+  try {
+    writeFileSync(statePath(dir), '{ not json')
+    assert.deepEqual(readState(dir), {})
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
