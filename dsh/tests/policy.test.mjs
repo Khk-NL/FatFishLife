@@ -147,7 +147,9 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
   // restrict 只能列挂载时已注册的全域工具，MCP 的 meme_*/tts_* 不在其中会抛错；
   // 所以作用域只挂 guard，可见性与放行都交给它。
   assert.equal(installed.filter, undefined);
-  const allowed = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
+  const allowed = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image',
+    // 2026-10-30：被问攻略/机制时得能真查，否则只能靠印象糊弄（用户投诉“没有含金量”）。
+    'web_search', 'read_page', 'web_fetch', 'bilibili_search', 'bilibili_video', 'bilibili_subtitles'];
   for (const name of allowed) {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }

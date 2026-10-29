@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>苹果乐凭证面板</title>
+<style>
+  :root { color-scheme: dark; --bg:#14161a; --card:#1d2027; --line:#2c313b; --text:#e8eaf0; --dim:#98a0b3; --ok:#3ecf8e; --bad:#ff6b6b; --warn:#f0b429; --accent:#7aa2ff; }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:28px 18px 60px; background:var(--bg); color:var(--text); font:15px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif; }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size:22px; margin:0 0 6px; }
+  .sub { color:var(--dim); font-size:13px; margin-bottom:22px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:14px; }
+  .row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .name { font-weight:600; }
+  .hint { color:var(--dim); font-size:13px; }
+  .state { font-size:13px; padding:1px 8px; border-radius:999px; border:1px solid var(--line); white-space:nowrap; }
+  .state.ok { color:var(--ok); border-color:#2a5c45; }
+  .state.bad { color:var(--bad); border-color:#5c2a2a; }
+  .state.idle { color:var(--dim); }
+  .line2 { margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; }
+  input[type=password], input[type=text] {
+    flex:1 1 320px; min-width:220px; padding:9px 11px; border-radius:8px; border:1px solid var(--line);
+    background:#12141a; color:var(--text); font:inherit;
+  }
+  button { padding:9px 14px; border-radius:8px; border:1px solid var(--line); background:#262b34; color:var(--text); font:inherit; cursor:pointer; }
+  button:hover { border-color:#3d4453; }
+  button.primary { background:#2b3f6b; border-color:#3a5691; }
+  button:disabled { opacity:.55; cursor:default; }
+  .msg { margin-top:8px; font-size:13px; min-height:20px; }
+  .msg.ok { color:var(--ok); } .msg.bad { color:var(--bad); } .msg.warn { color:var(--warn); }
+  .meta { color:var(--dim); font-size:12px; }
+  footer { color:var(--dim); font-size:12px; margin-top:26px; line-height:1.8; }
+  code { background:#12141a; border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-size:12px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>苹果乐凭证面板</h1>
+  <div class="sub">只在本机运行，值写入仓库的 <code>outputs/secrets/*.env</code>（已被 gitignore）。刷新页面看最新状态。</div>
+  <div id="list"></div>
+
+  <div class="card">
+    <div class="row"><span class="name">B 站登录态</span><span id="bili-state" class="state idle">检查中…</span></div>
+    <div class="hint">扫码登录（命令行，出二维码后手机 B 站扫）：<br><code>cd D:\Code\Projects\FatFishLife &amp;&amp; node outputs/bili-login/run.mjs</code></div>
+    <div id="bili-msg" class="msg"></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><span class="name">NapCat ↔ 桥 对齐</span><span id="napcat-state" class="state idle">检查中…</span></div>
+    <div class="hint">反向 WS 端口与 accessToken 是否和 <code>cordis.patch.yml</code> 一致；不一致时 QQ 收不到消息。</div>
+    <div id="napcat-msg" class="msg"></div>
+  </div>
+
+  <footer>
+    写完后重启宿主（DeepSeek Harness）才会被读到：MCP 的 env 是启动时固定的。<br>
+    凭证只存在本机；这个页面不会把密钥发给任何第三方，只有你点「验证」时才会拿它请求对应官方接口。
+  </footer>
+</main>
+<script>
+const list = document.getElementById('list');
+
+function el(tag, cls, text) {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function stateBadge(present) {
+  const badge = el('span', 'state ' + (present ? 'ok' : 'idle'), present ? '已配置' : '未填写');
+  return badge;
+}
+
+function render(items) {
+  list.textContent = '';
+  for (const item of items) {
+    const card = el('div', 'card');
+    const row = el('div', 'row');
+    const left = el('div');
+    left.append(el('div', 'name', item.label), el('div', 'hint', item.hint));
+    row.append(left, stateBadge(item.present));
+    card.append(row);
+
+    const meta = el('div', 'meta');
+    meta.textContent = item.present ? `当前：${item.masked}　文件：${item.file}　更新：${item.updated}` : `文件：${item.file}`;
+    card.append(meta);
+
+    const line = el('div', 'line2');
+    const input = el('input');
+    input.type = 'password';
+    input.placeholder = '粘贴新的 Key，回车保存';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    const save = el('button', 'primary', '保存');
+    const test = el('button', '', '验证');
+    if (!item.present) test.disabled = false;
+    line.append(input, save, test);
+    card.append(line);
+
+    const msg = el('div', 'msg');
+    card.append(msg);
+
+    const send = async (path, extra) => {
+      msg.className = 'msg';
+      msg.textContent = '处理中…';
+      try {
+        const response = await fetch(path, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: item.name, ...extra }),
+        });
+        const data = await response.json();
+        msg.className = 'msg ' + (data.ok ? 'ok' : 'bad');
+        msg.textContent = data.detail || (data.ok ? '完成' : '失败');
+        if (data.ok && path === '/api/save') setTimeout(load, 400);
+      } catch (error) {
+        msg.className = 'msg bad';
+        msg.textContent = '请求失败：' + error;
+      }
+    };
+
+    save.addEventListener('click', () => {
+      if (!input.value.trim()) { msg.className = 'msg bad'; msg.textContent = '先粘贴 Key 再保存'; return; }
+      send('/api/save', { value: input.value.trim() }).then(() => { input.value = ''; });
+    });
+    input.addEventListener('keydown', event => { if (event.key === 'Enter') save.click(); });
+    test.addEventListener('click', () => send('/api/test', {}));
+    list.append(card);
+  }
+}
+
+async function load() {
+  try {
+    const data = await (await fetch('/api/status')).json();
+    render(data.credentials || []);
+    const bili = data.bili || {};
+    const bs = document.getElementById('bili-state');
+    bs.className = 'state ' + (bili.ok ? 'ok' : 'bad');
+    bs.textContent = bili.ok ? '已登录' : '未登录';
+    const bm = document.getElementById('bili-msg');
+    bm.className = 'msg ' + (bili.ok ? 'ok' : 'warn');
+    bm.textContent = bili.detail || '';
+    const nap = data.napcat || {};
+    const ns = document.getElementById('napcat-state');
+    ns.className = 'state ' + (nap.ok ? 'ok' : 'bad');
+    ns.textContent = nap.ok ? '对齐' : '需检查';
+    const nm = document.getElementById('napcat-msg');
+    nm.className = 'msg ' + (nap.ok ? 'ok' : 'bad');
+    nm.textContent = nap.detail || '';
+  } catch (error) {
+    list.textContent = '读取状态失败：' + error;
+  }
+}
+load();
+</script>
+</body>
+</html>
