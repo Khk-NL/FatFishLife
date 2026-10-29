@@ -78,10 +78,21 @@ Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop" "$env:USERPROFILE\.dsh\profil
 
 ```powershell
 cd D:\Code\Projects\FatFishLife
-powershell -ExecutionPolicy Bypass -File scripts\dsh_install_plugins.ps1 -IncludeQqBridge
+powershell -ExecutionPolicy Bypass -File scripts\dsh_install_plugins.ps1 -IncludeQqBridge -BotQQ <机器人QQ号>
 ```
 
-预期：脚本先备份，再装 `dsh-fatfish-life` 控制包与 OneBot 桥，不改 NapCat 配置。
+**必须带 `-BotQQ`**，否则桥的 `botQQ` 留空、自账号识别出错。安装器会自己把
+`dsh-onebot` 的顶层配置写进 `cordis.patch.yml`（脚本已带 `# >>> dsh-onebot-managed` 标记，
+重复运行不会写两遍），不需要再手改 YAML。
+
+想先看计划不安装，可以在 DSH 运行时就跑：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dsh_install_plugins.ps1 -DryRun -IncludeQqBridge -BotQQ <机器人QQ号>
+```
+
+预期：脚本先备份，再装 `dsh-fatfish-life` 控制包与 OneBot 桥，然后写入 `dsh-onebot` 配置，
+不改 NapCat 配置。
 
 失败怎么办：脚本会打印原因并退出；把输出保留下来。**不要**用 `-SkipQqBridge` 假装成功。
 
@@ -110,9 +121,9 @@ botQQ: ''              // 默认空
 
 所以端口是 **8643**（不是 6199）。把 NapCat 的反向 WS 目标从 AstrBot 的 `6199` 改成 `ws://127.0.0.1:8643`。
 
-**`botQQ` 需要显式填**，否则机器人自己的 QQ 号为空，群/私聊的自账号识别会不正确。
-在 `profiles/desktop/cordis.patch.yml` 的 `dsh-onebot` 项补上 config（**放在顶层同 id 行**，
-不要写进 insert 块内部——设置页的 compose 自检会拒绝）：
+**`botQQ`** 由第 3 步的 `-BotQQ` 参数写入，正常情况不需要手改。如果没带该参数或要改端口，
+安装器已跳过写入，此时手工补：在 `profiles/desktop/cordis.patch.yml` 的 `dsh-onebot` 项补上 config
+（**放在顶层同 id 行**，不要写进 insert 块内部——设置页的 compose 自检会拒绝）：
 
 ```yaml
 - id: dsh-onebot

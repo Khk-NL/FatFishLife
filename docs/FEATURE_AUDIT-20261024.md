@@ -6,6 +6,8 @@
 
 同时把桥验收在隔离环境重跑：15 项原生检查通过、桥插件启动、4 次本地 mock、收费与真实发送 0。另定位沙箱下工作区外 SQLite 取不到文件锁导致 pnpm store 打不开的环境问题，已给 `dsh_native_smoke.py` 增加 `FATFISH_SMOKE_STORE` 覆盖。未装生产 desktop、未改 NapCat、未停 AstrBot、未发真实 QQ。
 
+安装器 `dsh_install_plugins.ps1` 现自动写入桥的 `dsh-onebot` 顶层配置（`-BotQQ` 参数，端口固定 reverse/8643），不再需要手改 YAML；`-DryRun` 允许在 DSH 运行时执行，便于先看计划。新增 `tests/test_dsh_installer.py` 5 项回归，其中一条锁定该 `.ps1` 必须保持 UTF-16LE+BOM——按 UTF-8 重写会让 PowerShell 5.1 误读中文、脚本语法直接崩（本轮实际踩到并修复）。
+
 ## 2026-10-29：开发交接至DSH
 
 新增[DSH开发交接](DSH_DEVELOPMENT_HANDOFF.md)，列明首条提示词、源码与运行状态差异、部署顺序、媒体/运营与最终切换验收，以及凭据和发布边界。自动开发fatfishlife-dsh已通过应用工具暂停，文件状态读回确认；本轮仅整理交接，未修改生产配置、重启服务或调用模型/TTS。
