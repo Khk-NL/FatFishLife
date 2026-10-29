@@ -24,6 +24,7 @@ SOURCE = ROOT / "docs/persona/apple-le-core.md"
 EXAMPLES = ROOT / "docs/persona/apple-le-examples.md"
 PRESET = ROOT / "dsh/preset-apple-le.yml"
 DSH_HOME = Path.home() / ".dsh"
+BILI_PERSONA = Path.home() / ".bili-ai" / "persona.md"
 
 
 def profile_patch(profile: str) -> Path:
@@ -87,12 +88,36 @@ def verify(path: Path) -> str:
     return "解析正常" if isinstance(data, list) else f"顶层应是数组，实际是 {type(data).__name__}"
 
 
+def whale_body() -> str:
+    """由常驻卡生成 B 站分身人设：去掉 QQ 群聊、戳一戳、消息层这类只对 QQ 有意义的规则。"""
+    raw = SOURCE.read_text(encoding="utf-8").strip().split(chr(10) + chr(10))
+    paragraphs = [para.strip() for para in raw if para.strip()]
+    drop = ("只有@时", "戳一戳", "离线时按后台", "同群共享该群对话", "直接输出给对方的聊天内容", "群聊")
+    kept = []
+    for para in paragraphs:
+        if any(key in para for key in drop):
+            continue
+        if "私聊里称创建者" in para:
+            para = ("私聊里称对方「老大」，不用敬语，也不叫「您」。B 站这边只跟老大一个人说话，没有群聊场合。"
+                    "称呼不改变权限；偶尔自称「苹果乐」。")  # 替换掉 QQ 群聊称呼规则
+        kept.append(para)
+    header = ("# 苹果乐 · B 站分身" + chr(10) + chr(10) +
+              "> 由 docs/persona/apple-le-core.md 自动生成，别手改这个文件；改完源文件重跑同步脚本。" + chr(10))
+    trailer = ""
+    if BILI_PERSONA.is_file():
+        existing = BILI_PERSONA.read_text(encoding="utf-8")
+        if "## 背景碎片" in existing:
+            trailer = chr(10) + chr(10) + existing[existing.index("## 背景碎片"):].strip()
+    return header + chr(10) + (chr(10) + chr(10)).join(kept) + trailer + chr(10)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="同步苹果乐人设到 DSH 运行时")
     parser.add_argument("--profile", default="desktop")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--with-examples", action="store_true", help="把示例对话一并写进 prefix（更占上下文）")
     parser.add_argument("--profile-only", action="store_true", help="只改 profile patch，不动 preset")
+    parser.add_argument("--no-whale", action="store_true", help="不生成 B 站分身人设")
     args = parser.parse_args()
 
     if not SOURCE.is_file():
@@ -109,6 +134,18 @@ def main() -> int:
         before, after = replace_prefix(target, body, args.dry_run)
         mark = "将改为" if args.dry_run else "已改为"
         print(f"{target}\n  {mark} {after} 字符（原 {before}）；结构：{verify(target) if not args.dry_run else '（dry-run 未写入）'}")
+    if not args.no_whale:
+        whale = whale_body()
+        if args.dry_run:
+            print(str(BILI_PERSONA) + " 将改为 " + str(len(whale)) + " 字符（B 站分身，由常驻卡生成）")
+        else:
+            BILI_PERSONA.parent.mkdir(parents=True, exist_ok=True)
+            if BILI_PERSONA.is_file():
+                backup_dir = ROOT / "outputs/persona-backups"
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(BILI_PERSONA, backup_dir / ("bili-persona." + datetime.now().strftime("%Y%m%d-%H%M%S") + ".md"))
+            BILI_PERSONA.write_text(whale, encoding="utf-8")
+            print(str(BILI_PERSONA) + " 已改为 " + str(len(whale)) + " 字符（B 站分身）")
     if args.dry_run:
         print("\n这是预览，没有写入。去掉 --dry-run 才会真的改。")
     return 0
