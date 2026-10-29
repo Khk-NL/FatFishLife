@@ -12,7 +12,7 @@ export function compileSettings(config) {
   }
   if (config.workflows.daily.basePercent > config.workflows.daily.maxPercent) throw new Error('动态基础概率不能大于上限');
   for (const window of config.busyWindows) if (window.start === window.end) throw new Error('忙碌窗口开始和结束不能相同');
-  const policy = { ...config.identity, silent: config.reply.silent, normalKeywords: config.reply.normalKeywords,
+  const policy = { ...config.identity, silent: config.reply.silent, busyText: config.reply.busyText || '拉特兰通讯现在是峰时收费，{hour}点再聊', normalKeywords: config.reply.normalKeywords,
     groupCooldownMs: config.reply.groupCooldownSeconds * 1000, userCooldownMs: config.reply.userCooldownSeconds * 1000,
     dedupMs: config.reply.dedupSeconds * 1000, busyWindows: config.busyWindows };
   const channel = item => ({ enabled: item.enabled, base: item.basePercent / 100, step: item.stepPercent / 100, max: item.maxPercent / 100 });

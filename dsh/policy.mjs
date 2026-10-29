@@ -105,7 +105,7 @@ export class FatFishPolicy {
       this.cooldowns.set(groupKey, now);
       this.cooldowns.set(userKey, now);
       return { kind: 'busy', chatId, userId, returnHour,
-        text: `老板，现在在忙着送快递，${typeof returnHour === 'number' ? returnHour + '点' : returnHour}再聊啦。` };
+        text: this.busyText(returnHour) };
     }
     if (kind === 'group' && !explicit && !this.config.normalKeywords.some(word => word && body.includes(word))) {
       return { kind: 'ignore', reason: 'unaddressed' };
@@ -116,6 +116,13 @@ export class FatFishPolicy {
   prune(map, now, ttl) {
     for (const [key, timestamp] of map) if (now - timestamp >= ttl) map.delete(key);
     while (map.size >= 4096) map.delete(map.keys().next().value);
+  }
+
+  /** 忙时文案：模板里的 {hour} 换成 12 / 18，或窗口结束时刻。 */
+  busyText(returnHour) {
+    const template = String(this.config.busyText || '拉特兰通讯现在是峰时收费，{hour}点再聊');
+    const value = typeof returnHour === 'number' ? returnHour + '点' : String(returnHour ?? '');
+    return template.replace(/\{hour\}点/g, value).replace(/\{hour\}/g, value);
   }
 
   canSend({ busy = false, returnHour } = {}) {

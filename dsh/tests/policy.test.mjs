@@ -61,7 +61,7 @@ test('ten simultaneous pokes produce only one fixed text and no model/media disp
     event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 1 }))));
   assert.ok(result.every(item => item === false));
   assert.equal(f.sends.length, 1);
-  assert.equal(f.sends[0].params.message[0].data.text, '老板，现在在忙着送快递，12点再聊啦。');
+  assert.equal(f.sends[0].params.message[0].data.text, '拉特兰通讯现在是峰时收费，12点再聊');
 });
 
 test('afternoon fixed text and bot-account isolation', async () => {
@@ -204,5 +204,5 @@ test('小模型跑题或超长时退回固定文案', async () => {
     globalThis.fetch = original;
     process.env.FATFISH_BUSY_BRIEF = 'fixed';
   }
-  assert.equal(f.sends[0].params.message[0].data.text, '老板，现在在忙着送快递，12点再聊啦。');
+  assert.equal(f.sends[0].params.message[0].data.text, '拉特兰通讯现在是峰时收费，12点再聊');
 });
