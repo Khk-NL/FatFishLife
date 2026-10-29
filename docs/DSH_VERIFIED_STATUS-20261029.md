@@ -68,6 +68,18 @@ token 必须与 NapCat 的 `token` 字段**完全一致**。
 
 尚未做：真实 QQ 往返。探针用的是独立 home，没有把 NapCat 指过去验证收发。
 
+## 2026-10-29 19:17：生产宿主已挂载桥并监听 8643（无需重启）
+
+`Get-NetTCPConnection -LocalPort 8643 -State Listen` 的占用者是 **PID 13568**，即生产 DSH 宿主本身，
+不是残留进程。也就是说改完 `cordis.patch.yml` 后，desktop profile **热重载**并挂载了桥。
+
+`scripts/dsh_bridge_check.py` 现在 **`ok: true`**：依赖、bundles、顶层 patch 段、botQQ、端口一致、
+端口可连 六项全部 PASS。唯一 WARN 是「尚无 qq-trace.jsonl」——因为桥还没接待过客户端。
+
+**真正卡住的地方不是 DSH，是 QQ 客户端没在跑**：`QQ.exe` 进程数 0，只剩一个 5MB 的
+`NapCatWinBootMain`。19:02 那次 QQ 崩溃之后就没起来过，所以没有任何 OneBot 客户端能连上 8643。
+启动 QQ/NapCat 需要管理员权限（launcher.bat 的 QQ 注入），不是这里能自动完成的。
+
 ## 已知未验证项（不要当成已完成）
 
 1. **真实 QQ 往返一次都没有过**。隔离验收用假 OneBot 与 mock 模型，宿主挂载验证也没接真实 NapCat。

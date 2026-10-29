@@ -72,14 +72,20 @@ Disable-ScheduledTask -TaskName "FatFishLife-Watchdog"
 Copy-Item "$env:USERPROFILE\.dsh\profiles\desktop" "$env:USERPROFILE\.dsh\profiles\desktop.bak-$(Get-Date -Format yyyyMMdd-HHmmss)" -Recurse
 ```
 
-## 3. 安装桥（DSH 必须完全退出）
+## 3. 安装桥
 
-关闭 DSH 窗口**并且退出托盘**，然后：
+**标准做法是让 DSH 完全退出**（窗口 + 托盘）再装，因为安装要跑 pnpm，且半加载状态容易让人误判。
+关闭后：
 
 ```powershell
 cd D:\Code\Projects\FatFishLife
 powershell -ExecutionPolicy Bypass -File scripts\dsh_install_plugins.ps1 -IncludeQqBridge -BotQQ <机器人QQ号>
 ```
+
+> **实测更正（2026-10-29 19:17）**：desktop profile 会**热重载** `cordis.patch.yml`。
+> 手工把包装进 profile 并写好 patch 之后，运行中的宿主自己就挂载了桥并监听 8643——
+> 没有重启。所以「必须重启」这句话只对 `dsh plugin` 安装路径成立，不是宿主的硬要求。
+> 但重新启动仍然是最干净的做法，不要拿热重载当常规部署方式。
 
 **必须带 `-BotQQ`**，否则桥的 `botQQ` 留空、自账号识别出错。安装器会自己把
 `dsh-onebot` 的顶层配置写进 `cordis.patch.yml`（脚本已带 `# >>> dsh-onebot-managed` 标记，
