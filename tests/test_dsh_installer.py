@@ -41,6 +41,22 @@ class InstallerTests(unittest.TestCase):
         # botQQ is written from the parameter, never hard-coded.
         self.assertIn('"    botQQ: \'$BotQQ\'"', text)
 
+    def test_bridge_config_carries_access_token(self):
+        # reverse mode refuses to start without one: "reverse mode requires a
+        # non-empty accessToken", observed on a real host. So it must be
+        # written into the config, not left at its empty default.
+        text = self.raw.decode("utf-16-le")
+        self.assertIn("[string]$AccessToken", text)
+        self.assertIn('"    accessToken: \'$AccessToken\'"', text)
+        self.assertIn("if (-not $AccessToken)", text)
+        # the operator must be told to put the same value into NapCat
+        self.assertIn("并把 token 填成同一串", text)
+
+    def test_bridge_config_sets_explicit_workspace_path(self):
+        # Without it QQ sessions land in whatever directory the host started in.
+        text = self.raw.decode("utf-16-le")
+        self.assertIn("workspacePath: ''D:/Code/Projects/FatFishLife/data/dsh/qq-work''", text)
+
     def test_onebot_entry_is_id_targeted_not_inserted(self):
         text = self.raw.decode("utf-16-le")
         # A top-level `- id:` override is required; nesting it inside an insert

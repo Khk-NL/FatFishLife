@@ -133,14 +133,20 @@ FAIL 项清零才算通过，任一 FAIL 时脚本返回非零。
 mode: 'reverse'        // 桥监听，NapCat 主动连过来
 host: '127.0.0.1'
 port: 8643
+accessToken: ''        // 默认空 —— 但 reverse 模式必须有值，否则拒绝启动
 botQQ: ''              // 默认空
 ```
 
-所以端口是 **8643**（不是 6199）。把 NapCat 的反向 WS 目标从 AstrBot 的 `6199` 改成 `ws://127.0.0.1:8643`。
+所以端口是 **8643**（不是 6199）。把 NapCat 的反向 WS 目标从 `6199` 改成 `ws://127.0.0.1:8643/ws`。
 
-**`botQQ`** 由第 3 步的 `-BotQQ` 参数写入，正常情况不需要手改。如果没带该参数或要改端口，
-安装器已跳过写入，此时手工补：在 `profiles/desktop/cordis.patch.yml` 的 `dsh-onebot` 项补上 config
-（**放在顶层同 id 行**，不要写进 insert 块内部——设置页的 compose 自检会拒绝）：
+> ⚠️ **`accessToken` 是硬门槛**：实测直接启动会报
+> `Error: reverse mode requires a non-empty accessToken`，桥不监听、`1 entry did not activate`。
+> 两边的 token 必须**完全一致**（桥的 config 与 NapCat 的 `token` 字段）。安装器会自动生成并打印，
+> 把它抄进 NapCat 即可。这个坑 2026-10-29 实际踩过。
+
+**`botQQ` 与 `accessToken`** 由第 3 步的 `-BotQQ` 参数与自动生成的 token 写入，正常情况不需要手改。
+如果没带参数或要改端口，安装器已跳过写入，此时手工补：在 `profiles/desktop/cordis.patch.yml` 的
+`dsh-onebot` 项补上 config（**放在顶层同 id 行**，不要写进 insert 块内部——设置页的 compose 自检会拒绝）：
 
 ```yaml
 - id: dsh-onebot
@@ -149,8 +155,12 @@ botQQ: ''              // 默认空
     mode: reverse
     host: 127.0.0.1
     port: 8643
+    accessToken: '<与 NapCat token 相同的随机串>'
     botQQ: '<机器人 QQ 号>'
+    workspacePath: 'D:/Code/Projects/FatFishLife/data/dsh/qq-work'
 ```
+
+`workspacePath` 不写也能跑，但 QQ 会话会落在**宿主进程的启动目录**（日志会告警），建议显式指定。
 
 改之前先确认没人占着旧端口：
 
