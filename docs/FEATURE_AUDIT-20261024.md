@@ -8,6 +8,8 @@
 
 安装器 `dsh_install_plugins.ps1` 现自动写入桥的 `dsh-onebot` 顶层配置（`-BotQQ` 参数，端口固定 reverse/8643），不再需要手改 YAML；`-DryRun` 允许在 DSH 运行时执行，便于先看计划。新增 `tests/test_dsh_installer.py` 5 项回归，其中一条锁定该 `.ps1` 必须保持 UTF-16LE+BOM——按 UTF-8 重写会让 PowerShell 5.1 误读中文、脚本语法直接崩（本轮实际踩到并修复）。
 
+新增 `scripts/dsh_bridge_check.py`：把「包在不在」和「桥能不能用」分开判——依赖、bundles、顶层 patch 条目、botQQ、端口是否一致、端口是否在监听，逐项给 PASS/WARN/FAIL，任一 FAIL 返回非零；对当前生产 profile 实跑输出 5 项 FAIL（桥确实没装），不假装通过。`tests/test_dsh_bridge_check.py` 7 项覆盖缺失、只装不生效、端口不符、botQQ 空仅 WARN、以及 insert 块里的缩进条目不被误当成顶层配置。python 测试现 39 项。
+
 ## 2026-10-29：开发交接至DSH
 
 新增[DSH开发交接](DSH_DEVELOPMENT_HANDOFF.md)，列明首条提示词、源码与运行状态差异、部署顺序、媒体/运营与最终切换验收，以及凭据和发布边界。自动开发fatfishlife-dsh已通过应用工具暂停，文件状态读回确认；本轮仅整理交接，未修改生产配置、重启服务或调用模型/TTS。

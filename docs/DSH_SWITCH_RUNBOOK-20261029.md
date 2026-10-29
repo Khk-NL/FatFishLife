@@ -102,6 +102,23 @@ powershell -ExecutionPolicy Bypass -File scripts\dsh_install_plugins.ps1 -DryRun
 
 ```powershell
 cd D:\Code\Projects\FatFishLife
+.\.tools\dsh-python\Scripts\python.exe -X utf8 scripts\dsh_bridge_check.py
+```
+
+它逐项报告，**「包在不在」和「桥能不能用」分开算**：
+
+| 检查 | 说明 |
+| --- | --- |
+| 桥已安装 | `dsh-onebot-qq` 是否在 profile 依赖里 |
+| 桥进入 bundles | 只在依赖里不够；不在 bundles 里，patch 不会生效 |
+| patch 有 dsh-onebot 段 | 顶层 `- id: dsh-onebot` 是否存在（insert 块里缩进的条目不认） |
+| botQQ 已填写 | 留空只报 WARN，不单独判失败 |
+| 端口一致 | 配置端口是否等于期望端口 |
+| 端口在监听 | 能否连上 `127.0.0.1:8643` |
+
+FAIL 项清零才算通过，任一 FAIL 时脚本返回非零。
+
+```powershell
 .\.tools\dsh-python\Scripts\python.exe -X utf8 scripts\dsh_selfcheck.py --json
 ```
 
