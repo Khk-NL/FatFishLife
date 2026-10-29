@@ -252,7 +252,7 @@ def check_schedule() -> None:
 def check_skills() -> None:
     """迁移过来的 skill 是否装到宿主读取的位置。"""
     skills_root = Path(os.environ.get("FATFISH_SKILLS_DIR") or (Path.home() / ".claude" / "skills"))
-    expected = ["fatfish-bili", "fatfish-memory"]
+    expected = ["fatfish-bili", "fatfish-memory", "bili-cli"]
     missing = [name for name in expected if not (skills_root / name / "SKILL.md").is_file()]
     if not missing:
         check("技能", "PASS", f"{len(expected)} 个 FatFish skill 已安装：{', '.join(expected)}")

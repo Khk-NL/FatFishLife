@@ -121,7 +121,7 @@ class ScheduleAndSkillChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"FATFISH_SKILLS_DIR": folder}):
             checks.check_skills()
             self.assertEqual(checks.results[-1]["status"], "WARN")
-            for name in ("fatfish-bili", "fatfish-memory"):
+            for name in ("fatfish-bili", "fatfish-memory", "bili-cli"):
                 Path(folder, name).mkdir()
                 Path(folder, name, "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
             checks.check_skills()
