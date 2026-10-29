@@ -99,8 +99,30 @@ cd D:\Code\Projects\FatFishLife
 
 ## 5. 把 NapCat 指向 DSH
 
-改 NapCat 的 OneBot 反向 WS 目标端口，从 AstrBot 的 **6199** 指向 DSH 桥监听的端口
-（桥的实际端口见安装后的 profile 配置，不要凭记忆填）。
+桥的默认配置（`.tools/dsh-vendor/prepared-onebot/lib/index.js` 的 `Config`）：
+
+```js
+mode: 'reverse'        // 桥监听，NapCat 主动连过来
+host: '127.0.0.1'
+port: 8643
+botQQ: ''              // 默认空
+```
+
+所以端口是 **8643**（不是 6199）。把 NapCat 的反向 WS 目标从 AstrBot 的 `6199` 改成 `ws://127.0.0.1:8643`。
+
+**`botQQ` 需要显式填**，否则机器人自己的 QQ 号为空，群/私聊的自账号识别会不正确。
+在 `profiles/desktop/cordis.patch.yml` 的 `dsh-onebot` 项补上 config（**放在顶层同 id 行**，
+不要写进 insert 块内部——设置页的 compose 自检会拒绝）：
+
+```yaml
+- id: dsh-onebot
+  name: 'dsh-onebot-qq'
+  config:
+    mode: reverse
+    host: 127.0.0.1
+    port: 8643
+    botQQ: '<机器人 QQ 号>'
+```
 
 改之前先确认没人占着旧端口：
 
@@ -108,9 +130,15 @@ cd D:\Code\Projects\FatFishLife
 netstat -ano | findstr :6199
 ```
 
-切换顺序：**先启动 DSH 桥，再改 NapCat**，避免中间出现两端都没接的空窗过长。
+切换顺序：**先启动 DSH（桥开始监听 8643），再改 NapCat**，避免中间出现两端都没接的空窗过长。
 
-验证：NapCat 控制台出现反向 WS 连接成功；DSH 侧桥日志出现连接事件。
+验证：
+
+```powershell
+netstat -ano | findstr :8643
+```
+
+应能看到 8643 在 LISTENING；NapCat 控制台出现反向 WS 连接成功；DSH 日志出现 `[dsh-onebot] mounted`。
 
 ## 6. 停用 AstrBot（切换验证通过之后，不要提前）
 
