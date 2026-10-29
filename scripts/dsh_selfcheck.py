@@ -230,6 +230,38 @@ def check_qq_bridge() -> None:
         check("QQ 桥", "FAIL", "未安装；QQ 仍由 AstrBot 承担")
 
 
+def check_schedule() -> None:
+    """定时执行器是否真的触发过。判断层有测试不等于定时在跑。"""
+    state_file = Path(os.environ.get("FATFISH_DSH_DATA") or (ROOT / "data" / "dsh")) / "schedule-state.json"
+    if not state_file.exists():
+        check("定时执行器", "WARN", "尚无 schedule-state.json：执行器未在当前宿主加载或还没到点")
+        return
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        check("定时执行器", "FAIL", f"状态文件读不了：{state_file}")
+        return
+    last_run = state.get("lastRun") or {}
+    if not last_run:
+        check("定时执行器", "WARN", "状态文件存在但没有触发记录")
+        return
+    latest_id, latest_at = max(last_run.items(), key=lambda item: str(item[1]))
+    check("定时执行器", "PASS", f"已触发 {len(last_run)} 类任务；最近 {latest_id} @ {latest_at}")
+
+
+def check_skills() -> None:
+    """迁移过来的 skill 是否装到宿主读取的位置。"""
+    skills_root = Path(os.environ.get("FATFISH_SKILLS_DIR") or (Path.home() / ".claude" / "skills"))
+    expected = ["fatfish-bili", "fatfish-memory"]
+    missing = [name for name in expected if not (skills_root / name / "SKILL.md").is_file()]
+    if not missing:
+        check("技能", "PASS", f"{len(expected)} 个 FatFish skill 已安装：{', '.join(expected)}")
+    elif len(missing) == len(expected):
+        check("技能", "WARN", f"尚未安装（{skills_root}）；新会话才会出现在技能表")
+    else:
+        check("技能", "WARN", f"缺 {', '.join(missing)}；已装 {len(expected) - len(missing)} 个")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
@@ -241,6 +273,7 @@ def main() -> int:
     for fn in (
         check_memory, check_gallery, check_kb, check_plugins, check_preset,
         check_mcp_tools, check_local_llm, lambda: check_tts(live=args.live_tts), check_bili, check_qq_bridge,
+        check_schedule, check_skills,
     ):
         try:
             fn()

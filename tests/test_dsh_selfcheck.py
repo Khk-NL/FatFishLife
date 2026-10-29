@@ -90,5 +90,39 @@ class DshSelfcheckTests(unittest.TestCase):
         checks.check_qq_bridge.side_effect=lambda:checks.check('QQ','FAIL','unverified')
         with patch('sys.argv',['dsh_selfcheck.py','--json']),patch.object(checks,'load_env'),redirect_stdout(io.StringIO()) as output:
             self.assertEqual(checks.main(),1)
-        self.assertEqual(len(json.loads(output.getvalue())),10)
+        self.assertEqual(len(json.loads(output.getvalue())),12)
         checks.check_tts.assert_called_once_with(live=False)
+
+class ScheduleAndSkillChecks(unittest.TestCase):
+    def setUp(self):
+        checks.results.clear()
+
+    def test_missing_schedule_state_is_a_warning(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"FATFISH_DSH_DATA": folder}):
+            checks.check_schedule()
+        self.assertEqual(checks.results[-1]["status"], "WARN")
+        self.assertIn("schedule-state.json", checks.results[-1]["detail"])
+
+    def test_recorded_firing_is_a_pass_and_names_the_task(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"FATFISH_DSH_DATA": folder}):
+            Path(folder, "schedule-state.json").write_text(
+                json.dumps({"lastRun": {"diary": "2026-10-29T15:50:00.000Z"}}), encoding="utf-8")
+            checks.check_schedule()
+        self.assertEqual(checks.results[-1]["status"], "PASS")
+        self.assertIn("diary", checks.results[-1]["detail"])
+
+    def test_corrupt_schedule_state_fails_loudly(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"FATFISH_DSH_DATA": folder}):
+            Path(folder, "schedule-state.json").write_text("{not json", encoding="utf-8")
+            checks.check_schedule()
+        self.assertEqual(checks.results[-1]["status"], "FAIL")
+
+    def test_skills_installed_and_partially_missing(self):
+        with tempfile.TemporaryDirectory() as folder, patch.dict(os.environ, {"FATFISH_SKILLS_DIR": folder}):
+            checks.check_skills()
+            self.assertEqual(checks.results[-1]["status"], "WARN")
+            for name in ("fatfish-bili", "fatfish-memory"):
+                Path(folder, name).mkdir()
+                Path(folder, name, "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
+            checks.check_skills()
+        self.assertEqual(checks.results[-1]["status"], "PASS")
