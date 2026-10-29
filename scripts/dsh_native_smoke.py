@@ -36,13 +36,19 @@ def run(community=False) -> int:
     log = home / "host.private.log"
     # CLI installs outside the production profile. A tarball, unlike a linked
     # source directory, gets its own dependencies inside the profile tree.
+    # pnpm keeps its store index in SQLite. When this script runs under a
+    # restricted file sandbox, SQLite cannot take file locks outside the
+    # workspace, so the store pinned in the user's pnpm config fails to open.
+    # FATFISH_SMOKE_STORE lets the caller point the store at a writable path.
+    store = os.environ.get('FATFISH_SMOKE_STORE')
+    extra = ['--store-dir', store] if store else []
     with log.open("w", encoding="utf-8") as output:
-        controls = subprocess.run([str(CLI), 'plugin', '--profile', 'web', 'add', 'file:' + control_archive.as_posix(), '--ignore-scripts'],
-                                  cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120)
+        controls = subprocess.run([str(CLI), 'plugin', '--profile', 'web', 'add', 'file:' + control_archive.as_posix(), '--ignore-scripts', *extra],
+                                  cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=300)
         if controls.returncode:
             raise RuntimeError('Control bundle installation failed; see private log')
-        installed = subprocess.run([str(CLI), "plugin", "--profile", "web", "add", "file:" + archive.as_posix(), "--ignore-scripts"],
-                                   cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120)
+        installed = subprocess.run([str(CLI), "plugin", "--profile", "web", "add", "file:" + archive.as_posix(), "--ignore-scripts", *extra],
+                                   cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=300)
     if installed.returncode:
         print(json.dumps({"ok": False, "stage": "install", "log": str(log)})); return 1
     if community:
@@ -54,8 +60,8 @@ def run(community=False) -> int:
                 raise RuntimeError('Community archive hash mismatch')
             specs.append('file:' + path.as_posix())
         with log.open('a', encoding='utf-8') as output:
-            subprocess.run([str(CLI), 'plugin', '--profile', 'web', 'add', *specs, '--ignore-scripts'],
-                           cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=120, check=True)
+            subprocess.run([str(CLI), 'plugin', '--profile', 'web', 'add', *specs, '--ignore-scripts', *extra],
+                           cwd=home, env=env, stdout=output, stderr=subprocess.STDOUT, timeout=300, check=True)
         shutil.copy2(ROOT / 'scripts/dsh_community_check.mjs', profile / 'community-check.mjs')
         env['FATFISH_COMMUNITY_REPORT'] = str(home / 'community-check.json')
     shutil.copy2(ROOT / "dsh/tests/native-smoke-plugin.mjs", profile / "native-smoke-plugin.mjs")

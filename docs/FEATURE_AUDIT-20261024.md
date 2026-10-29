@@ -1,5 +1,11 @@
 # 功能审查与复用清单（更新至 2026-10-29）
 
+## 2026-10-29：弃用 AstrBot 的全量迁移取舍
+
+用户要求不再使用 AstrBot，全部功能迁入 DSH 且优先复用社区插件。逐项核查离线社区快照 176 个精选件后，只有知识库（`dsh-knowledge-base` 0.1.5）、笔记（`dsh-obsidian` 0.2.6）、B 站只读（`dsh-plugin-bilibili` 0.2.4）、联网搜索（DSH 原生）能直接复用；TTS 换插件等于换掉现有硅基克隆音色，记忆换插件会丢按群隔离与候选审核，故这两类继续用 `fatfish_core`。Pixiv、电子书、漫画、QQ 空间、Steam 促销追踪在社区无对应实现。`dsh-video-downloader` 能下 B 站音视频，但违反只读红线，明确不采用。取舍与状态见[迁移对照表](DSH_FEATURE_MIGRATION-20261029.md)。
+
+同时把桥验收在隔离环境重跑：15 项原生检查通过、桥插件启动、4 次本地 mock、收费与真实发送 0。另定位沙箱下工作区外 SQLite 取不到文件锁导致 pnpm store 打不开的环境问题，已给 `dsh_native_smoke.py` 增加 `FATFISH_SMOKE_STORE` 覆盖。未装生产 desktop、未改 NapCat、未停 AstrBot、未发真实 QQ。
+
 ## 2026-10-29：开发交接至DSH
 
 新增[DSH开发交接](DSH_DEVELOPMENT_HANDOFF.md)，列明首条提示词、源码与运行状态差异、部署顺序、媒体/运营与最终切换验收，以及凭据和发布边界。自动开发fatfishlife-dsh已通过应用工具暂停，文件状态读回确认；本轮仅整理交接，未修改生产配置、重启服务或调用模型/TTS。
