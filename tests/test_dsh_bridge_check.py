@@ -131,6 +131,35 @@ class BridgeCheckTests(unittest.TestCase):
         self.assertEqual(entry["port"], "8643")
         self.assertEqual(entry["botQQ"], "10001")
 
+    def test_trace_file_is_surfaced_when_present(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            with tempfile.TemporaryDirectory() as folder:
+                home = Path(folder)
+                write_profile(home, "desktop", manifest(True), MANAGED.replace("8643", str(port)))
+                trace = home / "media" / "onebot" / "qq-trace.jsonl"
+                trace.parent.mkdir(parents=True)
+                trace.write_text('{"kind":"connect","ok":true}\n', encoding="utf-8")
+                code, report = invoke(home, port)
+        names = {item["name"]: item for item in report["items"]}
+        self.assertEqual(names["桥追踪文件"]["status"], "PASS")
+        self.assertIn("connect", names["桥追踪文件"]["detail"])
+
+    def test_missing_trace_is_a_warning_not_a_failure(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            with tempfile.TemporaryDirectory() as folder:
+                home = Path(folder)
+                write_profile(home, "desktop", manifest(True), MANAGED.replace("8643", str(port)))
+                code, report = invoke(home, port)
+        self.assertEqual(code, 0, report)
+        names = {item["name"]: item["status"] for item in report["items"]}
+        self.assertEqual(names["桥追踪文件"], "WARN")
+
 
 if __name__ == "__main__":
     unittest.main()

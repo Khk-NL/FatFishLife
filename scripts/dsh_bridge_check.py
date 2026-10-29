@@ -30,8 +30,11 @@ def profile_dir(profile: str) -> Path:
 
 
 def read_json(path: Path) -> dict:
+    # utf-8-sig: a BOM is invisible in an editor but makes json.loads throw, and
+    # PowerShell 5.1 writes one by default. Tolerate it instead of silently
+    # reporting "not installed".
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError):
         return {}
 
@@ -120,6 +123,20 @@ def run(profile: str = "desktop", port: int = 8643, host: str = "127.0.0.1") -> 
         listening,
         f"{host}:{port} {'可连接' if listening else '连不上（DSH 未运行或桥未挂载）'}",
     )
+
+    # The bridge writes qq-trace.jsonl under its media dir when traceEnabled is
+    # on. That file is the only durable evidence a restart actually produced a
+    # live bridge and handled a message, since the desktop host's stdout is not
+    # captured anywhere.
+    traces = sorted(dsh_home().glob("media/**/qq-trace.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True) if (dsh_home() / "media").is_dir() else []
+    if traces:
+        newest = traces[0]
+        last = ""
+        for line in read_text(newest).splitlines()[-1:]:
+            last = line.strip()[:120]
+        add("桥追踪文件", True, f"{newest} | 最后一条: {last or '(空)'}")
+    else:
+        add("桥追踪文件", False, "尚无 qq-trace.jsonl：桥还没在宿主里连接过", warn=True)
 
     failed = [item for item in items if item["status"] == "FAIL"]
     print(json.dumps({"ok": not failed, "items": items}, ensure_ascii=False, indent=2))
