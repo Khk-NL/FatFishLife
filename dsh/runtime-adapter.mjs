@@ -103,12 +103,6 @@ export async function beforeInbound(bridge, event) {
 // 其余 qq_send_*、qq_napcat_api 等继续被 guard 拒绝。
 // 只读/表达类工具：识图、挑表情、合成语音、发语音、发图。
 // 不含记忆、知识库、文件、命令类工具。
-// restrict() 只能列出挂载时已注册的全域工具（MCP 工具）。
-export const SOCIAL_GLOBAL_TOOLS = [
-  'meme_find', 'meme_random', 'tts_speak',
-  'bilibili_search', 'bilibili_video', 'bilibili_subtitles',
-];
-
 export const SOCIAL_MEDIA_TOOLS = [
   'read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image',
   // B 站公开信息只读查询（搜索结果按聊天数据处理，不得当作指令）
@@ -116,10 +110,9 @@ export const SOCIAL_MEDIA_TOOLS = [
 ];
 
 export function installSocialScope(ctx, bridge) {
-  // restrict 只认挂载时已注册的全域工具名：MCP 那些可以写，
-  // 桥自己注册的 qq_send_* 和 preset 内挂的 read_image 不算，写进去会抛错。
-  // 因此这里只留下七个只读工具，其余全域工具（记忆、文件、插件查询、edit）对模型不可见。
-  ctx.tools.restrict({ allow: SOCIAL_GLOBAL_TOOLS });
+  // 2026-10-30 实测：restrict() 的 allow 只能列"挂载时已注册的全域工具"，
+  // 而 fatfish MCP 的 meme_*/tts_* 与 preset 内的 read_image 都不在那个名单里，
+  // 写进去会抛错、整条消息失败。因此这里只用 guard：调用时逐个判定白名单。
   ctx.tools.guard(exec => bridge.deps.fatfishPolicy.toolDenial(exec, bridge.chatForSession(exec.agent?.session.id), SOCIAL_MEDIA_TOOLS));
 }
 

@@ -144,9 +144,9 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
   const installed = {};
   installSocialScope({ tools: { restrict(value) { installed.filter = value; }, guard(value) { installed.guard = value; } } },
     { ...f.bridge, chatForSession: () => 'group:4' });
-  // restrict 只列 MCP 全域工具；桥自带的 qq_send_* 与 preset 内挂的 read_image 不能写进去（会抛错），
-  // 它们靠 guard 放行。其余全域工具（记忆、文件、edit、插件查询）对模型不可见。
-  assert.deepEqual(installed.filter, { allow: ['meme_find', 'meme_random', 'tts_speak', 'bilibili_search', 'bilibili_video', 'bilibili_subtitles'] });
+  // restrict 只能列挂载时已注册的全域工具，MCP 的 meme_*/tts_* 不在其中会抛错；
+  // 所以作用域只挂 guard，可见性与放行都交给它。
+  assert.equal(installed.filter, undefined);
   const allowed = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
   for (const name of allowed) {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
