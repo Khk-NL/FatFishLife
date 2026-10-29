@@ -101,7 +101,9 @@ export async function beforeInbound(bridge, event) {
 
 // 只有这两个媒体动作允许模型自己调用（上游已带限额与审计）。
 // 其余 qq_send_*、qq_napcat_api 等继续被 guard 拒绝。
-export const SOCIAL_MEDIA_TOOLS = ['qq_send_voice', 'qq_send_image'];
+// 只读/表达类工具：识图、挑表情、合成语音、发语音、发图。
+// 不含记忆、知识库、文件、命令类工具。
+export const SOCIAL_MEDIA_TOOLS = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
 
 export function installSocialScope(ctx, bridge) {
   // Inherited surface stays empty; the two media tools are registered by the

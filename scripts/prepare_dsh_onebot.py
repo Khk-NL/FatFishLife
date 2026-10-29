@@ -58,6 +58,13 @@ def prepare() -> Path:
         source = replace(source, "    const policy = resolvePolicy(config);", "    const policy = { ...resolvePolicy(config), adminUsers: [String(fatfishPolicy.config.ownerId)] };")
         source = replace(source, "    const bridge = new ChatBridge({\n        ctx,", "    const bridge = new ChatBridge({\n        fatfishPolicy,\n        ctx,")
         source = replace(source, "        config: {\n            botQQ:", "        config: {\n            fatfishPolicy,\n            botQQ:")
+        source = replace(
+            source,
+            "    logLevel: z.union([z.const('debug'), z.const('info'), z.const('warn'), z.const('error')]).default('info')",
+            """    extraMediaRoots: z.array(z.string()).default([])
+        .description('额外允许的出站媒体根目录（表情图库、TTS 输出等）'),
+    logLevel: z.union([z.const('debug'), z.const('info'), z.const('warn'), z.const('error')]).default('info')""",
+        )
         return source
 
     def bridge(source):
@@ -90,6 +97,9 @@ def prepare() -> Path:
         source = replace(source, 'text: buildPlatformPrompt(this.deps.config.restrictedMemberPrefix),', 'text: SOCIAL_CHANNEL_PROMPT,')
         # 上游的 registerTools 原样保留（发语音/发图的实现、限额、审计都是现成的）；
         # 只注册哪几个工具由 tools.js 的白名单决定，见下面的 tools() 补丁。
+        source = replace(source,
+            "        const candidates = [this.deps.config.mediaDir];",
+            "        const candidates = [this.deps.config.mediaDir, ...(this.deps.config.extraMediaRoots ?? [])];")
         source = replace(source, "    guardedConnectionCall(action, params, chatId) {", "    guardedConnectionCall(action, params, chatId) {\n        assertOutbound(this.deps.fatfishPolicy, action);")
         source = replace(source, "this.sendToChat(chatId, QUEUE_NOTICE_TEXT).catch", "Promise.resolve([]).catch")
         source = replace(source, "            this.interim.onTurnEnd(chatId, chat);", "            if (reason.kind !== 'completed') chat.loopPending = null;\n            this.interim.onTurnEnd(chatId, chat);")
