@@ -90,6 +90,32 @@ def can_connect(host: str, port: int, timeout: float = 1.5) -> bool:
         return False
 
 
+def patch_parses(text: str) -> tuple[bool, str]:
+    """Compose-layer sanity: the patch file must be a YAML list.
+
+    `!!js` tags are a DSH extension, so they are ignored rather than treated as
+    an error. A structural failure here is the known cause of "every settings
+    save is rejected" while startup still looks fine.
+    """
+    if not text.strip():
+        return True, "patch 为空（合法）"
+    try:
+        import yaml  # 只有这个检查需要 PyYAML；缺了不致命
+    except ImportError:
+        return True, "未安装 PyYAML，跳过结构校验"
+    loader = type("DshLoader", (yaml.SafeLoader,), {})
+    loader.add_multi_constructor("tag:yaml.org,2002:js", lambda _l, _s, _n: None)
+    loader.add_multi_constructor("!js", lambda _l, _s, _n: None)
+    try:
+        data = yaml.load(text, Loader=loader)  # noqa: S506 - SafeLoader subclass
+    except yaml.YAMLError as error:
+        first = str(error).splitlines()[0] if str(error) else type(error).__name__
+        return False, f"解析失败：{first[:120]}"
+    if not isinstance(data, list):
+        return False, f"顶层应为数组，实际是 {type(data).__name__}"
+    return True, f"顶层数组，{len(data)} 个条目"
+
+
 def napcat_config() -> tuple[Path, dict] | None:
     """Find NapCat's OneBot client entry. Returns (path, client) or None.
 
@@ -134,6 +160,13 @@ def run(profile: str = "desktop", port: int = 8643, host: str = "127.0.0.1") -> 
     patch = read_text(root / "cordis.patch.yml")
     entry = onebot_entry(patch)
     add("patch 有 dsh-onebot 段", bool(entry), "找到顶层 dsh-onebot 条目" if entry else "没找到顶层 dsh-onebot 条目")
+
+    # 结构级校验：patch 必须是能解析的 YAML 数组。抓的是语法断裂（未闭合引号、
+    # 缩进错乱、顶层不是数组）这类会让整个 patch 层失效的问题。
+    # 注意它**复现不了** 2026-10-28 那个具体边界（引号后紧跟注释）：PyYAML 容忍，
+    # 只有设置页的 round-trip 解析器会拒绝。别把这条当万能保险。
+    ok, detail = patch_parses(patch)
+    add("patch 结构可解析", ok, detail)
 
     bot_qq = str(entry.get("botQQ") or "").strip()
     add("botQQ 已填写", bool(bot_qq), f"botQQ={bot_qq or '(空)'}", warn=not bot_qq)

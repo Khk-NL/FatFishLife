@@ -237,3 +237,29 @@ class NapCatAlignmentTests(unittest.TestCase):
         self.assertEqual(code, 0, report)
         names = {i["name"]: i["status"] for i in report["items"]}
         self.assertEqual(names["NapCat 配置"], "WARN")
+
+class PatchStructureTests(unittest.TestCase):
+    """patch 层语法断裂会让所有设置保存失效，值得单独判。"""
+
+    def test_valid_patch_passes(self):
+        ok, detail = bridge_check.patch_parses("- id: a\n  name: x\n")
+        self.assertTrue(ok, detail)
+        self.assertIn("数组", detail)
+
+    def test_unclosed_quote_fails(self):
+        ok, detail = bridge_check.patch_parses('- id: a\n  name: "x\n')
+        self.assertFalse(ok)
+        self.assertIn("解析失败", detail)
+
+    def test_broken_indentation_fails(self):
+        ok, _ = bridge_check.patch_parses("- id: a\n   name: b\n  config: c\n")
+        self.assertFalse(ok)
+
+    def test_top_level_mapping_fails(self):
+        ok, detail = bridge_check.patch_parses("id: a\n")
+        self.assertFalse(ok)
+        self.assertIn("数组", detail)
+
+    def test_empty_patch_is_allowed(self):
+        ok, detail = bridge_check.patch_parses("   \n")
+        self.assertTrue(ok, detail)
