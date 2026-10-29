@@ -26,6 +26,7 @@ MANAGED = """
     mode: reverse
     host: 127.0.0.1
     port: 8643
+    accessToken: '10001'
     botQQ: '10001'
 """
 
@@ -47,11 +48,19 @@ def manifest(with_bridge: bool) -> dict:
     return {"dependencies": dependencies, "dsh": {"profile": {"bundles": bundles}}}
 
 
-def invoke(home: Path, port: int) -> tuple[int, dict]:
+def invoke(home: Path, port: int, extra_env: dict | None = None) -> tuple[int, dict]:
     buffer = io.StringIO()
-    with mock.patch.dict(os.environ, {"DSH_HOME": str(home)}, clear=False), redirect_stdout(buffer):
+    # 默认不读本机真实的 NapCat 配置，否则测试结果会随机器变化
+    env = {"DSH_HOME": str(home), "FATFISH_NAPCAT_CONFIG": str(home / "no-napcat.json")}
+    env.update(extra_env or {})
+    with mock.patch.dict(os.environ, env, clear=False), redirect_stdout(buffer):
         code = bridge_check.run(profile="desktop", port=port)
     return code, json.loads(buffer.getvalue())
+
+
+def napcat_json(url: str, token: str) -> str:
+    return json.dumps({"network": {"websocketClients": [
+        {"name": "dsh", "enable": True, "url": url, "token": token}]}})
 
 
 class BridgeCheckTests(unittest.TestCase):
@@ -163,3 +172,68 @@ class BridgeCheckTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class NapCatAlignmentTests(unittest.TestCase):
+    """桥与 NapCat 的 token 不一致时连接被拒且两边都不报错，必须能查出来。"""
+
+    def _profile(self, home: Path, patch_text: str) -> None:
+        write_profile(home, "desktop", manifest(True), patch_text)
+
+    def test_matching_token_and_port_pass(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            with tempfile.TemporaryDirectory() as folder:
+                home = Path(folder)
+                self._profile(home, MANAGED.replace("8643", str(port)))
+                napcat = home / "onebot11_1.json"
+                napcat.write_text(napcat_json(f"ws://127.0.0.1:{port}/ws", "10001"), encoding="utf-8")
+                code, report = invoke(home, port, {"FATFISH_NAPCAT_CONFIG": str(napcat)})
+        self.assertEqual(code, 0, report)
+        names = {i["name"]: i["status"] for i in report["items"]}
+        self.assertEqual(names["NapCat token 一致"], "PASS")
+        self.assertEqual(names["NapCat 指向桥端口"], "PASS")
+
+    def test_token_mismatch_fails_even_when_port_matches(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            with tempfile.TemporaryDirectory() as folder:
+                home = Path(folder)
+                self._profile(home, MANAGED.replace("8643", str(port)))
+                napcat = home / "onebot11_1.json"
+                napcat.write_text(napcat_json(f"ws://127.0.0.1:{port}/ws", "wrong-token"), encoding="utf-8")
+                code, report = invoke(home, port, {"FATFISH_NAPCAT_CONFIG": str(napcat)})
+        self.assertEqual(code, 1)
+        names = {i["name"]: i["status"] for i in report["items"]}
+        self.assertEqual(names["NapCat token 一致"], "FAIL")
+
+    def test_wrong_port_fails(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            with tempfile.TemporaryDirectory() as folder:
+                home = Path(folder)
+                self._profile(home, MANAGED.replace("8643", str(port)))
+                napcat = home / "onebot11_1.json"
+                napcat.write_text(napcat_json("ws://127.0.0.1:6199/ws", "10001"), encoding="utf-8")
+                code, report = invoke(home, port, {"FATFISH_NAPCAT_CONFIG": str(napcat)})
+        self.assertEqual(code, 1)
+        names = {i["name"]: i["status"] for i in report["items"]}
+        self.assertEqual(names["NapCat 指向桥端口"], "FAIL")
+
+    def test_missing_napcat_config_is_only_a_warning(self):
+        with socket.socket() as server:
+            server.bind(("127.0.0.1", 0))
+            server.listen(1)
+            port = server.getsockname()[1]
+            with tempfile.TemporaryDirectory() as folder:
+                home = Path(folder)
+                self._profile(home, MANAGED.replace("8643", str(port)))
+                code, report = invoke(home, port, {"FATFISH_NAPCAT_CONFIG": str(home / "nope.json")})
+        self.assertEqual(code, 0, report)
+        names = {i["name"]: i["status"] for i in report["items"]}
+        self.assertEqual(names["NapCat 配置"], "WARN")

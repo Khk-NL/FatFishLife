@@ -77,6 +77,7 @@ def onebot_entry(text: str) -> dict:
         "mode": _value_after(joined, "mode"),
         "host": _value_after(joined, "host"),
         "port": _value_after(joined, "port"),
+        "accessToken": _value_after(joined, "accessToken"),
         "botQQ": _value_after(joined, "botQQ"),
     }
 
@@ -87,6 +88,30 @@ def can_connect(host: str, port: int, timeout: float = 1.5) -> bool:
             return True
     except OSError:
         return False
+
+
+def napcat_config() -> tuple[Path, dict] | None:
+    """Find NapCat's OneBot client entry. Returns (path, client) or None.
+
+    The reverse-WS client lives in NapCat's own config, outside this repo, so a
+    missing file is a WARN rather than a failure: not every machine has NapCat.
+    """
+    explicit = os.environ.get("FATFISH_NAPCAT_CONFIG")
+    if explicit:
+        candidates = [Path(explicit)]
+    else:
+        roots = [Path("D:/Code/Apps/NapCat/config"), Path.home() / "AppData/Roaming/QQ/config"]
+        candidates = [p for root in roots if root.is_dir() for p in sorted(root.glob("onebot11_*.json"))]
+    for path in candidates:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        clients = ((data.get("network") or {}).get("websocketClients")) or []
+        for client in clients:
+            if isinstance(client, dict) and client.get("url"):
+                return path, client
+    return None
 
 
 def run(profile: str = "desktop", port: int = 8643, host: str = "127.0.0.1") -> int:
@@ -123,6 +148,22 @@ def run(profile: str = "desktop", port: int = 8643, host: str = "127.0.0.1") -> 
         listening,
         f"{host}:{port} {'可连接' if listening else '连不上（DSH 未运行或桥未挂载）'}",
     )
+
+    # NapCat 与桥必须指向同一端口、携带同一 token。不一致时两边都不会报错，
+    # 只是连接被拒 —— 这正是 2026-10-29 实际卡过一次的地方，所以单独判。
+    napcat = napcat_config()
+    if napcat is None:
+        add("NapCat 配置", False, "找不到 NapCat 的 onebot11 配置（可用 FATFISH_NAPCAT_CONFIG 指定）", warn=True)
+    else:
+        path, client = napcat
+        url = str(client.get("url") or "").strip()
+        target_port = url.rsplit(":", 1)[-1].split("/")[0] if ":" in url else ""
+        add("NapCat 指向桥端口", target_port == str(port), f"{url or '(未写)'}（期望端口 {port}）")
+        napcat_token = str(client.get("token") or "").strip()
+        bridge_token = str(entry.get("accessToken") or "").strip()
+        same = bool(bridge_token) and napcat_token == bridge_token
+        add("NapCat token 一致", same,
+            "一致" if same else f"桥={'(空)' if not bridge_token else '已设置'} / NapCat={'(空)' if not napcat_token else '已设置'}（不一致会被拒连且不报错）")
 
     # The bridge writes qq-trace.jsonl under its media dir when traceEnabled is
     # on. That file is the only durable evidence a restart actually produced a
