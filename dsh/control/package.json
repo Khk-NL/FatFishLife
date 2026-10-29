@@ -5,11 +5,44 @@
   "type": "module",
   "description": "FatFishLife 白盒管理：回复门禁、媒体概率、运营计划与生效状态。QQ与运营执行器逐项接入中。",
   "main": "index.mjs",
-  "exports": { ".": "./index.mjs", "./client": "./client.js", "./locale/*.json": "./locale/*.json", "./package.json": "./package.json" },
-  "files": ["index.mjs", "settings.mjs", "client.js", "cordis.patch.yml", "locale"],
-  "engines": { "dsh": ">=0.2.1-rc.3 <0.3.0-0" },
-  "peerDependencies": { "@deepseek-ai/cordis": "~4.0.5", "@deepseek-ai/schemastery": "~3.18.5", "@deepseek-ai/dsh-tools": "0.2.1-rc.3" },
-  "dsh": { "bundle": { "patch": "./cordis.patch.yml" }, "client": {
-    "inject": ["@deepseek-ai/dsh-client-ui-settings", "@deepseek-ai/dsh-client-ui-plugin-manager"], "platform": "web"
-  } }
+  "exports": {
+    ".": "./index.mjs",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.mjs",
+    "settings.mjs",
+    "client.js",
+    "cordis.patch.yml",
+    "locale",
+    "business.mjs",
+    "proactive.mjs",
+    "compose.mjs",
+    "llm.mjs",
+    "hub.mjs",
+    "bili.mjs",
+    "transport.mjs"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/schemastery": "~3.18.5",
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.3"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ],
+      "platform": "web"
+    }
+  }
 }

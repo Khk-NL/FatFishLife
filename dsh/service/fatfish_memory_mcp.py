@@ -47,6 +47,8 @@ from fatfish_core import gallery  # noqa: E402
 from fatfish_core.steam import SteamStore, SteamError, format_result as steam_format  # noqa: E402
 from fatfish_core import local_llm  # noqa: E402
 from fatfish_core.delivery import DeliveryPolicy  # noqa: E402
+from fatfish_core import recall as recall_sources  # noqa: E402
+from fatfish_core import hub as hub_api  # noqa: E402
 
 MAX_LIMIT = 50
 
@@ -116,6 +118,113 @@ def _limit(value: Any, default: int = 10) -> int:
 
 def _dump(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=False)
+
+
+# ---- 统一检索（记忆库 / 知识库 / Obsidian / 群聊归档）-----------------------------
+# 四处存储各自独立，检索逻辑在 fatfish_core.recall（不依赖 mcp SDK，方便单测）。
+
+
+@server.tool(description="一次查四处：记忆库、知识库、Obsidian 笔记、群聊归档；每条带来源标签")
+def recall_all(query: str, limit: int = 3) -> str:
+    result = recall_sources.recall_all(
+        query, limit, memory_search=lambda term, per: store().search(term, limit=per),
+    )
+    return _dump(result)
+
+
+# ---- 成长系统写入口 ------------------------------------------------------------
+
+@server.tool(description="记录一次能力经历（成长系统写入口）；只存受控标签，不存原文")
+def growth_record(capability: str, status: str = "success", stage: str = "use", error_code: str = "") -> str:
+    from fatfish_core.growth import CAPABILITIES, STATUSES, STAGES, record_capability
+
+    if os.environ.get("FATFISH_GROWTH_WRITE", "0").strip() != "1":
+        return _dump({"error": "成长写入未开启（FATFISH_GROWTH_WRITE=1 才允许）"})
+    try:
+        row_id = record_capability(store(), capability, status, stage=stage, error_code=error_code)
+    except ValueError as error:
+        return _dump({"error": str(error), "capabilities": sorted(CAPABILITIES),
+                      "statuses": sorted(STATUSES), "stages": sorted(STAGES)})
+    return _dump({"ok": True, "id": row_id, "capability": capability, "status": status, "stage": stage})
+
+
+@server.tool(description="读最近的能力经历汇总（成长记录）")
+def growth_summary(limit: int = 200) -> str:
+    from fatfish_core.growth import capability_summary
+
+    rows = store().recent(scopes=("private",), limit=_limit(limit, 200), kinds=("capability",))
+    return _dump({"total": len(rows), "summary": capability_summary(rows)})
+
+
+# ---- 中枢：心情 / 知识图谱 / 日记 / 当天统计 -------------------------------------
+# 实现在 fatfish_core.hub（不依赖 mcp SDK，命令行与单测共用同一套逻辑）。
+
+
+def _hub_write_guard() -> str:
+    """写工具的统一守卫；返回非空字符串表示拒绝原因。"""
+    if _readonly():
+        return "服务以只读模式启动"
+    if os.environ.get("FATFISH_HUB_WRITE", "0").strip() != "1":
+        return "中枢写入未开启（FATFISH_HUB_WRITE=1 才允许）"
+    return ""
+
+
+@server.tool(description="读当前心情（0-100，50 中性，按小时向 50 回归）")
+def mood_get(scope: str = "global") -> str:
+    return _dump(hub_api.mood_get(scope))
+
+
+@server.tool(description="调整当前心情；需 FATFISH_HUB_WRITE=1")
+def mood_nudge(delta: float, reason: str = "", scope: str = "global") -> str:
+    blocked = _hub_write_guard()
+    if blocked:
+        return _dump({"ok": False, "error": blocked})
+    try:
+        return _dump(hub_api.mood_nudge(delta, reason, scope))
+    except Exception as error:  # noqa: BLE001 - MCP 边界：参数/库错误都转 JSON
+        detail = str(error) if isinstance(error, (FileNotFoundError, ValueError)) else f"{type(error).__name__}: {error}"
+        return _dump({"ok": False, "error": detail})
+
+
+@server.tool(description="在公开知识图谱里检索有出处的条目（只读）")
+def lore_search(query: str, limit: int = 5) -> str:
+    return _dump(hub_api.lore_search(query, _limit(limit, 5)))
+
+
+@server.tool(description="取知识图谱证据文本，带来源，最多 max_chars 字（只读）")
+def lore_context(query: str, max_chars: int = 1200) -> str:
+    return _dump(hub_api.lore_context(query, max_chars))
+
+
+@server.tool(description="写当天日记；同一天同一来源覆盖更新，需 FATFISH_HUB_WRITE=1")
+def journal_write(day: str, content: str, source: str = "dsh") -> str:
+    blocked = _hub_write_guard()
+    if blocked:
+        return _dump({"ok": False, "error": blocked})
+    try:
+        return _dump(hub_api.journal_write(day, content, source))
+    except Exception as error:  # noqa: BLE001 - MCP 边界：参数/库错误都转 JSON
+        detail = str(error) if isinstance(error, (FileNotFoundError, ValueError)) else f"{type(error).__name__}: {error}"
+        return _dump({"ok": False, "error": detail})
+
+
+@server.tool(description="读最近几天的日记，按日期倒序（只读）")
+def journal_recent(days: int = 7) -> str:
+    return _dump(hub_api.journal_recent(days))
+
+
+@server.tool(description="按日期统计聊天事件条数、范围、类型和内容片段（只读）")
+def day_digest(day: str) -> str:
+    try:
+        return _dump(hub_api.day_digest(day))
+    except ValueError as error:
+        return _dump({"day": day, "events": 0, "scopes": {}, "kinds": {},
+                      "samples": [], "error": str(error)})
+
+
+@server.tool(description="从最近几天的聊天里抽取高频说法（本地 n-gram，不调模型，只读）")
+def style_terms(days: int = 7, limit: int = 12) -> str:
+    return _dump(hub_api.style_terms(days, limit))
 
 
 @server.tool(description="按关键词回忆共享记忆（当前会话或公开范围）")
