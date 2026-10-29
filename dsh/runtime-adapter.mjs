@@ -106,9 +106,9 @@ export async function beforeInbound(bridge, event) {
 export const SOCIAL_MEDIA_TOOLS = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
 
 export function installSocialScope(ctx, bridge) {
-  // Inherited surface stays empty; the two media tools are registered by the
-  // bridge itself and pass the guard below.
-  ctx.tools.restrict({ allow: [] });
+  // 继承面只放行白名单里的只读/表达工具（read_image 由 dsh-tool-fs 提供），
+  // 其余继承工具（read/write/bash/记忆/知识库）仍被 restrict 挡在外面。
+  ctx.tools.restrict({ allow: [...SOCIAL_MEDIA_TOOLS] });
   ctx.tools.guard(exec => bridge.deps.fatfishPolicy.toolDenial(exec, bridge.chatForSession(exec.agent?.session.id), SOCIAL_MEDIA_TOOLS));
 }
 

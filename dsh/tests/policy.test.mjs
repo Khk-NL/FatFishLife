@@ -144,7 +144,8 @@ test('native scope registers both inherited mask and monotonic guard', () => {
   const installed = {};
   installSocialScope({ tools: { restrict(value) { installed.filter = value; }, guard(value) { installed.guard = value; } } },
     { ...f.bridge, chatForSession: () => 'group:4' });
-  assert.deepEqual(installed.filter, { allow: [] });
+  // 2026-10-30：继承面只放行白名单工具（read_image 需要 dsh-tool-fs）。
+  assert.deepEqual(installed.filter, { allow: ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'] });
   // 2026-10-29：只放行桥上游的两个媒体工具，其余仍然全拒。
   const allowedMedia = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
   for (const name of allowedMedia) {
