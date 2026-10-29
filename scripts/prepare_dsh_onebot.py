@@ -65,6 +65,13 @@ def prepare() -> Path:
         .description('额外允许的出站媒体根目录（表情图库、TTS 输出等）'),
     logLevel: z.union([z.const('debug'), z.const('info'), z.const('warn'), z.const('error')]).default('info')""",
         )
+        # 桥的 deps.config 是显式白名单，extraMediaRoots 不传进去等于没配
+        source = replace(
+            source,
+            "            mediaDir,",
+            "            mediaDir," + chr(10) + "            extraMediaRoots: config.extraMediaRoots,",
+        )
+
         return source
 
     def bridge(source):
