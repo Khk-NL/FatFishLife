@@ -12,7 +12,7 @@ def pack() -> Path:
     target = ROOT / '.tools/dsh-vendor/adapted/dsh-fatfish-life-0.1.0.tgz'
     target.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(target, 'w:gz') as archive:
-        for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'settings.mjs', 'client.js', 'locale'):
+        for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'ops.mjs', 'settings.mjs', 'client.js', 'locale'):
             archive.add(source / name, arcname='package/' + name)
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     addressed = target.with_stem(target.stem + '-' + digest[:12])

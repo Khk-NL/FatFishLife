@@ -79,7 +79,7 @@
 
 | 规矩 | 代码 | DSH 侧状态 |
 |---|---|---|
-| B 站刷首页+推荐理由 | `fatfish_core/bili.py`、`_auto_scroll` | 业务可调；**时间判断已迁**（`dsh/schedule.mjs`，12 项测试），**执行器未接** |
+| B 站刷首页+推荐理由 | `fatfish_core/bili.py`、`_auto_scroll` | 时间判断已迁（`control/schedule.mjs`，14 项测试）+ **筛选已迁**（`control/ops.mjs`，7 项测试：关键词/上限3/去重/理由≥8字）；**取数与发送未接** |
 | B 站标签学习 | `study.py`、`bili_style` | 同上（21:00 已在 schedule.mjs 的任务表里） |
 | 每日日记与动态 | `fatfish_life`、`journals` 表 | 数据已迁；23:50 已在任务表，生成与发布待接 |
 | 峰谷模型切换 | `fatfish_core/logic.py` | 规则保留，**落地方式待定**（DSH 单 provider） |
