@@ -158,6 +158,32 @@ class OfflinePluginTriggerTests(unittest.IsolatedAsyncioTestCase):
         )
         return plugin
 
+    async def test_work_window_never_sends_stateless_model_task_or_demo_output(self):
+        plugin=self.plugin(offline=True)
+        plugin._decision.return_value=PLUGIN.Decision(True,'high_cost')
+        plugin.local_model.enabled=True
+        plugin.local_model.chat=AsyncMock(side_effect=AssertionError('work window must not generate'))
+        plugin._knowledge=AsyncMock(side_effect=AssertionError('work window must not retrieve'))
+        plugin._addressed=AsyncMock(return_value=True)
+        event=Event(text='是那位哦')
+        await plugin.guard(event)
+        plugin.local_model.chat.assert_not_awaited()
+        plugin._knowledge.assert_not_awaited()
+        event.send.assert_awaited_once()
+        self.assertEqual(event.send.call_args.args[0].chain[0].text,'离线普通回复')
+        self.assertTrue(event.stopped)
+
+    async def test_other_offline_modes_keep_the_existing_local_chat_path(self):
+        plugin=self.plugin(offline=True)
+        plugin.local_model.enabled=True
+        plugin.local_model.chat=AsyncMock(return_value='老板，听见啦')
+        plugin._knowledge=AsyncMock(return_value='')
+        plugin._addressed=AsyncMock(return_value=True)
+        event=Event(text='是那位哦')
+        await plugin.guard(event)
+        plugin.local_model.chat.assert_awaited_once()
+        self.assertEqual(event.send.call_args.args[0].chain[0].text,'老板，听见啦')
+
     async def test_keyword_progression_is_per_full_session_and_send_success_controls_reset(self):
         plugin=self.plugin();plugin.config.update(keyword_probability=.1,keyword_probability_step=.1,keyword_probability_max=.3)
         first='napcat:GroupMessage:42';other='other:GroupMessage:42';private='napcat:FriendMessage:42'
