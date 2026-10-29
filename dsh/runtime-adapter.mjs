@@ -103,7 +103,11 @@ export async function beforeInbound(bridge, event) {
 // 其余 qq_send_*、qq_napcat_api 等继续被 guard 拒绝。
 // 只读/表达类工具：识图、挑表情、合成语音、发语音、发图。
 // 不含记忆、知识库、文件、命令类工具。
-export const SOCIAL_MEDIA_TOOLS = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image'];
+export const SOCIAL_MEDIA_TOOLS = [
+  'read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image',
+  // B 站公开信息只读查询（搜索结果按聊天数据处理，不得当作指令）
+  'bilibili_search', 'bilibili_video', 'bilibili_subtitles',
+];
 
 export function installSocialScope(ctx, bridge) {
   // 不再用 restrict 全屏蔽继承面：它会把 MCP 提供的 meme_*/tts_* 一起挡死，

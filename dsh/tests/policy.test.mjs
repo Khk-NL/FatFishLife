@@ -150,7 +150,12 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
   for (const name of allowed) {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }
-  for (const name of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task', 'recall', 'kb_query', 'bilibili_search']) {
+  // MCP 注册名带 mcp__<server>__ 前缀，归一化后照样放行
+  for (const name of ['mcp__fatfish__meme_find', 'mcp__fatfish__tts_speak', 'mcp__fatfish__meme_random', 'mcp__fatfish__bilibili_search']) {
+    assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
+  }
+  for (const name of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task',
+    'recall', 'kb_query', 'remember', 'mcp__fatfish__recall', 'mcp__fatfish__fatfish_status', 'mcp__fatfish__tts_check']) {
     assert.ok(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }));
   }
   assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', allowed));

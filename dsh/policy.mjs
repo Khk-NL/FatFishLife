@@ -135,7 +135,10 @@ export class FatFishPolicy {
   toolDenial(exec, chatId, allowed = []) {
     if (!this.canSend()) return 'FatFish social activity is paused';
     // Guard covers both inherited tools and tools registered by this scope.
-    if (!allowed.includes(exec.name)) return 'Tool is outside this social capability set';
+    // MCP 工具注册名带 mcp__<server>__ 前缀，白名单写的是短名，先归一化再比。
+    const name = String(exec.name ?? '');
+    const short = name.includes('__') ? name.split('__').pop() : name;
+    if (!allowed.includes(name) && !allowed.includes(short)) return 'Tool is outside this social capability set';
     if (exec.arguments?.chat_id !== undefined && exec.arguments.chat_id !== chatId) return 'Cross-conversation target denied';
     return undefined;
   }
