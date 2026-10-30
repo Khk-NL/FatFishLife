@@ -141,7 +141,29 @@ def prepare() -> Path:
             "        disposers.push(ctx.tools.register(tool));\n"
             "    };")
 
-    patch("index.js", entry)
+    def transport(source):
+        # 控制层（dsh-fatfish-life）要发定时消息与主动开口，走桥自己的发送面：
+        # 审计、分段、断线排队都在桥里，另起一个 OneBot 客户端只会分叉。
+        anchor = ("    // Lifecycle: start the bridge and transport; unwind everything on unload.\n"
+                  "    ctx.effect(() => {")
+        injected = (
+            "    // FATFISH: outbound text transport for the control layer.\n"
+            "    try {\n"
+            "        ctx.provide('dshOnebotTransport', {\n"
+            "            connected: () => Boolean(connection.connected),\n"
+            "            sendText: async (chatId, text) => {\n"
+            "                await bridge.sendToChat(chatId, text);\n"
+            "                return [];\n"
+            "            },\n"
+            "        });\n"
+            "        log('debug', 'transport provided: dshOnebotTransport');\n"
+            "    } catch (error) {\n"
+            "        log('warn', 'transport provide failed: ' + describeError(error));\n"
+            "    }\n"
+        )
+        return replace(source, anchor, injected + anchor)
+
+    patch("index.js", lambda source: transport(entry(source)))
     patch("bridge.js", bridge)
     patch("registry.js", registry)
     patch("interim.js", interim)
