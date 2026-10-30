@@ -11,5 +11,7 @@
     "鲸鱼娘",
     "鲸鲸",
     "DEEPSEEK"
-  ]
+  ],
+  "groupModes": {},
+  "groupDefaultMode": "talk"
 }

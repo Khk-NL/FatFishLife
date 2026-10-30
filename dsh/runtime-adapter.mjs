@@ -22,8 +22,15 @@ export async function ownerCommand(policy, run) {
 }
 
 export function loadPolicy(settings) {
-  if (settings?.policy) return new FatFishPolicy(settings.policy, { getConfig: () => settings.policy });
-  // 环境变量优先；否则读项目内固定路径（DSH 主进程不方便注入 env）
+  const policy = settings?.policy
+    ? new FatFishPolicy(settings.policy, { getConfig: () => settings.policy })
+    // 环境变量优先；否则读项目内固定路径（DSH 主进程不方便注入 env）
+    : buildFromFile();
+  applyStoredGroupModes(policy);
+  return policy;
+}
+
+function buildFromFile() {
   const candidates = [
     process.env.FATFISH_POLICY_FILE,
     'D:/Code/Projects/FatFishLife/dsh/policy.json',
@@ -31,6 +38,21 @@ export function loadPolicy(settings) {
   const hit = candidates.find(candidate => existsSync(candidate));
   if (!hit) throw new Error('FatFish policy not found; set FATFISH_POLICY_FILE or add dsh/policy.json');
   return new FatFishPolicy(JSON.parse(readFileSync(hit, 'utf8').replace(/^\uFEFF/, '')));
+}
+
+/**
+ * 群模式住在 policy.json 里（不是 patch），所以每次加载都要把文件里的设置叠上去：
+ * 这样重启后 /mode 改过的群不会回滚。
+ */
+export function applyStoredGroupModes(policy, file = policyFilePath()) {
+  try {
+    const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+    if (raw.groupDefaultMode) policy.config.groupDefaultMode = raw.groupDefaultMode;
+    if (raw.groupModes && typeof raw.groupModes === 'object') {
+      policy.config.groupModes = { ...(policy.config.groupModes ?? {}), ...raw.groupModes };
+    }
+  } catch { /* 文件缺失/损坏就保持默认 */ }
+  return policy;
 }
 
 /** 群模式写回哪个文件：和 loadPolicy 用的是同一份。 */
