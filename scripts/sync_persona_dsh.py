@@ -139,7 +139,7 @@ def whale_body() -> str:
         body = body.replace("QQ 3124904460。你的创造者", "你的创造者")
         body = body.replace("但老大私下问", "但对方私下问")
         kept.append(body.strip())
-    header = ("# 吞天大肥鲸 · B 站分身" + chr(10) + chr(10) +
+    header = ("# 吞天之鲸 · B 站分身" + chr(10) + chr(10) +
               "> 由 docs/persona/whale-core.md 自动生成，别手改这个文件；改完源文件重跑同步脚本。" + chr(10))
     return header + chr(10) + (chr(10) + chr(10)).join(kept) + chr(10)
 

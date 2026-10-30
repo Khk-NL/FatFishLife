@@ -20,6 +20,75 @@ def replace(source: str, old: str, new: str, count: int = 1) -> str:
     return source.replace(old, new)
 
 
+def inbound(source: str) -> str:
+    """NapCat 存图恒用 .jpg 后缀，但字节可能是 png/gif/webp；read_image 按魔数校验会拒绝。
+    按魔数把文件改成正确后缀，保证 [图片:path] 指向一个真能读的文件。"""
+    source = replace(
+        source,
+        "import { writeFile } from 'node:fs/promises';",
+        "import { open, rename, writeFile } from 'node:fs/promises';",
+    )
+    helper = r"""/**
+ * NapCat 把入站图片一律存成 .jpg，可实际字节可能是 png/gif/webp；read_image 会按魔数
+ * 校验并拒绝扩展名与内容不符的文件。这里只读前 16 字节判断真实格式，必要时改名。
+ */
+async function normalizeImageExtension(filePath) {
+    let head;
+    try {
+        const handle = await open(filePath, 'r');
+        try {
+            const buffer = Buffer.alloc(16);
+            const { bytesRead } = await handle.read(buffer, 0, 16, 0);
+            head = buffer.subarray(0, bytesRead);
+        }
+        finally {
+            await handle.close();
+        }
+    }
+    catch {
+        return filePath;
+    }
+    let wanted = '';
+    if (head.length >= 3 && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff)
+        wanted = '.jpg';
+    else if (head.length >= 8 && head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47)
+        wanted = '.png';
+    else if (head.length >= 4 && head.subarray(0, 4).toString('ascii') === 'GIF8')
+        wanted = '.gif';
+    else if (head.length >= 12 && head.subarray(0, 4).toString('ascii') === 'RIFF' && head.subarray(8, 12).toString('ascii') === 'WEBP')
+        wanted = '.webp';
+    if (wanted === '' || filePath.toLowerCase().endsWith(wanted))
+        return filePath;
+    const dot = filePath.lastIndexOf('.');
+    const target = (dot > 0 ? filePath.slice(0, dot) : filePath) + wanted;
+    try {
+        await rename(filePath, target);
+        return target;
+    }
+    catch {
+        return filePath;
+    }
+}
+"""
+    source = replace(
+        source,
+        "export function normalizeOneBot11(event) {",
+        helper + "export function normalizeOneBot11(event) {",
+    )
+    return replace(
+        source,
+        "                const settings = this.ctx.getSettings(chatId);\n"
+        "                settings.lastImagePath = resolved.path;\n"
+        "                settings.pendingImageRef = undefined;\n"
+        "                return '[图片:' + resolved.path + ']';",
+        "                const settings = this.ctx.getSettings(chatId);\n"
+        "                const imagePath = await normalizeImageExtension(resolved.path);\n"
+        "                settings.lastImagePath = imagePath;\n"
+        "                settings.pendingImageRef = undefined;\n"
+        "                return '[图片:' + imagePath + ']';",
+    )
+
+
 def prepare() -> Path:
     lock = json.loads((ROOT / "dsh/upstream-lock.json").read_text(encoding="utf-8"))["onebot"]
     cache = ROOT / ".tools/dsh-vendor"
@@ -177,6 +246,7 @@ def prepare() -> Path:
     patch("interim.js", interim)
     patch("connection.js", connection)
     patch("tools.js", tools)
+    patch("inbound.js", inbound)
     evidence = {"upstream": lock, "adapted_files": {
         str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted((target / "lib").glob("*")) if path.is_file()
