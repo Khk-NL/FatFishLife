@@ -54,7 +54,7 @@ export async function runBiliRecommend(deps) {
   const reasons = {}
   for (const item of picked) {
     try {
-      reasons[item.bvid] = cleanReply(await llm.chat(recommendReasonMessages(item, mood?.description ?? '')), 40)
+      reasons[item.bvid] = cleanReply(await llm.chat(recommendReasonMessages(item, mood?.description ?? '')), 60)
     } catch (error) {
       log('[fatfish] 推荐理由生成失败：' + (error?.message ?? error))
     }

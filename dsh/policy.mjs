@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 
 const id = value => /^(?:[1-9][0-9]*)$/.test(String(value ?? '')) ? String(value) : '';
 // 正文里点得到她的名字（非忙时才认；忙时只认真 @ 和戳）。
-export const NAMES = ['吞星之鲸', '鲸鲸', '大肥鲸', '肥鲸', '小鲸鱼', '鲸鱼娘', 'DEEPSEEK'];
+export const NAMES = ['吞星鲸鲸', '鲸鲸', '大肥鲸', '肥鲸', '小鲸鱼', '鲸鱼娘', 'DEEPSEEK'];
 
 /** 群级模式：老大单独控制每个群怎么对待她。 */
 export const GROUP_MODES = ['talk', 'listen', 'mention', 'owner', 'quiet'];

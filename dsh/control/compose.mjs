@@ -65,13 +65,19 @@ const PERSONA_RULES = [
   '不写 emoji 堆叠，不写 markdown 标题，不写引号包裹的整段话。',
 ].join('\n')
 
-/** 让模型给一条推荐配一句理由（≤40 字）。 */
+/** 让模型给一条推荐配一句自己的看法（≤60 字）。 */
 export function recommendReasonMessages(item, moodText = '') {
   const title = String(item?.title ?? '')
   const author = String(item?.author?.name ?? '')
+  const desc = String(item?.desc ?? item?.summary ?? '').replace(/\s+/g, ' ').slice(0, 160)
+  const lines = [`视频标题：${title}`, `UP主：${author}`]
+  if (desc) lines.push(`简介：${desc}`)
+  lines.push('')
+  lines.push('先自己判断值不值得看，再用你的口气讲给老大：值不值得点开、哪里有意思、哪里水。')
+  lines.push('别复述标题或简介，别写“这个视频介绍了”，60 字以内。')
   return [
     { role: 'system', content: PERSONA_RULES + (moodText ? `\n当前心情：${moodText}` : '') },
-    { role: 'user', content: `视频标题：${title}\nUP主：${author}\n写一句你会说的推荐理由，40 字以内。` },
+    { role: 'user', content: lines.join('\n') },
   ]
 }
 

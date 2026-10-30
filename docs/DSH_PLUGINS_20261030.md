@@ -137,3 +137,44 @@ JSON 改写的坑：`whisperPrompt` 在文件里是一条 JSON 字符串，心�
 - `python -m unittest discover -s tests -p "test_hub*.py"` → 32 OK
 - 探针 `dsh --profile probe --no-open --port 0` → `[dsh-onebot] mounted`、`bridge ready`、0 条 `did not activate`
 - 坑：`tryHandleCommand` 不是 async 方法，插 `await` 会 `SyntaxError: Unexpected reserved word`，整条桥 failed to import；改用 `.catch(() => {})` + `return Promise.resolve(true)`。
+
+## 表情包：换用 dsh-nekowhale-stickers（2026-10-31）
+
+### 装了什么
+
+- `dsh-nekowhale-stickers@1.1.1`（npm；仓库 `Loping151/dsh-nekowhale-stickers`，Apache-2.0 + 素材 CC BY-NC 4.0）。322 张大肥鱼／GPT娘表情 + 6 个本地模板（大肥鱼想／举牌／葱卷／上联／下联／大肥鱼抱）。
+- 运行依赖 `gifenc@1.0.3`、`gifuct-js@2.1.2` 一并放进 `~/.dsh/profiles/desktop/node_modules/`（profile 里原本没有，插件只声明没带）。
+- 数据目录：`C:/Users/kongb/.dsh/nekowhale-stickers/`（manifest + cache + 首次用到才下载的 `packs/<包名>/*.gif`）。
+
+### 配置（profile `cordis.patch.yml`）
+
+```yaml
+- id: nekowhale-stickers
+  name: dsh-nekowhale-stickers
+  config:
+    frequency: often      # 提示口径：闲聊里大约每两三条发一个
+    promptMode: skill     # 只给技能，不往每个会话里塞常驻提示
+    persona: self         # 它就是大肥鱼，和吞星鲸鲸同源
+    pet: false            # 桌宠仍用 dsh-pet，别开第二个
+```
+
+同时 `dsh-onebot` 的 `extraMediaRoots` 加了 `C:/Users/kongb/.dsh/nekowhale-stickers`——`qq_send_image` 的出站围栏只认白名单目录。
+
+### QQ 里怎么把表情发出去（关键改动）
+
+插件自己的 `sticker_send` 只返回一行 Markdown（`http://127.0.0.1:<端口>/x-nekowhale-stickers/s/<hash>.gif`），桥不认识它，发到 QQ 就是一段文字。所以给桥加了标记解析（`scripts/prepare_dsh_onebot.py` 的 `transport()` 里追加）：
+
+- 出站文本里出现 `[sticker:名字]` → 用 `ctx.inject(['stickers'])` 拿到的 kit 找到文件（首次自动下载）→ `bridge.sendSegments(chatId, [{ type: 'image', data: { file: path } }])` 发图片段。
+- 同一条回复里文字部分照常发，标记会被剥掉；名字找不到时降级成 `[表情:名字]` 文本，不会丢整条。
+- 提示词（`dsh/runtime-adapter.mjs` 的 `SOCIAL_CHANNEL_PROMPT`）明确写：「先用 sticker_search 找，再在回复里直接写 `[sticker:名字]`，两三条回一个不算多」。
+
+### 旧表情包
+
+`data/memes`（165 个文件、40MB，苹果乐/能天使那批）整体移到 `outputs/meme-backup-apple-20261031-034838/`，原目录留空——本地后补的表情仍可丢进 `data/memes`，MCP 的 `meme_find`/`meme_random` 继续指这里，等于保留一个手工上传入口。
+
+### 验证
+
+- `node --test dsh/tests/*.test.mjs` → 103 pass / 1 skipped。
+- 探针 `dsh --profile probe --no-open --port 0` → 无 `did not activate`，`[dsh-onebot] mounted` + `bridge ready`。
+- `sticker_search 摸鱼` → 返回 5 条；`kit.pick/file` 实测下载到 `packs/大肥鱼/3N05_摸鱼.gif`。
+- 未验证：QQ 里真发一张（要宿主重启后由她调用一次）。
