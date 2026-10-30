@@ -144,12 +144,19 @@ export async function runDiary(deps) {
     }
   }
   let sent = 0
+  let delivery = null
   if (config?.runner?.diaryToOwner !== false) {
     const head = content.replace(/\s+/g, ' ').slice(0, 120)
-    const outcome = await deliver(deps, `日记写好了（${day}）：\n${head}…`)
-    sent = outcome.sent
+    delivery = await deliver(deps, `日记写好了（${day}）：\n${head}…`)
+    sent = delivery.sent
   }
-  return { ok: true, day, chars: content.length, file, journal, sent }
+  // 发不出去时把原因带出来：没配目标、桥没挂、桥掉线、发送抛错各不相同，
+  // 只记 sent:0 下次还得靠猜。
+  const reason = sent || !delivery
+    ? undefined
+    : delivery.skipped ?? delivery.results?.find((row) => !row.ok)?.reason ?? 'not-sent'
+  return { ok: true, day, chars: content.length, file, journal, sent,
+    ...(reason ? { reason } : {}), delivery }
 }
 
 /** 任务总入口：按 kind 分发；未知类型如实报错，不假装成功。 */

@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { runTask } from './business.mjs';
 import { runProactive } from './proactive.mjs';
 import { applyMoodPending } from './moodsync.mjs';
-import { sendText } from './transport.mjs';
+import { sendText, transportOf, transportOnline } from './transport.mjs';
 import { chat as llmChat } from './llm.mjs';
 import * as bili from './bili.mjs';
 import * as hub from './hub.mjs';
@@ -131,6 +131,7 @@ async function applyInner(ctx, config) {
     schedule: { executor: '每 30 秒检查一次（进程内定时器，不用系统 cron）', lastDue: null, next: null,
       results: {}, failures: {} },
     proactive: { executor: '每 5 分钟按概率判断一次', lastAt: null, lastResult: null, count: 0 },
+    transport: { present: false, online: false },
     productionCutover: false };
   const settings = { ...compiled, status };
   ctx.provide('fatfishSettings', settings);
@@ -172,6 +173,8 @@ async function applyInner(ctx, config) {
     running = true
     try {
       const state = readState(scheduleDir)
+      // 桥在不在、连没连上，写进状态卡：QQ 掉线时不用猜为什么 sent:0。
+      status.transport = { present: Boolean(transportOf(ctx)), online: transportOnline(ctx) }
       // Volatile 字段是引用；每轮读取一次，确保任务表与执行器开关使用同一份配置。
       const live = snapshot()
       const configuredTasks = Array.isArray(live.tasks) ? live.tasks : null
