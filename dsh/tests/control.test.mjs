@@ -68,5 +68,20 @@ test('applied JSON files match the revision and changed values change that revis
   const first=await persistSettings(value);
   assert.deepEqual(JSON.parse(await readFile(join(directory,'runtime-behavior.json'),'utf8')),first.behavior);
   value.voice.basePercent=25; const second=await persistSettings(value);
-  assert.notEqual(first.revision,second.revision); assert.equal(second.behavior.voice.base,.25);
+  assert.notEqual(first.revision,second.revision); assert.equal(second.behavior.voice.base, .25);
+});
+
+test('忙时窗口不拦"已经决定要回"的消息，只拦错过窗口的忙时模板句', () => {
+  const value = config();
+  value.busyWindows = [{ start: '09:00', end: '12:00', weekdays: [1, 2, 3, 4, 5, 6, 7] }];
+  const at = () => Date.parse('2026-11-02T10:05:00+08:00');
+  const policy = new FatFishPolicy(compileSettings(value).policy, { now: at });
+  // 主人私聊在忙时照样要发得出去（这就是之前 "FatFish outbound paused" 的那个坑）
+  assert.equal(policy.canSend(), true);
+  // 忙时模板句只落在它承诺的那个整点
+  assert.equal(policy.canSend({ busy: true, returnHour: 12 }), true);
+  assert.equal(policy.canSend({ busy: true, returnHour: 18 }), false);
+  // 全局静音仍然全拦
+  const quiet = new FatFishPolicy({ ...compileSettings(value).policy, silent: true }, { now: at });
+  assert.equal(quiet.canSend(), false);
 });

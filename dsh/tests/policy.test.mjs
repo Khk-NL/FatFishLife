@@ -114,12 +114,14 @@ test('silent overrides empty @ and poke', async () => {
   assert.equal(f.sends.length, 0);
 });
 
-test('late outbound rechecks work window and silent state for every write', () => {
+test('late outbound rechecks silent state for every write', () => {
   const f = fixture('08:59:59');
   assert.doesNotThrow(() => assertOutbound(f.policy, 'send_msg'));
+  // 2026-10-30 修：忙时窗口不再拦外发（该不该说话由 decide 判，
+  // 否则主人私聊在忙时会被 "FatFish outbound paused" 吞掉）。
   f.setTime('09:00:00');
   for (const action of ['send_msg', 'send_group_ai_record', 'upload_group_file', 'set_input_status']) {
-    assert.throws(() => assertOutbound(f.policy, action));
+    assert.doesNotThrow(() => assertOutbound(f.policy, action));
   }
   f.setTime('12:00:00'); f.policy.config.silent = true;
   assert.throws(() => assertOutbound(f.policy, 'send_msg'));
@@ -127,7 +129,8 @@ test('late outbound rechecks work window and silent state for every write', () =
 });
 
 test('authenticated command context is isolated and expires for detached tasks', async () => {
-  const f = fixture();
+  // 静音状态才能体现"控制通道内可发、脱离后不可发"
+  const f = fixture('20:00:00', { silent: true });
   let detached;
   await ownerCommand(f.policy, async () => {
     assert.doesNotThrow(() => assertOutbound(f.policy, 'send_msg'));

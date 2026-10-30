@@ -120,8 +120,8 @@ test('普通用户的后台命令当作正文，不触发控制路由', async ()
 });
 
 test('临时任务脱离 ownerCommand 后失去控制权限', async () => {
-  // 工作时段才能体现差别：控制通道可发，脱离后不可发
-  const policy = policyAt('10:30');
+  // 用全局静音来体现差别：控制通道内可以发，脱离后不可发
+  const policy = policyAt('10:30', { silent: true });
   const parked = [];
   await ownerCommand(policy, async () => {
     assert.doesNotThrow(() => assertOutbound(policy, 'send_private_msg'));
@@ -130,7 +130,7 @@ test('临时任务脱离 ownerCommand 后失去控制权限', async () => {
   assert.throws(() => parked[0](), /paused/);
 });
 
-test('发送前复查：进入工作时段后禁止普通外发', () => {
+test('进入工作时段不会拦住已经决定要回的普通外发', () => {
   let current = clock('19:30');
   const policy = new FatFishPolicy(
     { ownerId: OWNER, botId: BOT, adapterId: ADAPTER, silent: false },
@@ -138,6 +138,10 @@ test('发送前复查：进入工作时段后禁止普通外发', () => {
   );
   assert.doesNotThrow(() => assertOutbound(policy, 'send_group_msg'));
   current = clock('10:00');
+  // 2026-10-30 修：忙时拦话由 decide() 负责，外发闸门只认全局静音；
+  // 以前这里会抛 "FatFish outbound paused"，把主人私聊的正常回复也拦掉了。
+  assert.doesNotThrow(() => assertOutbound(policy, 'send_group_msg'));
+  policy.config.silent = true;
   assert.throws(() => assertOutbound(policy, 'send_group_msg'), /paused/);
 });
 

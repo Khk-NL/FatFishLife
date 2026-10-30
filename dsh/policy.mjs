@@ -125,11 +125,20 @@ export class FatFishPolicy {
     return template.replace(/\{hour\}点/g, value).replace(/\{hour\}/g, value);
   }
 
+  /**
+   * 能不能往外发。
+   * 2026-10-30 修：以前无参调用（busy=false）在忙时窗口里返回 false，把主人私聊的
+   * 正常回复也一起拦了（trace 里是 "FatFish outbound paused"）。忙时该不该说话由
+   * decide() 判：闲人消息得到 busy/ignore，主人私聊和真实 @ 仍然要回。主动开口的
+   * 时段由 control/proactive.mjs 的 inBusyWindow 把门，所以这里只看全局静音；
+   * busy=true 仅表示"这是忙时那句模板回复"，要落在对应整点窗口里才发。
+   */
   canSend({ busy = false, returnHour } = {}) {
     if (this.getConfig) Object.assign(this.config, this.getConfig());
     if (this.config.silent) return false;
+    if (!busy) return true;
     const hour = workWindow(this.now(), this.config.busyWindows);
-    return busy ? hour !== undefined && hour === returnHour : hour === undefined;
+    return hour !== undefined && hour === returnHour;
   }
 
   toolDenial(exec, chatId, allowed = []) {
