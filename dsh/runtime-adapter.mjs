@@ -225,7 +225,7 @@ export async function beforeInbound(bridge, event) {
     // The upstream pipeline supports messages only. Give the targeted poke a
     // safe user-text representation after policy checks, without forging an @.
     event = { ...event, post_type: 'message', message_type: decision.chatId.split(':')[0],
-      message: [{ type: 'text', data: { text: '（戳了戳吞天之鲸）' } }], raw_message: '（戳了戳吞天之鲸）' };
+      message: [{ type: 'text', data: { text: '（戳了戳吞星之鲸）' } }], raw_message: '（戳了戳吞星之鲸）' };
   } else if (decision.kind === 'control') {
     event = { ...event, message: [{ type: 'text', data: { text: decision.command } }] };
   }
