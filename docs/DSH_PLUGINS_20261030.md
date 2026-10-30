@@ -72,3 +72,26 @@
 死件：`@xmanrui/dsh-im`（缺 `dsh-client-runtime` + `ui-slots`，rc.3 上不可能有面板）、`dsh-pet`（只在 dependencies、不在 bundles）、`dsh-balance-meter`（已删）。
 
 不是重复：B站工具只有 `dsh-plugin-bilibili` 注册，`dsh-bili-whale` 不注册工具（设置页 + 定时投递）；`whale-*.json` 只由 bili-whale 写；`dsh-whale-widget` 只读不写。
+
+## 桌宠碎碎念：人设 + 心情注入（2026-10-31）
+
+需求：碎碎念按“人设 + 心情”说，心情与工作状态分开（工作气泡不掺情绪）。
+
+结论（先看代码再动手）：`dsh-pet` 的气泡只有三种来源——工作状态（监听会话事件、不调模型）、余额、碎碎念（自己调模型生成）。没有“心情”显示位，改前端会被升级覆盖。**唯一干净的切口是它每次生成碎碎念前都会重读配置**（`lib/index.js:4071`、`lib/index.js:4101` 两处 `readAllConfig(configPaths)`），所以把心情写进配置里的 `pets[].whisperPrompt`，下一句就生效，不用重启、不用改包。
+
+落地：
+
+- `~/.dsh/pet/main-config.jsonc`（用户层配置，`dsh-pet` 每次生成前重读）：只写 `pets[{ id: "main", whisperPrompt }]`，其余字段继续继承包内默认。示例：
+  ```jsonc
+  { "pets": [ { "id": "main", "name": "蓝毛小女仆", "whisperEnabled": true,
+      "whisperPrompt": "你是吞天大肥鲸……\n【当前心情】还不错，69/100，语气轻快一点。" } ] }
+  ```
+- `dsh/control/petmood.mjs`（新增）：`PET_PERSONA` 人设正文、`MOOD_BUCKETS` 六档（<30 有点低落 / <45 略蔫 / <60 中性 / <75 还不错 / <90 开心 / ≥90 特别开心）、`readMoodValue()` 读 `~/.dsh/feiyu-mood/state.json` 的 `moods[lastActive].mood`、`desiredPrompt(value)` 拼“人设 + 心情行”、`syncPetMood({home,value})` 落盘。
+- `dsh/control/index.mjs`：挂 `syncPet()` + `setInterval(syncPet, 10 * 60_000)`，与 `syncMood()`（心情队列合并）同一层；状态里记 `petMood`。
+- 心情只走碎碎念：**没有**改 `workStatusTexts`、没有改余额气泡。工作状态仍是“正在写代码/在跑命令”那套，不掺情绪。
+
+写入方式的选择：沙盒里的 python 写不进 `~/.dsh/feiyu-mood`、`~/.dsh/pet`（`PermissionError [Errno 13]`），宿主的 node 可以。所以 `petmood.mjs` 跑在控制插件里（宿主进程），python 侧只负责把心情写进 `memory.db` 与队列。
+
+JSON 改写的坑：`whisperPrompt` 在文件里是一条 JSON 字符串，心情行后面跟着 `\n` 转义。直接 `replace(/【当前心情】[^\n]*/)` 会吃到文件尾。现在的实现先 `JSON.parse` 再改字符串；带注释的 JSONC 退回文本模式，正则收紧成 `/【当前心情】[^"\\n]*/`。
+
+验证：`dsh/tests/petmood.test.mjs` 6 项（首次新建 / 只改那一行且 JSON 合法 / 同值不写盘 / JSONC 注释保留 / 读不到心情不动 / 人设不含工作状态文案）全过；真实文件 69 → 32 → 69 往返后 `JSON.parse` 仍通过，尾巴 `}` 完整。

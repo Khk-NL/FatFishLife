@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { runTask } from './business.mjs';
 import { runProactive } from './proactive.mjs';
 import { applyMoodPending } from './moodsync.mjs';
+import { syncPetMood } from './petmood.mjs';
 import { sendText, transportOf, transportOnline } from './transport.mjs';
 import { chat as llmChat } from './llm.mjs';
 import * as bili from './bili.mjs';
@@ -276,9 +277,28 @@ async function applyInner(ctx, config) {
   }
   const proactiveTimer = setInterval(() => { void tickProactive() }, 5 * 60_000)
   if (typeof proactiveTimer.unref === 'function') proactiveTimer.unref()
+
+  // 桌宠碎碎念：把 feiyu-mood 的当前心情写进 dsh-pet 的 whisperPrompt。
+  // dsh-pet 每次生成碎碎念前都会重读配置（lib/index.js:4071/4101），所以这里改完下一句就生效，不用重启。
+  const syncPet = () => {
+    try {
+      const outcome = syncPetMood()
+      if (outcome.changed) {
+        status.petMood = { at: new Date().toISOString(), ...outcome }
+        ctx.logger.info('[fatfish] 桌宠心情已更新')
+      }
+    } catch (error) {
+      ctx.logger.warn('[fatfish] 桌宠心情同步异常：' + (error?.message ?? String(error)))
+    }
+  }
+  syncPet()
+  const petTimer = setInterval(syncPet, 10 * 60_000)
+  if (typeof petTimer.unref === 'function') petTimer.unref()
+
   ctx.effect(() => () => {
     clearInterval(dueTimer)
     clearInterval(proactiveTimer)
+    clearInterval(petTimer)
   })
   let pending = Promise.resolve();
   ctx.on('loader/volatile-update', () => {
