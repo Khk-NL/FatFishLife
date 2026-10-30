@@ -103,7 +103,7 @@ function marker(ctx, config) {
   return (name, value) => {
     try {
       mkdirSync(dir, { recursive: true })
-      writeFileSync(join(dir, name), JSON.stringify({ at: new Date().toISOString(), ...value }, null, 2) + '\\n')
+      writeFileSync(join(dir, name), JSON.stringify({ at: new Date().toISOString(), ...value }, null, 2) + '\n')
     } catch { /* 留痕失败不影响挂载 */ }
   };
 }
@@ -113,7 +113,7 @@ export async function apply(ctx, config) {
   mark('control-mount.json', { stage: 'enter', hasEffect: typeof ctx.effect })
   try {
     await applyInner(ctx, config)
-    mark('control-mount.json', { stage: 'done', hasEffect: typeof ctx.effect, tasks: TASKS.length })
+    mark('control-mount.json', { stage: 'done', hasEffect: typeof ctx.effect, tasks: config.tasks.get().length })
   } catch (error) {
     mark('control-error.json', { stage: 'throw', error: error?.stack ?? String(error) })
     throw error
@@ -144,17 +144,16 @@ async function applyInner(ctx, config) {
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, JSON.stringify(value, null, 2) + '\n')
   }
-  const ownerChatOf = () => {
-    const configured = String(config.runner?.ownerChat ?? '').trim()
+  const ownerChatOf = (live) => {
+    const configured = String(live.runner?.ownerChat ?? '').trim()
     if (configured) return configured
     const ownerId = String(config.identity?.ownerId ?? '').trim()
     return ownerId ? 'private:' + ownerId : ''
   }
-  const depsOf = (now) => {
-    const live = snapshot()
+  const depsOf = (now, live) => {
     const runner = live.runner ?? {}
     const liveConfig = { ...live, dataDirectory: config.dataDirectory,
-      runner: { ...runner, ownerChat: ownerChatOf() } }
+      runner: { ...runner, ownerChat: ownerChatOf(live) } }
     const hubOptions = { python: runner.python, cli: runner.hubCli }
     const state = readJson(join(scheduleDir, 'task-state.json'))
     return { ctx, config: liveConfig, now, state, saveState: (next) => writeJson(join(scheduleDir, 'task-state.json'), next),
@@ -166,17 +165,15 @@ async function applyInner(ctx, config) {
         journalRecent: (options) => hub.journalRecent({ ...hubOptions, ...options }), dayDigest: (day) => hub.dayDigest(day, hubOptions),
         styleTerms: (options) => hub.styleTerms({ ...hubOptions, ...options }) } }
   }
-  const saveTaskState = (next) => writeJson(join(scheduleDir, 'task-state.json'), next)
   let running = false
   const runDue = async (now = new Date()) => {
     if (running) return
     running = true
     try {
       const state = readState(scheduleDir)
-      // 2026-10-30 实测：patch 里没写 tasks 时 config.tasks 会落成对象而非数组，
-      // 直接 .filter 抛 "(config.tasks ?? TASKS).filter is not a function"，整个 runDue 挂掉
-      // （心跳只记 error、任务一条不跑）。这里只认数组，其余回退内置 TASKS。
-      const configuredTasks = Array.isArray(config.tasks) ? config.tasks : null
+      // Volatile 字段是引用；每轮读取一次，确保任务表与执行器开关使用同一份配置。
+      const live = snapshot()
+      const configuredTasks = Array.isArray(live.tasks) ? live.tasks : null
       const tasks = (configuredTasks ?? TASKS).filter((task) => task.enabled !== false)
       const due = dueTasks(now, { lastRun: state.lastRun ?? {}, tasks })
       // 心跳：肉眼确认"定时器真的在跑"和"这一分钟有几个任务到点"。
@@ -189,7 +186,7 @@ async function applyInner(ctx, config) {
         const task = tasks.find((row) => row.id === item.id) ?? item
         lastRun[item.id] = now.toISOString()
         status.schedule.lastDue = { id: item.id, scheduledFor: item.scheduledFor, lateMinutes: item.lateMinutes, at: now.toISOString() }
-        if (config.runner?.enabled === false) {
+        if (live.runner?.enabled === false) {
           results[item.id] = { at: now.toISOString(), ok: false, reason: 'runner-disabled' }
           ctx.logger.info(`[fatfish] ${item.id} 到点但执行器关闭，仅记录`)
           continue
@@ -197,7 +194,7 @@ async function applyInner(ctx, config) {
         ctx.logger.info(`[fatfish] ${item.id} 开始执行（迟到 ${item.lateMinutes} 分钟）`)
         let outcome
         try {
-          outcome = await runTask(task, depsOf(now))
+          outcome = await runTask(task, depsOf(now, live))
         } catch (error) {
           outcome = { ok: false, reason: error?.message ?? String(error) }
         }
@@ -227,7 +224,7 @@ async function applyInner(ctx, config) {
   // 改成和 whale-widget 一样，直接在 apply 里起定时器；挂载即留痕，便于判断
   // "插件加载了" 和 "定时器真的在转" 是两件事。
   writeJson(join(scheduleDir, 'control-mount.json'), { at: new Date().toISOString(),
-    hasEffect: typeof ctx.effect, tasks: TASKS.length })
+    hasEffect: typeof ctx.effect, tasks: config.tasks.get().length })
   void runDue()
   const dueTimer = setInterval(() => { void runDue() }, 30_000)
   if (typeof dueTimer.unref === 'function') dueTimer.unref()
@@ -236,13 +233,14 @@ async function applyInner(ctx, config) {
   let proactiveRunning = false
   const tickProactive = async (now = new Date()) => {
     if (proactiveRunning) return
-    if (config.runner?.enabled === false) return
+    const live = snapshot()
+    if (live.runner?.enabled === false) return
     proactiveRunning = true
     try {
       writeJson(join(scheduleDir, 'proactive-heartbeat.json'), { at: now.toISOString() })
       const state = readJson(proactiveFile)
-      const deps = depsOf(now)
-      const outcome = await runProactive({ ...deps, busyWindows: snapshot().busyWindows ?? DEFAULT_WINDOWS,
+      const deps = depsOf(now, live)
+      const outcome = await runProactive({ ...deps, busyWindows: live.busyWindows ?? DEFAULT_WINDOWS,
         config: deps.config, state, saveState: async (next) => writeJson(proactiveFile, next) })
       status.proactive.lastAt = now.toISOString()
       status.proactive.lastResult = outcome.spoke === true ? { spoke: true, at: now.toISOString() } : { spoke: false, reason: outcome.reason }
@@ -257,6 +255,10 @@ async function applyInner(ctx, config) {
   }
   const proactiveTimer = setInterval(() => { void tickProactive() }, 5 * 60_000)
   if (typeof proactiveTimer.unref === 'function') proactiveTimer.unref()
+  ctx.effect(() => () => {
+    clearInterval(dueTimer)
+    clearInterval(proactiveTimer)
+  })
   let pending = Promise.resolve();
   ctx.on('loader/volatile-update', () => {
     const current = snapshot();
@@ -273,6 +275,6 @@ async function applyInner(ctx, config) {
     parameters: {}, output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async () => { await pending; const current = snapshot(); return { ...status,
       busyWindows: current.busyWindows, voice: current.voice, meme: current.meme, workflows: current.workflows,
-      tasks: current.tasks, runner: { ...current.runner, ownerChat: ownerChatOf() }, proactive: current.proactive }; } }));
+      tasks: current.tasks, runner: { ...current.runner, ownerChat: ownerChatOf(current) }, proactive: current.proactive }; } }));
   ctx.logger.info('FatFish配置已应用，版本 ' + compiled.revision.slice(0, 12) + '；定时业务与主动开口已接入');
 }

@@ -1,5 +1,25 @@
 # DSH 侧交接文档（2026-10-30 14:40）
 
+## 15:02 续修与生产重载（Codex）
+
+以下原交接保留为 14:40 的历史记录；当前状态以本节及本机运行证据为准。
+
+- 已修复真正的动态配置读取：`tasks`、`runner` 等 `.volatile()` 字段必须先 `.get()`。此前的 `Array.isArray(config.tasks)` 只会回退默认表，读取 `config.runner.enabled` 也无法识别关闭状态。现在每轮使用同一份配置快照，任务表、总开关、主动开口开关和主人发送目标均取当前值。
+- 挂载标记改为合法 JSON，挂载时的任务数量来自实际配置；全局定时器通过 Cordis effect 登记清理，插件卸载后不会继续留下旧 interval。
+- 已更新 desktop 中的控制插件与对应 `file:` 打包依赖；QQ 桥只删除两处 import trace，保留安装目录中已有的其他适配，并从该目录打包、更新依赖地址，避免下次安装恢复旧探针。
+- `dsh-balance-meter@0.1.0` 导入了当前 DSH 0.2.1-rc.3 未导出的 `installSettingsSection`。已从 desktop 的 bundles 停用，保留安装包，不修改宿主 SDK。
+- 15:00:23 已通过一次性计划任务重启 GUI 宿主，启动任务返回 0。新宿主生成 `control-mount.json`：`stage: done, tasks: 4`；8643 端口重新监听并与 NapCat 建立连接。未修改 `cordis.patch.yml` 的身份、静默、媒体或运营设置。
+- 独立宿主使用独立 `DSH_HOME`、数据目录、假身份、随机端口、关闭执行器和主动开口，避免旧 probe 与生产共用数据、抢占 QQ 或触发发送。实际挂载及第二次 30 秒心跳通过，关闭执行器的到点任务记录 `runner-disabled`；桥挂载和监听成功，未激活告警为 0。沿用 desktop 已有的精确版本豁免，distill 和 context-doctor 在此配置中未出现未激活告警，不代表业务功能验收完成。
+- 验证：83 项 Node 测试通过（含本机真实 SDK 的 volatile 配置/计时器清理回归），22 项 Python 打包/安装/交付测试通过；桥入口语法检查通过。运行 `FATFISH_DSH_TEST_PROFILE` 指向本机 profile 可执行新增 SDK 回归；未设置该变量时跳过该用例。
+- 尚未验收：真实 QQ 入站后的模型回复、真人客户端效果、20:30/21:00/23:50 到点业务、主动开口的真实发送。本轮没有主动发送测试消息、补跑任务或合成收费语音。
+
+本机证据与回滚资料（均未提交）：
+
+- `outputs/dsh-repair-20261030/backup/`：配置及两个插件原入口备份。
+- `outputs/dsh-repair-probe/report.json`：独立宿主验证报告；`host.private.log` 含本机访问凭据，禁止分享或提交。
+- `outputs/dsh-repair-20261030/host.private.log`、`host-error.private.log`、`launched.txt`：桌面宿主启动记录。
+
+
 写给接手的人/agent。目标是让 FatFishLife 在 DSH 里真正跑起来，并且**重启不打断你自己的工作**。
 
 ---
@@ -23,7 +43,7 @@
 | 插件代码实际位置 | `C:\Users\kongb\.dsh\profiles\desktop\node_modules\<包名>\` |
 | Web GUI | 每次重启换端口，看宿主窗口或 runtime context（今天是 13524） |
 | 机器人 QQ / 主人 QQ | `1670515707` / `3124904460` |
-| NapCat | `D:\Code\Apps\NapCat`，配置 `config\onebot11_1670515707.json`，反连 `ws://127.0.0.1:8643/ws`，token `9a5603f1eb82c47d` |
+| NapCat | `D:\Code\Apps\NapCat`，配置 `config\onebot11_1670515707.json`，反连 `ws://127.0.0.1:8643/ws`，token 仅保留在本机配置 |
 | B 站 CLI | `D:/Code/Apps/bili-venv/Scripts/bili.exe`，凭据 `~/.bili-ai/credentials.json`（阿_噗噜派啊，mid 3546899328010912） |
 | Git | `main`，HEAD `4592d3f`，已 push |
 
