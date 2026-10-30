@@ -95,7 +95,32 @@ export const Config = z.object({
 const liveFields = ['reply', 'busyWindows', 'voice', 'meme', 'workflows', 'tasks', 'runner', 'proactive'];
 for (const key of liveFields) Config.dict[key] = Config.dict[key].volatile();
 
+// 2026-10-30：宿主里插件偶发"整块不挂载"（persistSettings 写了文件，但工具不存在、
+// 心跳文件不生成）。没有日志可看，只能自己留痕——apply 一进来就写标记，抛错也写，
+// 这样下一次重启就能区分「没加载」「加载了但抛在 provide」「抛在后面」三种情况。
+function marker(ctx, config) {
+  const dir = String(config.dataDirectory ?? 'D:/Code/Projects/FatFishLife/data/dsh')
+  return (name, value) => {
+    try {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, name), JSON.stringify({ at: new Date().toISOString(), ...value }, null, 2) + '\\n')
+    } catch { /* 留痕失败不影响挂载 */ }
+  };
+}
+
 export async function apply(ctx, config) {
+  const mark = marker(ctx, config)
+  mark('control-mount.json', { stage: 'enter', hasEffect: typeof ctx.effect })
+  try {
+    await applyInner(ctx, config)
+    mark('control-mount.json', { stage: 'done', hasEffect: typeof ctx.effect, tasks: TASKS.length })
+  } catch (error) {
+    mark('control-error.json', { stage: 'throw', error: error?.stack ?? String(error) })
+    throw error
+  }
+}
+
+async function applyInner(ctx, config) {
   const snapshot = () => Object.fromEntries(Object.entries(config).map(([key, value]) =>
     [key, liveFields.includes(key) ? value.get() : value]));
   const compiled = await persistSettings(snapshot());
@@ -148,8 +173,15 @@ export async function apply(ctx, config) {
     running = true
     try {
       const state = readState(scheduleDir)
-      const tasks = (config.tasks ?? TASKS).filter((task) => task.enabled !== false)
+      // 2026-10-30 实测：patch 里没写 tasks 时 config.tasks 会落成对象而非数组，
+      // 直接 .filter 抛 "(config.tasks ?? TASKS).filter is not a function"，整个 runDue 挂掉
+      // （心跳只记 error、任务一条不跑）。这里只认数组，其余回退内置 TASKS。
+      const configuredTasks = Array.isArray(config.tasks) ? config.tasks : null
+      const tasks = (configuredTasks ?? TASKS).filter((task) => task.enabled !== false)
       const due = dueTasks(now, { lastRun: state.lastRun ?? {}, tasks })
+      // 心跳：肉眼确认"定时器真的在跑"和"这一分钟有几个任务到点"。
+      // 之前只靠 schedule-state.json 猜，分不清"没到点"和"根本没跑"。
+      writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), tasks: tasks.length, due: due.length })
       const lastRun = { ...(state.lastRun ?? {}) }
       const results = { ...(state.results ?? {}) }
       const failures = { ...(state.failures ?? {}) }
@@ -182,17 +214,23 @@ export async function apply(ctx, config) {
       const next = nextRun(now, tasks)
       status.schedule.next = next ? { id: next.id, at: next.at, when: next.when.toISOString() } : null
     } catch (error) {
-      ctx.logger.warn('[fatfish] 定时检查失败：' + (error?.message ?? String(error)))
+      const message = error?.message ?? String(error)
+      ctx.logger.warn('[fatfish] 定时检查失败：' + message)
+      // 失败也要留痕：没有日志目录可看时，这是唯一能确认"跑过但抛了"的证据。
+      try { writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), error: message }) } catch {}
     } finally {
       running = false
     }
   }
-  ctx.effect(() => {
-    void runDue()
-    const timer = setInterval(() => { void runDue() }, 30_000)
-    if (typeof timer.unref === 'function') timer.unref()
-    return () => clearInterval(timer)
-  })
+  // 2026-10-30 实测：写在 ctx.effect(...) 里的定时器在这版宿主上从没跑过
+  // （工具能调、状态能看，但 lastDue/next 永远是 null，心跳文件也不生成）。
+  // 改成和 whale-widget 一样，直接在 apply 里起定时器；挂载即留痕，便于判断
+  // "插件加载了" 和 "定时器真的在转" 是两件事。
+  writeJson(join(scheduleDir, 'control-mount.json'), { at: new Date().toISOString(),
+    hasEffect: typeof ctx.effect, tasks: TASKS.length })
+  void runDue()
+  const dueTimer = setInterval(() => { void runDue() }, 30_000)
+  if (typeof dueTimer.unref === 'function') dueTimer.unref()
 
   // 主动开口层：每 5 分钟判断一次；真正发不发由 proactive.shouldSpeak 决定
   let proactiveRunning = false
@@ -201,6 +239,7 @@ export async function apply(ctx, config) {
     if (config.runner?.enabled === false) return
     proactiveRunning = true
     try {
+      writeJson(join(scheduleDir, 'proactive-heartbeat.json'), { at: now.toISOString() })
       const state = readJson(proactiveFile)
       const deps = depsOf(now)
       const outcome = await runProactive({ ...deps, busyWindows: snapshot().busyWindows ?? DEFAULT_WINDOWS,
@@ -216,11 +255,8 @@ export async function apply(ctx, config) {
       proactiveRunning = false
     }
   }
-  ctx.effect(() => {
-    const timer = setInterval(() => { void tickProactive() }, 5 * 60_000)
-    if (typeof timer.unref === 'function') timer.unref()
-    return () => clearInterval(timer)
-  })
+  const proactiveTimer = setInterval(() => { void tickProactive() }, 5 * 60_000)
+  if (typeof proactiveTimer.unref === 'function') proactiveTimer.unref()
   let pending = Promise.resolve();
   ctx.on('loader/volatile-update', () => {
     const current = snapshot();
