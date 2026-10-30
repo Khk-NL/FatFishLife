@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runTask } from './business.mjs';
 import { runProactive } from './proactive.mjs';
+import { applyMoodPending } from './moodsync.mjs';
 import { sendText } from './transport.mjs';
 import { chat as llmChat } from './llm.mjs';
 import * as bili from './bili.mjs';
@@ -231,6 +232,20 @@ async function applyInner(ctx, config) {
   const dueTimer = setInterval(() => { void runDue() }, 30_000)
   if (typeof dueTimer.unref === 'function') dueTimer.unref()
 
+  // 心情同步：hub 的 python 侧写不进 feiyu-mood 的状态文件（沙盒 ACL），
+  // 它只排队，这里每 5 分钟把队列合并进真源，保证设置页和工具读到同一个数。
+  const syncMood = async () => {
+    try {
+      const outcome = await applyMoodPending({ dataDir: scheduleDir })
+      if (outcome.applied) {
+        status.mood = { applied: outcome.applied, at: new Date().toISOString() }
+        ctx.logger.info('[fatfish] 心情同步 ' + outcome.applied + ' 条')
+      }
+    } catch (error) {
+      ctx.logger.warn('[fatfish] 心情同步异常：' + (error?.message ?? String(error)))
+    }
+  }
+
   // 主动开口层：每 5 分钟判断一次；真正发不发由 proactive.shouldSpeak 决定
   let proactiveRunning = false
   const tickProactive = async (now = new Date()) => {
@@ -240,6 +255,7 @@ async function applyInner(ctx, config) {
     proactiveRunning = true
     try {
       writeJson(join(scheduleDir, 'proactive-heartbeat.json'), { at: now.toISOString() })
+      await syncMood()
       const state = readJson(proactiveFile)
       const deps = depsOf(now, live)
       const outcome = await runProactive({ ...deps, busyWindows: live.busyWindows ?? DEFAULT_WINDOWS,

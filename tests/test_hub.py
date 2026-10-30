@@ -60,6 +60,10 @@ class HubTestBase(unittest.TestCase):
             "FATFISH_LORE_COLLECTION": "lore",
             "FATFISH_SERVICE_READONLY": "0",
             "FATFISH_HUB_WRITE": "0",
+            # 心情真源与待办队列都指到临时目录，不碰真实的
+            # ~/.dsh/feiyu-mood/state.json 与 data/dsh/mood-pending.json
+            "FATFISH_FEIYU_STATE": str(self.root / "feiyu-state.json"),
+            "FATFISH_MOOD_PENDING": str(self.root / "mood-pending.json"),
         })
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -96,6 +100,32 @@ class MoodTests(HubTestBase):
         self.assertIsNone(state["updated_at"])
         self.assertIn("现在心情", state["description"])
         self.assertNotIn("error", state)
+        self.assertEqual(state["source"], "fatfish-memory")
+
+    def test_mood_get_prefers_feiyu_mood(self):
+        (self.root / "feiyu-state.json").write_text(json.dumps({
+            "moods": {"__default__": {"mood": 72, "lastReason": "老大夸我了",
+                                      "updatedAt": 1700000000000, "timeline": []}},
+            "lastActive": "__default__",
+        }), encoding="utf-8")
+        state = hub.mood_get()
+        self.assertEqual(state["value"], 72.0)
+        self.assertEqual(state["source"], "feiyu-mood:__default__")
+        self.assertEqual(state["reason"], "老大夸我了")
+        self.assertEqual(state["label"], "心情不错")
+
+    def test_mood_nudge_queues_for_feiyu_and_follows_its_baseline(self):
+        # 真源在 72 分：-1 应该落到 71，而不是从数据库基线 50 算到 49
+        (self.root / "feiyu-state.json").write_text(json.dumps({
+            "moods": {"__default__": {"mood": 72, "lastReason": "", "updatedAt": 0, "timeline": []}},
+            "lastActive": "__default__",
+        }), encoding="utf-8")
+        hub.mood_nudge(-1, "被冷落了")
+        queue = json.loads((self.root / "mood-pending.json").read_text(encoding="utf-8"))
+        self.assertEqual(len(queue), 1)
+        self.assertEqual(queue[0]["value"], 71.0)
+        self.assertEqual(queue[0]["reason"], "被冷落了")
+        self.assertIsInstance(queue[0]["at"], int)
 
     def test_mood_nudge_clamps_delta_and_truncates_reason(self):
         result = hub.mood_nudge(9, "夸" * 200)

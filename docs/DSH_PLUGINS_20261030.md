@@ -37,3 +37,38 @@
 - 探针独立进程 `dsh.cmd --profile probe --no-open --port 0`：无 `did not activate` 告警 → 两个新 bundle 在组合层都能激活（`ppt-design-skill` 已在技能目录出现，属热加载成功）。
 - **尚未验证**：宿主是 17:45 启动的老进程，两个插件要**重启后**才真正挂上；已注册一次性计划任务 `FatFishRestartDSH` 在 23:00 触发重启。
 - 重启后要看：`~/.dsh/feiyu-mood/` 是否生成、`fatfish_status` 之外设置页是否多出「主动搭话」「鱼的心情」两处；speak-up 的掷骰记录要等下一个 30 分钟窗口。
+
+## 数据统一：心情只留一份真源
+
+装上 `dsh-feiyu-mood` 之后，「她现在什么心情」有了两个答案：
+
+| 存储 | 位置 | 基线 | 谁在写 |
+| --- | --- | --- | --- |
+| feiyu-mood | `~/.dsh/feiyu-mood/state.json` | 70 | 插件每轮用模型判一次，设置页可见 |
+| fatfish hub | `memory.db` 的 `mood` 表 | 50（每小时回 6 分） | `mood_get` / `mood_nudge` 工具、主动开口成功后 |
+
+两边各判一次，工具读到 50、页面显示 70，主动开口的“心情加成”也跟着错。定死一条规则：
+
+- **读** → 先看 feiyu-mood，读得到就用它，返回里带 `source: "feiyu-mood:<key>"`；读不到才回落到数据库（`source: "fatfish-memory"`）
+- **写** → 以统一后的当前值为基准算目标分（`target = clamp(base + delta)`），数据库写目标值，同时排一条待办进 feiyu 的那份
+
+为什么要排队：沙盒里的 python 进程**没有** `~/.dsh/feiyu-mood/` 的写权限（新建临时文件和原地覆盖都是 `PermissionError [Errno 13]`），而宿主里的 node 有。所以 python 只写自己写得了的 `data/dsh/mood-pending.json`，由宿主每 5 分钟合并落盘。
+
+涉及文件：
+
+- `fatfish_core/hub.py`：`_feiyu_path()` / `_feiyu_store()` / `_mood_queue()`，`mood_get` 优先真源，`mood_nudge` 改基准并排队
+- `dsh/control/moodsync.mjs`：`mergeIntoState()` 纯函数 + `applyMoodPending()`（写临时文件再 `rename`，成功才删队列；真源文件不在时队列保留）
+- `dsh/control/index.mjs`：`tickProactive` 里先 `await syncMood()`，成功写 `status.mood`
+- 环境变量：`FATFISH_FEIYU_STATE`、`FATFISH_MOOD_PENDING`（测试用临时路径，不碰真实文件）
+
+验证：`mood` 从 70 被 `-1` 调到 69 → 队列 `[{"value":69,...}]` → node 合并 `{applied:1}` → 再读 `mood_get` 得 `69 / source: feiyu-mood:__default__`，`lastReason` 同步。测试：python `test_hub` 28 项（新增 2 项：真源优先、按真源基线排队）、node `dsh/tests/moodsync.test.mjs` 5 项全过；整套 node 87 通过 / 1 跳过。
+
+已确认**不需要**统一的一处：知识库本来就是同一份 —— `dsh-knowledge-base` 与 `fatfish_core/recall.py` 都指 `~/.dsh/knowledge-base/kb.sqlite`（7.6MB，28 条），只是工具名不同。
+
+## 重复/矛盾审计（结论）
+
+真重复：`dsh-speak-up` 与自写 `proactive.mjs`（两套主动开口）、`feiyu-mood` 与 hub `mood`（已统一）、`dshmarket` 与 `dsh-find-plugin`、三个上下文插件（`billion-context` 压缩 / `dsh-context` 洞察 / `dsh-context-doctor` 审计，功能不冲突但都要维护）、`distill` 与 `dsh-fail-logger`（都写 `~/.dsh/skills`）。
+
+死件：`@xmanrui/dsh-im`（缺 `dsh-client-runtime` + `ui-slots`，rc.3 上不可能有面板）、`dsh-pet`（只在 dependencies、不在 bundles）、`dsh-balance-meter`（已删）。
+
+不是重复：B站工具只有 `dsh-plugin-bilibili` 注册，`dsh-bili-whale` 不注册工具（设置页 + 定时投递）；`whale-*.json` 只由 bili-whale 写；`dsh-whale-widget` 只读不写。

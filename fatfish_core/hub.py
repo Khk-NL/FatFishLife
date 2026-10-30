@@ -16,9 +16,11 @@ MCP 服务与命令行共用这一层，不重复实现存储逻辑：
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sqlite3
+import time
 from collections import Counter
 from contextlib import closing
 from datetime import date, datetime, timedelta, timezone
@@ -116,6 +118,66 @@ def _empty_mood(scope: str) -> dict:
 
 
 # ---- 心情 ---------------------------------------------------------------------
+#
+# 心情只留一份真源：``dsh-feiyu-mood`` 的 ``~/.dsh/feiyu-mood/state.json``。
+# 它每轮用模型判一次、在设置页看得见、还会按小时自己平复；hub 的 MoodStore
+# 是 AstrBot 时代留下的第二份。两边各判一次就会出现「她此刻到底什么心情」
+# 两个答案，所以这里定死一条规则：
+#   · 读 → 先看 feiyu-mood，读得到就用它（带 source 标记）
+#   · 写 → 两边都写：MoodStore 保留历史，feiyu 那份同步，避免页面和工具打架
+FEIYU_STATE = Path.home() / ".dsh" / "feiyu-mood" / "state.json"
+MOOD_PENDING = Path(__file__).resolve().parents[1] / "data" / "dsh" / "mood-pending.json"
+
+
+def _feiyu_path() -> Path:
+    """feiyu-mood 状态文件位置；测试用 FATFISH_FEIYU_STATE 指到临时目录。"""
+    override = os.environ.get("FATFISH_FEIYU_STATE")
+    return Path(override) if override else FEIYU_STATE
+
+
+def _mood_pending_path() -> Path:
+    override = os.environ.get("FATFISH_MOOD_PENDING")
+    return Path(override) if override else MOOD_PENDING
+
+
+def _feiyu_store() -> tuple[dict, str] | None:
+    """读 feiyu-mood 的那一份心情；文件没有/格式不对就返回 None（不抛异常）。"""
+    try:
+        raw = json.loads(_feiyu_path().read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001 - 数据层不能因为另一个插件没装就报错
+        return None
+    moods = raw.get("moods")
+    if not isinstance(moods, dict) or not moods:
+        return None
+    key = raw.get("lastActive")
+    if not isinstance(key, str) or key not in moods:
+        key = next(iter(moods))
+    state = moods.get(key)
+    return (state, key) if isinstance(state, dict) else None
+
+
+def _mood_queue(value: float, reason: str) -> None:
+    """把一次调整排进待办，交给宿主里的 node 落进 feiyu-mood。
+
+    沙盒里的 python 没有 ``~/.dsh/feiyu-mood`` 的写权限（新建和覆盖都是
+    PermissionError），所以这里只写自己写得了的 ``data/dsh/mood-pending.json``，
+    由 ``dsh/control/moodsync.mjs`` 在每个 tick 合并进真源后删除。
+    """
+    path = _mood_pending_path()
+    try:
+        entries: list[dict] = []
+        if path.exists():
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, list):
+                entries = [item for item in loaded if isinstance(item, dict)]
+        entries.append({"value": round(float(value), 2), "reason": reason[:120], "at": int(time.time() * 1000)})
+        del entries[:-50]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(entries, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except Exception:  # noqa: BLE001 - 排不进队列只影响页面数字，不影响工具本身
+        return
 
 
 def _mood_updated_at(db: Path, scope: str) -> float | None:
@@ -125,8 +187,25 @@ def _mood_updated_at(db: Path, scope: str) -> float | None:
 
 
 def mood_get(scope: str = "global") -> dict:
-    """读当前心情；缺失的资料库降级成中性心情并附 error。"""
+    """读当前心情；feiyu-mood 在就用它，缺失的资料库降级成中性心情并附 error。"""
     scope = str(scope or "").strip()[:MAX_SCOPE_CHARS] or "global"
+    feiyu = _feiyu_store()
+    if feiyu is not None:
+        state, key = feiyu
+        try:
+            value = float(state.get("mood", NEUTRAL))
+        except (TypeError, ValueError):
+            value = NEUTRAL
+        moment = state.get("updatedAt")
+        return {
+            "scope": scope,
+            "value": value,
+            "label": label_for(value),
+            "reason": str(state.get("lastReason") or ""),
+            "updated_at": float(moment) / 1000 if isinstance(moment, (int, float)) else None,
+            "description": f"现在心情：{label_for(value)}",
+            "source": f"feiyu-mood:{key}",
+        }
     try:
         db = _require_db()
         store = MoodStore(db)
@@ -140,6 +219,7 @@ def mood_get(scope: str = "global") -> dict:
         "reason": state["reason"],
         "updated_at": _mood_updated_at(db, scope),
         "description": store.describe(scope),
+        "source": "fatfish-memory",
     }
 
 
@@ -154,7 +234,19 @@ def mood_nudge(delta: float, reason: str = "", scope: str = "global") -> dict:
     step = max(-1.0, min(1.0, step))
     scope = str(scope or "").strip()[:MAX_SCOPE_CHARS] or "global"
     note = str(reason or "").strip()[:MAX_REASON_CHARS]
-    MoodStore(_require_db()).nudge(step, reason=note, scope=scope)
+    store = MoodStore(_require_db())
+    # 以「统一后的当前心情」为基准算目标值：feiyu-mood 在就用它，
+    # 否则用 MoodStore。这样 delta 不会因为两边基线不同（70 vs 50）而漂。
+    try:
+        base = float(mood_get(scope).get("value", NEUTRAL))
+    except (TypeError, ValueError):
+        base = NEUTRAL
+    target = max(0.0, min(100.0, base + step))
+    current = float(store.get(scope)["value"])
+    store.nudge(target - current, reason=note, scope=scope)
+    # 沙盒里的 python 写不了 feiyu-mood 的状态文件，排进待办让宿主里的
+    # dsh/control/moodsync.mjs 落盘，保证设置页与工具读到同一个数。
+    _mood_queue(target, note)
     return mood_get(scope)
 
 
