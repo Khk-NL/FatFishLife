@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 
 const id = value => /^(?:[1-9][0-9]*)$/.test(String(value ?? '')) ? String(value) : '';
+// 正文里点得到她的名字（非忙时才认；忙时只认真 @ 和戳）。
+export const NAMES = ['大肥鲸', '肥鲸', '小鲸鱼', '鲸鱼娘', 'DEEPSEEK'];
 const text = event => Array.isArray(event.message)
   ? event.message.filter(segment => segment.type === 'text').map(segment => String(segment.data?.text ?? '')).join('')
   : String(event.message ?? event.raw_message ?? '').replace(/\[CQ:[^\]]*\]/g, '');
@@ -84,7 +86,7 @@ export class FatFishPolicy {
     const mentioned = Array.isArray(event.message) && event.message.some(segment =>
       segment.type === 'at' && id(segment.data?.qq) === String(this.config.botId));
     // 非忙碌时仍然认「正文叫名字」；忙碌时的判定见下面 addressed。
-    const named = body.includes('苹果乐');
+    const named = NAMES.some(name => body.includes(name));
     const explicit = poke || mentioned || named;
     const returnHour = workWindow(now, this.config.busyWindows);
     // 和老大本人的私聊不受忙碌窗口限制：峰时也用正常模型回他。

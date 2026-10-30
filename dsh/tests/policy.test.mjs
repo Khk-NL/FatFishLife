@@ -8,7 +8,7 @@ process.env.FATFISH_BUSY_BRIEF = 'fixed';
 
 const clock = value => Date.parse(`2026-10-31T${value}+08:00`); // Saturday is intentionally a work day.
 const access = { groupPolicy: 'open', dmPolicy: 'open', adminUsers: ['2'], allowAllUsers: true };
-const event = (body = '苹果乐', extra = {}) => ({ post_type: 'message', message_type: 'group',
+const event = (body = '大肥鲸', extra = {}) => ({ post_type: 'message', message_type: 'group',
   self_id: 1, user_id: 3, group_id: 4, message: [{ type: 'text', data: { text: body } }], ...extra });
 function fixture(time = '10:00:00', config = {}) {
   let now = clock(time);
@@ -29,7 +29,7 @@ test('backend prefixes normalize without executing them', () => {
   for (const value of ['/help', '/stats', '/stop', '/provider', '/reset', '/new', '/plan', '/permission', '\\表情 收藏', '／help']) {
     assert.ok(commandText(value));
     const { policy } = fixture('20:00:00');
-    assert.equal(policy.decide(event(`苹果乐 ${value}`), access).kind, 'social');
+    assert.equal(policy.decide(event(`大肥鲸 ${value}`), access).kind, 'social');
     assert.notEqual(policy.decide(event(value, { sender: { role: 'owner', nickname: '主人' } }), access).kind, 'control');
   }
 });
@@ -43,13 +43,13 @@ test('only configured owner enters control, including while silent and working',
 test('work triggers are current text, real bot mention or targeted poke', () => {
   for (const body of ['啊噗噜派', '/help', 'onp', '老板', '']) {
     const { policy } = fixture();
-    assert.equal(policy.decide(event(body, { reply: { text: '苹果乐' }, sender: { nickname: '苹果乐' } }), access).kind, 'ignore');
+    assert.equal(policy.decide(event(body, { reply: { text: '大肥鲸' }, sender: { nickname: '大肥鲸' } }), access).kind, 'ignore');
   }
   for (const current of [event('', { message: [{ type: 'at', data: { qq: '1' } }] }),
     event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 1 })]) {
     assert.equal(fixture().policy.decide(current, access).kind, 'busy');
   }
-  // 2026-10-29：峰时正文里出现"苹果乐"不再算被叫到，没有真 @ 就不该冒泡
+  // 2026-10-29：峰时正文里出现"大肥鲸"不再算被叫到，没有真 @ 就不该冒泡
   assert.equal(fixture().policy.decide(event(), access).reason, 'work-unaddressed');
   assert.equal(fixture().policy.decide(event('', { message: [{ type: 'at', data: { qq: '999' } }] }), access).kind, 'ignore');
   assert.equal(fixture().policy.decide(event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 999 }), access).kind, 'ignore');
@@ -73,11 +73,11 @@ test('afternoon fixed text and bot-account isolation', async () => {
 
 test('dedup includes full conversation and expires', () => {
   const f = fixture('20:00:00');
-  assert.equal(f.policy.decide(event('苹果乐', { message_id: 7 }), access).kind, 'social');
-  assert.equal(f.policy.decide(event('苹果乐', { message_id: 7 }), access).reason, 'duplicate');
-  assert.equal(f.policy.decide(event('苹果乐', { message_id: 7, group_id: 5 }), access).kind, 'social');
+  assert.equal(f.policy.decide(event('大肥鲸', { message_id: 7 }), access).kind, 'social');
+  assert.equal(f.policy.decide(event('大肥鲸', { message_id: 7 }), access).reason, 'duplicate');
+  assert.equal(f.policy.decide(event('大肥鲸', { message_id: 7, group_id: 5 }), access).kind, 'social');
   f.setTime('20:06:00');
-  assert.equal(f.policy.decide(event('苹果乐', { message_id: 7 }), access).kind, 'social');
+  assert.equal(f.policy.decide(event('大肥鲸', { message_id: 7 }), access).kind, 'social');
 });
 
 test('group and per-user cooldowns both apply', () => {
@@ -180,7 +180,7 @@ test('峰时和老大私聊不拦，仍然走正常模型', () => {
 test('峰时别人的私聊不会因为正文叫名字就冒泡', () => {
   const f = fixture('10:00:00');
   const strangerPrivate = { post_type: 'message', message_type: 'private', self_id: 1, user_id: 8,
-    message: [{ type: 'text', data: { text: '苹果乐 在吗' } }] };
+    message: [{ type: 'text', data: { text: '大肥鲸 在吗' } }] };
   assert.equal(f.policy.decide(strangerPrivate, access).reason, 'work-unaddressed');
 });
 

@@ -24,7 +24,7 @@ test('percent controls compile into existing behavior units without changing pro
 test('custom windows really control the message gate, including precise return time', () => {
   const value=config(); value.busyWindows=[{start:'10:15',end:'12:30',weekdays:[6]}];
   const policy=new FatFishPolicy(compileSettings(value).policy,{now:()=>Date.parse('2026-10-31T10:30:00+08:00')});
-  const decision=policy.decide({post_type:'message',message_type:'group',self_id:1,user_id:3,group_id:4,message:[{type:'at',data:{qq:'1'}},{type:'text',data:{text:'苹果乐'}}]},
+  const decision=policy.decide({post_type:'message',message_type:'group',self_id:1,user_id:3,group_id:4,message:[{type:'at',data:{qq:'1'}},{type:'text',data:{text:'大肥鲸'}}]},
     {groupPolicy:'open'});
   assert.equal(decision.kind,'busy'); assert.match(decision.text,/12:30再聊/);
   assert.equal(workWindow(Date.parse('2026-11-01T10:30:00+08:00'),value.busyWindows),undefined);

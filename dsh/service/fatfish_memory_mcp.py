@@ -55,7 +55,7 @@ MAX_LIMIT = 50
 server = MCPServer(
     name="fatfish-memory",
     instructions=(
-        "苹果乐的共享记忆库。查询用 recall/search，写入用 remember；"
+        "大肥鲸的共享记忆库。查询用 recall/search，写入用 remember；"
         "长期记忆分候选和已确认两种，未确认的内容不要当成事实讲。"
     ),
 )

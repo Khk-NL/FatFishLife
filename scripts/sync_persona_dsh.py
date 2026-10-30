@@ -1,4 +1,4 @@
-"""把 docs/persona/apple-le-core.md 同步进 DSH 运行时的人设 prefix。
+"""把 docs/persona/whale-core.md 同步进 DSH 运行时的人设 prefix。
 
 运行时读的不是 Markdown 源文件，而是 profile 的 `cordis.patch.yml` 里
 `dsh-persona` 的 `prefix: |` 块（安装器从 `dsh/preset-apple-le.yml` 抄进去的）。
@@ -22,9 +22,9 @@ from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "docs/persona/apple-le-core.md"
-EXAMPLES = ROOT / "docs/persona/apple-le-examples.md"
-PRESET = ROOT / "dsh/preset-apple-le.yml"
+SOURCE = ROOT / "docs/persona/whale-core.md"
+EXAMPLES = ROOT / "docs/persona/whale-examples.md"
+PRESET = ROOT / "dsh/preset-whale.yml"
 DSH_HOME = Path.home() / ".dsh"
 BILI_PERSONA = Path.home() / ".bili-ai" / "persona.md"
 
@@ -122,30 +122,30 @@ def verify(path: Path) -> str:
 
 
 def whale_body() -> str:
-    """由常驻卡生成 B 站分身人设：去掉 QQ 群聊、戳一戳、消息层这类只对 QQ 有意义的规则。"""
-    raw = SOURCE.read_text(encoding="utf-8").strip().split(chr(10) + chr(10))
-    paragraphs = [para.strip() for para in raw if para.strip()]
-    drop = ("只有@时", "戳一戳", "离线时按后台", "同群共享该群对话", "直接输出给对方的聊天内容", "群聊")
+    """由常驻卡生成 B 站分身人设：B 站只有私聊，去掉群聊、@、戳一戳这些规则。"""
+    raw = SOURCE.read_text(encoding="utf-8").strip()
+    sections = re.split(r"(?m)^## ", raw)
     kept = []
-    for para in paragraphs:
-        if any(key in para for key in drop):
+    for section in sections:
+        if not section.strip():
             continue
-        if "私聊里称创建者" in para:
-            para = ("私聊里称对方「老大」，不用敬语，也不叫「您」。B 站这边只跟老大一个人说话，没有群聊场合。"
-                    "称呼不改变权限；偶尔自称「苹果乐」。")  # 替换掉 QQ 群聊称呼规则
-        kept.append(para)
-    header = ("# 苹果乐 · B 站分身" + chr(10) + chr(10) +
-              "> 由 docs/persona/apple-le-core.md 自动生成，别手改这个文件；改完源文件重跑同步脚本。" + chr(10))
-    trailer = ""
-    if BILI_PERSONA.is_file():
-        existing = BILI_PERSONA.read_text(encoding="utf-8")
-        if "## 背景碎片" in existing:
-            trailer = chr(10) + chr(10) + existing[existing.index("## 背景碎片"):].strip()
-    return header + chr(10) + (chr(10) + chr(10)).join(kept) + trailer + chr(10)
+        title = section.splitlines()[0]
+        if "群里的判断力" in title:
+            continue
+        body = "## " + section if not section.startswith("# ") else section
+        # 三、关系里「其他群友」小节只对 QQ 群有意义
+        if "关系与称呼" in title and "### 其他群友" in body:
+            body = body.split("### 其他群友")[0].rstrip() + chr(10)
+        body = body.replace("QQ 3124904460。你的创造者", "你的创造者")
+        body = body.replace("但老大私下问", "但对方私下问")
+        kept.append(body.strip())
+    header = ("# 吞天大肥鲸 · B 站分身" + chr(10) + chr(10) +
+              "> 由 docs/persona/whale-core.md 自动生成，别手改这个文件；改完源文件重跑同步脚本。" + chr(10))
+    return header + chr(10) + (chr(10) + chr(10)).join(kept) + chr(10)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="同步苹果乐人设到 DSH 运行时")
+    parser = argparse.ArgumentParser(description="同步大肥鲸人设到 DSH 运行时")
     parser.add_argument("--profile", default="desktop")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--with-examples", action="store_true", help="把示例对话一并写进 prefix（更占上下文）")

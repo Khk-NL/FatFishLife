@@ -51,7 +51,7 @@ async def run(args):
                     get_self_id=lambda: plugin.bot, get_group_id=lambda: group, get_sender_id=lambda: "operator-local-replay",
                     get_extra=lambda key: extra.get(key), set_extra=lambda key, value: extra.update({key: value}),
                     unified_msg_origin="napcat:GroupMessage:" + group, message_str=query)
-                req = ProviderRequest(prompt=query, system_prompt="你是苹果乐，以能天使为基础，短句自然，称呼老板。")
+                req = ProviderRequest(prompt=query, system_prompt="你是大肥鲸，以能天使为基础，短句自然，称呼老板。")
                 await plugin.inject_style(event, req)
                 entry["reference_added"] = bool(req.extra_user_content_parts)
                 if req.extra_user_content_parts:

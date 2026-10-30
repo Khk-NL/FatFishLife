@@ -113,7 +113,7 @@ test('日记：写文件、写记忆库、给主人发摘要', async () => {
   assert.equal(outcome.ok, true)
   assert.equal(outcome.day, '2026-10-30')
   const file = readFileSync(join(dir, '2026-10-30.md'), 'utf8')
-  assert.match(file, /tags: \[日记, 苹果乐\]/)
+  assert.match(file, /tags: \[日记, 大肥鲸\]/)
   assert.match(file, /今天群里又在刷那个梗/)
   assert.equal(journalWrites.length, 1)
   assert.equal(journalWrites[0].source, 'dsh-diary')

@@ -42,7 +42,7 @@ export function resolveDeepSeekKey(env = process.env, file = DEFAULT_CREDENTIALS
 export function cleanReply(text, maxChars = 120) {
   let body = String(text ?? '').trim()
   body = body.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim()
-  body = body.replace(/^(苹果乐|助手|我)[:：]\s*/, '')
+  body = body.replace(/^(大肥鲸|助手|我)[:：]\s*/, '')
   body = body.replace(/^["'“”「」]+|["'“”「」]+$/g, '').trim()
   if (maxChars > 0 && body.length > maxChars) body = body.slice(0, maxChars).trim()
   return body

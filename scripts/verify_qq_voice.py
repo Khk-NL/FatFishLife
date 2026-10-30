@@ -20,7 +20,7 @@ async def verify(context, tts_receipt: Path, output: Path):
 
     if output.exists():
         return json.loads(output.read_text(encoding="utf-8-sig"))
-    state = {"target_group_name":"苹果乐乐乐", "expected_bot_id":"1670515707",
+    state = {"target_group_name":"大肥鲸乐乐", "expected_bot_id":"1670515707",
              "synthesis_calls":0, "client_playback_checked":False}
     # Readiness checks are read-only and bounded. Never resend after an uncertain send.
     bot = None
@@ -69,7 +69,7 @@ async def verify(context, tts_receipt: Path, output: Path):
             return result
 
     try:
-        for kind, chain in (("ai_label", [Plain("AI合成角色语音｜苹果乐 MiniMax 试听")]),
+        for kind, chain in (("ai_label", [Plain("AI合成角色语音｜大肥鲸 MiniMax 试听")]),
                             ("voice", [Record.fromFileSystem(first["audio"])])):
             state["sends"].append({"kind":kind,"state":"submitted"})
             save_receipt(output, state)

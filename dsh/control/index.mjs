@@ -34,7 +34,7 @@ export const Config = z.object({
     normalKeywords: z.array(z.string()).default(['苹果派', '啊噗噜派']).description('正常时段附加触发词，忙碌时全部失效') }).default({}),
   busyWindows: z.array(z.object({ start: time().required(), end: time().required(),
     weekdays: z.array(z.number().step(1).min(0).max(6)).default([0,1,2,3,4,5,6]).description('0为周日，6为周六') }))
-    .default(DEFAULT_WINDOWS).description('上海时间；默认每天生效。忙时仅真@、戳本人、正文苹果乐触发固定回复，零模型/语音'),
+    .default(DEFAULT_WINDOWS).description('上海时间；默认每天生效。忙时仅真@、戳本人、正文大肥鲸触发固定回复，零模型/语音'),
   voice: z.object({ enabled: z.boolean().default(true), basePercent: percent(15).description('基础概率，单位%'), stepPercent: percent(0), maxPercent: percent(100),
     allowSynthesis: z.boolean().default(false).description('明确允许可能收费的合成；迁移联验前保持关闭。此开关不授权记忆或公开发布写入'),
     provider: z.union([z.const('siliconflow').description('硅基流动（现用）'), z.const('elevenlabs').description('ElevenLabs'), z.const('minimax').description('MiniMax')]).default('siliconflow').description('切换合成服务，不改变发送概率；不同服务的音色ID不可复用'),

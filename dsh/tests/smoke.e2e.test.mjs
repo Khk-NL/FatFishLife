@@ -50,7 +50,7 @@ const groupText = (body, extra = {}) => ({
 test('工作时段的 @ 只发一条固定文案，且不带模型输出', async () => {
   const policy = policyAt('10:30');
   const bridge = fakeBridge(policy);
-  const result = await beforeInbound(bridge, groupText('苹果乐你在吗', {
+  const result = await beforeInbound(bridge, groupText('大肥鲸你在吗', {
     message: [
       { type: 'at', data: { qq: BOT } },
       { type: 'text', data: { text: '你在吗' } },
@@ -103,7 +103,7 @@ test('戳一戳在工作时段换成一跳文字表示，不伪造 @', async () 
 test('静默时任何 inbound 都不产生发送', async () => {
   const policy = policyAt('19:30', { silent: true });
   const bridge = fakeBridge(policy);
-  const result = await beforeInbound(bridge, groupText('苹果乐'));
+  const result = await beforeInbound(bridge, groupText('大肥鲸'));
   assert.equal(result, false);
   assert.equal(bridge.calls.length, 0);
 });
@@ -171,7 +171,7 @@ test('重复 message_id 只处理一次', async () => {
 test('别的 QQ 帐号的事件全部忽略', async () => {
   const policy = policyAt('19:30');
   const bridge = fakeBridge(policy);
-  const result = await beforeInbound(bridge, groupText('苹果乐', { self_id: 999999 }));
+  const result = await beforeInbound(bridge, groupText('大肥鲸', { self_id: 999999 }));
   assert.equal(result, false);
   assert.equal(bridge.calls.length, 0);
 });

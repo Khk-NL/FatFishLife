@@ -1,5 +1,5 @@
 // 文案与提示词的**纯函数**层：不联网、不读文件，方便直接跑断言。
-// 语气锚点来自 docs/persona/exusiai-voice.md 与 apple-le-examples.md：
+// 语气锚点来自 docs/knowledge/arknights-exusiai-voice.md 与 docs/persona/whale-examples.md：
 // 短、口语、不客套、不播报参数。
 
 /** 秒 → `12:34` / `1:02:03`。 */

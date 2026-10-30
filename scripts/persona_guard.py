@@ -70,7 +70,7 @@ def main() -> int:
             current,
             char_limit=CHAR_LIMIT,
             read_only=True,
-            description="苹果乐常驻人设，只读；改动走人工并执行 --allow",
+            description="大肥鲸常驻人设，只读；改动走人工并执行 --allow",
             force=True,
         )
         print(f"已初始化只读 block（{len(current)} 字符）")

@@ -59,7 +59,7 @@ def main() -> None:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>苹果乐 · 能天使 · 拉特兰 表情包预览</title>
+<title>大肥鲸 · 能天使 · 拉特兰 表情包预览</title>
 <style>
 :root {{
   --bg: #0f1115; --panel: #171a21; --line: #2a2f3a; --text: #e8eaf0;
@@ -96,7 +96,7 @@ main {{ padding: 20px 24px 48px; }}
 </head>
 <body>
 <header>
-  <h1>苹果乐 · 能天使 · 拉特兰 表情包</h1>
+  <h1>大肥鲸 · 能天使 · 拉特兰 表情包</h1>
   <span class="count" id="count"></span>
   <div class="filters" id="filters"></div>
 </header>

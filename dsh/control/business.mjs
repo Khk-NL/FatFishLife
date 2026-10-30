@@ -136,7 +136,7 @@ export async function runDiary(deps) {
     try {
       mkdirSync(dir, { recursive: true })
       file = join(dir, `${day}.md`)
-      const front = ['---', `date: ${day}`, 'tags: [日记, 苹果乐]', 'source: dsh-fatfish', '---', ''].join('\n')
+      const front = ['---', `date: ${day}`, 'tags: [日记, 大肥鲸]', 'source: dsh-fatfish', '---', ''].join('\n')
       writeFileSync(file, front + content + '\n', 'utf8')
     } catch (error) {
       log('[fatfish] 日记写文件失败：' + (error?.message ?? error))

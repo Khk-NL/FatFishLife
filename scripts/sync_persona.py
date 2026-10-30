@@ -17,7 +17,7 @@ DEFAULT_PERSONA_ID = "apple-le"
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="同步苹果乐常驻人设到 AstrBot")
+    parser = argparse.ArgumentParser(description="同步大肥鲸常驻人设到 AstrBot")
     parser.add_argument("--source", type=Path, default=DEFAULT_SOURCE)
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     parser.add_argument("--persona-id", default=DEFAULT_PERSONA_ID)

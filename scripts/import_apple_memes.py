@@ -128,7 +128,7 @@ def import_collection(manifest_path: Path, target: Path, cache: Path | None = No
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="按公开来源清单导入苹果乐、能天使与拉特兰表情")
+    parser = argparse.ArgumentParser(description="按公开来源清单导入大肥鲸、能天使与拉特兰表情")
     parser.add_argument("--target", type=Path, required=True, help="已有的 meme_manager 资源包目录")
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
     parser.add_argument("--cache", type=Path, help="可选的已下载原图缓存目录")

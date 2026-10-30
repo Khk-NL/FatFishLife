@@ -126,7 +126,7 @@ export function apply(ctx) {
         group_id: 10000004, user_id: sender, message_id: n,
         message: [{ type: 'at', data: { qq: '10000001' } }, { type: 'text', data: { text: body } }] });
       await record('busy-bypasses-real-bridge-dispatch', async () => {
-        await inbound(mention('苹果乐', 1));
+        await inbound(mention('大肥鲸', 1));
         assert.equal(sends.length, 1); assert.equal(dispatches.length, 0);
         assert.match(sends[0].params.message[0].data.text, /12点/);
       });
@@ -173,7 +173,7 @@ export function apply(ctx) {
         assert.equal(modelRequests.length, 0);
         delete bridge.dispatchFollowup; // Restore the upstream method, including real Agent creation and followup.
         const before = sends.length;
-        await inbound(event('苹果乐，苹果派做好了吗', 100));
+        await inbound(event('大肥鲸，苹果派做好了吗', 100));
         const deadline = Date.now() + 5000;
         const texts = () => sends.slice(before).flatMap(frame => frame.params?.message ?? [])
           .filter(segment => segment.type === 'text').map(segment => segment.data.text);
@@ -199,7 +199,7 @@ export function apply(ctx) {
       await record('mute-during-real-model-turn-blocks-late-delivery', async () => {
         modelScenario = 'mute-before-final';
         const before = sends.length;
-        await inbound({ ...event('苹果乐，测试生成期间静默', 101), group_id: 10000005 });
+        await inbound({ ...event('大肥鲸，测试生成期间静默', 101), group_id: 10000005 });
         await settled('group:10000005');
         assert.equal(sends.length, before);
         policy.config.silent = false;
@@ -207,7 +207,7 @@ export function apply(ctx) {
       await record('work-window-during-real-model-turn-blocks-late-delivery', async () => {
         modelScenario = 'work-before-final';
         const before = sends.length;
-        await inbound({ ...event('苹果乐，测试生成期间进入忙碌窗口', 102), group_id: 10000006 });
+        await inbound({ ...event('大肥鲸，测试生成期间进入忙碌窗口', 102), group_id: 10000006 });
         await settled('group:10000006');
         assert.equal(sends.length, before);
         time = Date.parse('2026-10-31T20:00:00+08:00');
@@ -215,7 +215,7 @@ export function apply(ctx) {
       await record('model-error-never-becomes-public-backend-notice', async () => {
         modelScenario = 'error';
         const before = sends.length;
-        await inbound({ ...event('苹果乐，测试模型错误', 103), group_id: 10000007 });
+        await inbound({ ...event('大肥鲸，测试模型错误', 103), group_id: 10000007 });
         await settled('group:10000007');
         assert.equal(sends.length, before);
       });
@@ -223,7 +223,7 @@ export function apply(ctx) {
         modelScenario = 'normal';
         config.agentPreset = 'fatfish-deliberately-missing-preset';
         const before = sends.length, requests = modelRequests.length;
-        await inbound({ ...event('苹果乐，测试人设缺失', 104), group_id: 10000008 });
+        await inbound({ ...event('大肥鲸，测试人设缺失', 104), group_id: 10000008 });
         assert.equal(modelRequests.length, requests);
         assert.equal(sends.length, before);
         assert.equal(bridge.chats.has('group:10000008'), false);
