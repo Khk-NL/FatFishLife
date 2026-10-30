@@ -199,7 +199,9 @@ async function applyInner(ctx, config) {
           outcome = { ok: false, reason: error?.message ?? String(error) }
         }
         results[item.id] = { at: now.toISOString(), ok: outcome?.ok === true, sent: outcome?.sent ?? 0,
-          reason: outcome?.reason, detail: outcome?.picked ?? outcome?.learned ?? outcome?.day ?? outcome?.count }
+          reason: outcome?.reason ?? outcome?.skipped
+            ?? (Array.isArray(outcome?.results) ? JSON.stringify(outcome.results).slice(0, 300) : undefined),
+          detail: outcome?.picked ?? outcome?.learned ?? outcome?.day ?? outcome?.count }
         if (outcome?.ok !== true) failures[item.id] = results[item.id]
         else delete failures[item.id]
         ctx.logger.info(`[fatfish] ${item.id} 结束：${outcome?.ok === true ? '成功' : '失败'}${outcome?.sent ? '，发出 ' + outcome.sent + ' 条' : ''}`)
