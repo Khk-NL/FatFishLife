@@ -25,6 +25,13 @@ export const PET_PERSONA = [
   '对主人（老大）可以软一点、黏一点，但别撒娇过头。',
 ].join('\n');
 
+/** 碎碎念的表达纪律：从人设卡抽正文之后仍然要保留，否则它会写成长段解释。 */
+export const PET_RULES = [
+  '碎碎念只输出一句话，二十字以内，不解释自己在做什么，不提 AI、模型、插件、上下文、Token 账单。',
+  '不用客服腔：不列清单、不总结、不说“希望对你有帮助”“随时找我”，不写括号里的动作说明。',
+  '对主人（老大）可以软一点、黏一点，但别撒娇过头。',
+].join('\n');
+
 /** 心情档位：数值越低越蔫。hint 是给模型的语气要求，phrase 是给人看的档位名。 */
 export const MOOD_BUCKETS = [
   { max: 30, phrase: '有点低落', hint: '说话蔫蔫的，少开玩笑' },
@@ -60,11 +67,56 @@ export function bucketOf(value) {
   return MOOD_BUCKETS.find((bucket) => score < bucket.max) ?? MOOD_BUCKETS[MOOD_BUCKETS.length - 1];
 }
 
+/** 人设文件：仓库里的 whale-core.md；找不到就用下面的兜底人设。 */
+export const DEFAULT_PERSONA_FILE = 'D:/Code/Projects/FatFishLife/docs/persona/whale-core.md';
+
+/** 碎碎念提示词上限：太长会让它写成长段解释，反而不像碎碎念。 */
+export const PERSONA_LIMIT = 300;
+
+/**
+ * 从人设卡里抽出适合碎碎念的两节（性格内核 + 说话方式），压成一段。
+ * 不用整份卡片：那份有九节，含群聊规则、黑名单、输出纪律，塞给桌宠会串味。
+ */
+export function extractPersona(markdown, { limit = PERSONA_LIMIT, headers = ['二、性格内核', '四、说话方式'] } = {}) {
+  const text = String(markdown ?? '');
+  const lines = text.split(/\r?\n/);
+  const wanted = [];
+  let current = null;
+  for (const line of lines) {
+    const heading = line.match(/^##\s+(.*)$/);
+    if (heading) {
+      const title = heading[1].trim();
+      current = headers.some(name => title.includes(name)) ? [] : null;
+      if (current) wanted.push(current);
+      continue;
+    }
+    if (current) current.push(line);
+  }
+  const body = wanted
+    .flat()
+    .map(line => line.replace(/^\s*[-*]\s*/, '').replace(/^\s*#+\s*/, '').trim())
+    .filter(line => line && !line.startsWith('|'))
+    .join('');
+  if (!body) return '';
+  const clipped = body.length > limit ? body.slice(0, limit) : body;
+  return clipped.replace(/[，、；：]$/u, '') + (body.length > limit ? '…' : '');
+}
+
+/** 读人设文件并抽取；读不到返回空串，由调用方回落到 PET_PERSONA。 */
+export function readPersona(file = process.env.FATFISH_PERSONA_CORE || DEFAULT_PERSONA_FILE) {
+  try { return extractPersona(readFileSync(file, 'utf8')); } catch { return ''; }
+}
+
 /** 拼出完整 whisperPrompt：人设 + 一行心情。 */
-export function desiredPrompt(value) {
+export function desiredPrompt(value, { persona } = {}) {
   const score = Math.max(0, Math.min(100, Number(value)));
   const bucket = bucketOf(score);
-  return `${PET_PERSONA}\n${MOOD_MARK}${bucket.phrase}，${Math.round(score)}/100，${bucket.hint}。`;
+  const body = persona ?? readPersona() ?? '';
+  // 有正文时：一句身份 + 人设卡正文 + 表达纪律；没有就退回整段兜底人设。
+  const head = body
+    ? `${PET_PERSONA.split('\n')[0]}\n${body}\n${PET_RULES}`
+    : PET_PERSONA;
+  return `${head}\n${MOOD_MARK}${bucket.phrase}，${Math.round(score)}/100，${bucket.hint}。`;
 }
 
 function atomicWrite(path, text) {

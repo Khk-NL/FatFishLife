@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { FatFishPolicy } from './policy.mjs';
+import { FatFishPolicy, GROUP_MODE_LABELS } from './policy.mjs';
 
 const controlContext = new AsyncLocalStorage();
 
@@ -31,6 +31,90 @@ export function loadPolicy(settings) {
   const hit = candidates.find(candidate => existsSync(candidate));
   if (!hit) throw new Error('FatFish policy not found; set FATFISH_POLICY_FILE or add dsh/policy.json');
   return new FatFishPolicy(JSON.parse(readFileSync(hit, 'utf8').replace(/^\uFEFF/, '')));
+}
+
+/** 群模式写回哪个文件：和 loadPolicy 用的是同一份。 */
+export function policyFilePath() {
+  const candidates = [
+    process.env.FATFISH_POLICY_FILE,
+    'D:/Code/Projects/FatFishLife/dsh/policy.json',
+  ].filter(Boolean);
+  return candidates.find(candidate => existsSync(candidate)) ?? candidates[candidates.length - 1];
+}
+
+const MODE_ALIASES = new Map([
+  ['talk', 'talk'], ['既听又说', 'talk'], ['说', 'talk'], ['正常', 'talk'],
+  ['listen', 'listen'], ['只听不说', 'listen'], ['只听', 'listen'],
+  ['mention', 'mention'], ['只回at', 'mention'], ['只@', 'mention'], ['只回艾特', 'mention'],
+  ['owner', 'owner'], ['只回老大', 'owner'], ['只回主人', 'owner'],
+  ['quiet', 'quiet'], ['不理', 'quiet'], ['完全不理', 'quiet'], ['禁言', 'quiet'],
+]);
+
+/**
+ * 解析老大私聊里的群模式命令。写法：
+ *   /mode                 列一张表
+ *   /mode list            同上
+ *   /mode 123456789 listen
+ *   /mode 123456789 只听不说
+ *   /mode 123456789 default   恢复默认（删掉单独设置）
+ */
+export function parseModeCommand(text) {
+  const raw = String(text ?? '').trim();
+  const match = raw.match(/^[/／]mode(?:\s+(.*))?$/i);
+  if (!match) return null;
+  const rest = (match[1] ?? '').trim();
+  if (!rest || /^(list|列表|状态)$/i.test(rest)) return { action: 'list' };
+  const parts = rest.split(/\s+/);
+  const groupId = /^\d{5,12}$/.test(parts[0]) ? parts[0] : null;
+  if (!groupId) return { action: 'invalid', hint: '群号看起来不对，写成 /mode 123456789 listen' };
+  const word = (parts[1] ?? '').trim();
+  if (!word) return { action: 'invalid', hint: '还差一个模式：talk / listen / mention / owner / quiet' };
+  if (/^(default|默认|恢复)$/i.test(word)) return { action: 'reset', groupId };
+  const mode = MODE_ALIASES.get(word.toLowerCase()) ?? MODE_ALIASES.get(word);
+  if (!mode) return { action: 'invalid', hint: '没有这个模式：' + word };
+  return { action: 'set', groupId, mode };
+}
+
+export function formatModeTable(policy) {
+  const rows = policy.modeTable();
+  const fallback = GROUP_MODE_LABELS[policy.groupMode('__none__')] ?? '既听又说';
+  if (!rows.length) return `现在所有群都是默认模式：${fallback}。\n要改某个群就说 /mode 群号 listen`;
+  const lines = rows.map(row => `${row.groupId}：${row.label}`);
+  return `各群现在的设置（没列出来的都是${fallback}）：\n${lines.join('\n')}`;
+}
+
+/** 把模式写回 policy.json（原子写：先写临时文件再改名）。 */
+export function persistGroupMode(policy) {
+  const file = policyFilePath();
+  const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+  raw.groupModes = { ...(policy.config.groupModes ?? {}) };
+  if (!raw.groupDefaultMode) raw.groupDefaultMode = policy.config.groupDefaultMode ?? 'talk';
+  const tmp = `${file}.mode-tmp`;
+  writeFileSync(tmp, JSON.stringify(raw, null, 2) + '\n', 'utf8');
+  renameSync(tmp, file);
+  return file;
+}
+
+/** 处理一条 /mode 命令，返回要回给老大的话；不认识的命令返回 null。 */
+export function applyModeCommand(policy, text) {
+  const command = parseModeCommand(text);
+  if (!command) return null;
+  if (command.action === 'list') return { ok: true, reply: formatModeTable(policy) };
+  if (command.action === 'invalid') return { ok: false, reply: command.hint };
+  if (command.action === 'reset') {
+    if (policy.config.groupModes) delete policy.config.groupModes[command.groupId];
+    persistGroupMode(policy);
+    return { ok: true, reply: `群 ${command.groupId} 已恢复默认（${GROUP_MODE_LABELS[policy.groupMode(command.groupId)]}）` };
+  }
+  const before = policy.setGroupMode(command.groupId, command.mode);
+  persistGroupMode(policy);
+  const after = GROUP_MODE_LABELS[command.mode];
+  return {
+    ok: true,
+    reply: before === command.mode
+      ? `群 ${command.groupId} 本来就是${after}`
+      : `群 ${command.groupId}：${GROUP_MODE_LABELS[before]} → ${after}`,
+  };
 }
 
 export function scopedSessionId(policy, chatId) { return policy.sessionId(chatId); }

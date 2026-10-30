@@ -75,7 +75,7 @@ def prepare() -> Path:
         return source
 
     def bridge(source):
-        source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand, parseNewTarget, SOCIAL_CHANNEL_PROMPT } from './runtime-adapter.mjs';\n" + source
+        source = "import { beforeInbound, installSocialScope, assertOutbound, ownerCommand, parseNewTarget, parseModeCommand, applyModeCommand, SOCIAL_CHANNEL_PROMPT } from './runtime-adapter.mjs';\n" + source
         source = replace(source, "    async handleInbound(event, opts = {}) {", "    async handleInbound(event, opts = {}) {\n        try {\n            const gated = await beforeInbound(this, event);\n            if (gated === false) return;\n            event = gated;\n        } catch (error) {\n            this.deps.log('error', 'FatFish ingress/delivery failed: ' + error.name);\n            return;\n        }")
         # 主人可在私聊用 /new group:<群号> 或 /new all 重置指定群会话（群里不出现字样）
         source = replace(
@@ -98,6 +98,14 @@ def prepare() -> Path:
                 }
                 return true;
             });
+        }
+        const modeCommand = parseModeCommand(text);
+        if (modeCommand) {
+            const result = applyModeCommand(this.deps.fatfishPolicy, text);
+            if (result && String(chatId).startsWith('private:')) {
+                this.sendToChat(chatId, result.reply).catch(() => {});
+            }
+            return Promise.resolve(true);
         }""",
         )
         source = replace(source, "    installChannelScope(agentCtx) {", "    installChannelScope(agentCtx) {\n        installSocialScope(agentCtx, this);")

@@ -3,6 +3,16 @@ import { createHash } from 'node:crypto';
 const id = value => /^(?:[1-9][0-9]*)$/.test(String(value ?? '')) ? String(value) : '';
 // 正文里点得到她的名字（非忙时才认；忙时只认真 @ 和戳）。
 export const NAMES = ['大肥鲸', '肥鲸', '小鲸鱼', '鲸鱼娘', 'DEEPSEEK'];
+
+/** 群级模式：老大单独控制每个群怎么对待她。 */
+export const GROUP_MODES = ['talk', 'listen', 'mention', 'owner', 'quiet'];
+export const GROUP_MODE_LABELS = {
+  talk: '既听又说',
+  listen: '只听不说',
+  mention: '只回@或叫名字',
+  owner: '只回老大',
+  quiet: '完全不理',
+};
 const text = event => Array.isArray(event.message)
   ? event.message.filter(segment => segment.type === 'text').map(segment => String(segment.data?.text ?? '')).join('')
   : String(event.message ?? event.raw_message ?? '').replace(/\[CQ:[^\]]*\]/g, '');
@@ -34,7 +44,7 @@ export class FatFishPolicy {
       throw new Error('FatFish requires explicit ownerId, botId and adapterId');
     }
     this.config = { silent: true, groupCooldownMs: 10000, userCooldownMs: 60000,
-      dedupMs: 300000, normalKeywords: [], ...config };
+      dedupMs: 300000, normalKeywords: [], groupModes: {}, groupDefaultMode: 'talk', ...config };
     this.now = now;
     this.getConfig = getConfig;
     this.seen = new Map();
@@ -51,6 +61,32 @@ export class FatFishPolicy {
   }
 
   owner(userId) { return id(userId) === String(this.config.ownerId); }
+
+  /** 某个群当前的模式；没单独设过就用 groupDefaultMode。 */
+  groupMode(groupId) {
+    const table = this.config.groupModes;
+    const explicit = table && Object.prototype.hasOwnProperty.call(table, String(groupId))
+      ? table[String(groupId)] : undefined;
+    const value = explicit ?? this.config.groupDefaultMode ?? 'talk';
+    return GROUP_MODES.includes(value) ? value : 'talk';
+  }
+
+  /** 设置某个群的模式，返回设置前的值。 */
+  setGroupMode(groupId, mode) {
+    if (!GROUP_MODES.includes(mode)) throw new Error('未知群模式: ' + mode);
+    const target = String(groupId);
+    if (!id(target)) throw new Error('群号不合法: ' + target);
+    const before = this.groupMode(target);
+    this.config.groupModes = { ...(this.config.groupModes ?? {}), [target]: mode };
+    return before;
+  }
+
+  /** 当前所有单独设过模式的群。 */
+  modeTable() {
+    return Object.entries(this.config.groupModes ?? {})
+      .filter(([, mode]) => GROUP_MODES.includes(mode))
+      .map(([groupId, mode]) => ({ groupId, mode, label: GROUP_MODE_LABELS[mode] }));
+  }
 
   decide(event, access) {
     if (this.getConfig) Object.assign(this.config, this.getConfig());
@@ -82,9 +118,18 @@ export class FatFishPolicy {
     // Only a trusted, current sender may enter the backend router. This is
     // independent of group roles, nicknames, message text and the model.
     if (this.owner(userId) && command) return { kind: 'control', chatId, userId, command };
-    if (this.config.silent) return { kind: 'ignore', reason: 'silent' };
     const mentioned = Array.isArray(event.message) && event.message.some(segment =>
       segment.type === 'at' && id(segment.data?.qq) === String(this.config.botId));
+    // 群级开关：老大可以在私聊里给每个群单独定「既听又说 / 只听不说 / 只回@ / 只回老大 / 完全不理」。
+    // observe=true 表示这条不进模型，但值得记下来（她的"听"）。
+    if (kind === 'group') {
+      const mode = this.groupMode(target);
+      if (mode === 'quiet') return { kind: 'ignore', reason: 'group-quiet' };
+      if (mode === 'listen') return { kind: 'ignore', reason: 'group-listen', observe: true };
+      if (mode === 'owner' && !this.owner(userId)) return { kind: 'ignore', reason: 'group-owner-only', observe: true };
+      if (mode === 'mention' && !(poke || mentioned)) return { kind: 'ignore', reason: 'group-mention-only', observe: true };
+    }
+    if (this.config.silent) return { kind: 'ignore', reason: 'silent' };
     // 非忙碌时仍然认「正文叫名字」；忙碌时的判定见下面 addressed。
     const named = NAMES.some(name => body.includes(name));
     const explicit = poke || mentioned || named;

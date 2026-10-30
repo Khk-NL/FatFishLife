@@ -95,3 +95,45 @@
 JSON 改写的坑：`whisperPrompt` 在文件里是一条 JSON 字符串，心情行后面跟着 `\n` 转义。直接 `replace(/【当前心情】[^\n]*/)` 会吃到文件尾。现在的实现先 `JSON.parse` 再改字符串；带注释的 JSONC 退回文本模式，正则收紧成 `/【当前心情】[^"\\n]*/`。
 
 验证：`dsh/tests/petmood.test.mjs` 6 项（首次新建 / 只改那一行且 JSON 合法 / 同值不写盘 / JSONC 注释保留 / 读不到心情不动 / 人设不含工作状态文案）全过；真实文件 69 → 32 → 69 往返后 `JSON.parse` 仍通过，尾巴 `}` 完整。
+
+## 群级模式 + 桌宠人设抽取（2026-10-31）
+
+### 一、群级模式：主人用私聊命令控制每个群
+
+代码：
+
+- `dsh/policy.mjs`：`GROUP_MODES = ['talk','listen','mention','owner','quiet']`、`GROUP_MODE_LABELS`；`decide()` 在 `silent` 判断之前插入闸门；`groupMode(groupId)` / `setGroupMode(groupId, mode)` / `modeTable()`。
+- `dsh/runtime-adapter.mjs`：`parseModeCommand(text)`、`applyModeCommand(policy, text)`、`formatModeTable(policy)`、`persistGroupMode(policy)`（原子写 `dsh/policy.json`）。
+- `scripts/prepare_dsh_onebot.py` 的 `def bridge(source)`：`parseNewTarget` 分支之后插入 `/mode` 分支（只有主人能用；群里静默、私聊回执）。
+
+| 模式 | 中文 | 行为 |
+| --- | --- | --- |
+| talk | 既听又说 | 默认，原逻辑（@ / 叫名字 / 私聊） |
+| listen | 只听不说 | 只记不回复（`observe: true`） |
+| mention | 只回@或叫名字 | 普通发言不理，真 @ 才回 |
+| owner | 只回老大 | 群里只理主人，其他人只记 |
+| quiet | 完全不理 | 连 @ 都不回 |
+
+用法（主人私聊）：
+
+```
+/mode                     看各群设置
+/mode 123456789 listen    改成只听不说
+/mode 123456789 只听不说   中文写法也行
+/mode 123456789 default   恢复默认
+```
+
+写回的文件和 `loadPolicy()` 读的是同一份（`FATFISH_POLICY_FILE` 或 `D:/Code/Projects/FatFishLife/dsh/policy.json`），重启不丢。
+
+### 二、桌宠碎碎念人设改为从人设卡抽取
+
+`dsh/control/petmood.mjs` 新增 `DEFAULT_PERSONA_FILE`（`docs/persona/whale-core.md`，可用 `FATFISH_PERSONA_CORE` 覆盖）、`extractPersona(markdown, { limit: 300, headers: ['二、性格内核','四、说话方式'] })`、`readPersona(file)`、`PET_RULES`（一句话、二十字以内、不提 AI 与 Token、不用客服腔）。
+
+`desiredPrompt(value)` = 一句身份 + 抽出来的人设正文 + 表达纪律 + 心情行；人设卡读不到时退回原来的整段 `PET_PERSONA`。改 `whale-core.md` 那两节，桌宠下一轮碎碎念就跟着变。
+
+### 三、验证
+
+- `node --test dsh/tests/*.test.mjs` → 104 tests / 103 pass / 1 skipped（新增 `dsh/tests/mode.test.mjs` 10 项）
+- `python -m unittest discover -s tests -p "test_hub*.py"` → 32 OK
+- 探针 `dsh --profile probe --no-open --port 0` → `[dsh-onebot] mounted`、`bridge ready`、0 条 `did not activate`
+- 坑：`tryHandleCommand` 不是 async 方法，插 `await` 会 `SyntaxError: Unexpected reserved word`，整条桥 failed to import；改用 `.catch(() => {})` + `return Promise.resolve(true)`。
