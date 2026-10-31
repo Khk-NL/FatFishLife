@@ -413,6 +413,81 @@ def bili_dynamic_post(text: str, images: str = "", dry_run: bool = False) -> str
         return _dump({"ok": False, "error": str(exc)})
 
 
+# ---------- QQ 空间（走本地 onebot-qzone 桥的 HTTP 5700；写操作受 FATFISH_QZONE_WRITE 控制） ----------
+
+QZONE_API_BASE = os.environ.get("QZONE_API_BASE") or "http://127.0.0.1:5700"
+QZONE_API_TOKEN = os.environ.get("QZONE_API_TOKEN") or ""
+
+
+def _qzone_call(action: str, params: dict | None = None, timeout: int = 25) -> dict:
+    body = json.dumps(params or {}, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if QZONE_API_TOKEN:
+        headers["Authorization"] = f"Bearer {QZONE_API_TOKEN}"
+    request = Request(
+        f"{QZONE_API_BASE.rstrip('/')}/{action}", data=body, headers=headers, method="POST"
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310 - 本地固定地址
+            return json.loads(response.read().decode("utf-8", "replace"))
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError(f"空间桥不可用（{QZONE_API_BASE}）：{type(exc).__name__}") from exc
+
+
+@server.tool(description="读自己最近发的 QQ 空间说说（只读）")
+def qzone_recent(count: int = 3) -> str:
+    try:
+        result = _qzone_call("get_emotion_list", {"num": max(1, min(int(count or 3), 20))})
+    except RuntimeError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+    rows = ((result.get("data") or {}).get("msglist")) or []
+    items = [
+        {
+            "tid": row.get("tid"),
+            "text": str(row.get("content") or "")[:200],
+            "time": row.get("createTime") or row.get("created_time"),
+            "comments": row.get("cmtnum") or row.get("comment_count"),
+        }
+        for row in rows
+    ]
+    return _dump({"ok": result.get("status") == "ok", "items": items})
+
+
+@server.tool(description="发一条 QQ 空间说说（纯文字或配一张本地图片）；需 FATFISH_QZONE_WRITE=1")
+def qzone_post(text: str, image: str = "") -> str:
+    body = str(text or "").strip()
+    if not body:
+        return _dump({"ok": False, "error": "说说内容为空"})
+    if os.environ.get("FATFISH_QZONE_WRITE") != "1":
+        return _dump({"ok": False, "error": "空间发布未开启（FATFISH_QZONE_WRITE=1 才允许）"})
+    message: Any = body
+    path = str(image or "").strip()
+    if path:
+        message = [{"type": "text", "data": {"text": body}}, {"type": "image", "data": {"file": path}}]
+    try:
+        result = _qzone_call("send_msg", {"message": message}, timeout=40)
+    except RuntimeError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+    data = result.get("data") or {}
+    if result.get("status") != "ok":
+        return _dump({"ok": False, "error": result.get("message") or "发布失败"})
+    return _dump({"ok": True, "tid": data.get("tid"), "pic_ids": data.get("pic_ids") or []})
+
+
+@server.tool(description="删掉自己发的一条说说（按 tid）；需 FATFISH_QZONE_WRITE=1")
+def qzone_delete(tid: str) -> str:
+    target = str(tid or "").strip()
+    if not target:
+        return _dump({"ok": False, "error": "缺少 tid"})
+    if os.environ.get("FATFISH_QZONE_WRITE") != "1":
+        return _dump({"ok": False, "error": "空间发布未开启（FATFISH_QZONE_WRITE=1 才允许）"})
+    try:
+        result = _qzone_call("delete_msg", {"message_id": target})
+    except RuntimeError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+    return _dump({"ok": result.get("status") == "ok", "tid": target})
+
+
 @server.tool(description="B 站登录态与 CLI 连通性检查")
 def bili_check() -> str:
     try:
