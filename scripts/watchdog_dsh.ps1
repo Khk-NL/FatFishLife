@@ -106,6 +106,10 @@ function Get-StuckTurnMinutes {
     }
     if ($null -eq $open) { return 0 }
     $started = [datetimeoffset]::FromUnixTimeMilliseconds([int64]$open.ts).LocalDateTime
+    # A turn whose start timestamp is older than the current host process is a leftover from a
+    # killed run (the trace file is append-only), not a live hang - restarting cannot clear it.
+    $hostProc = @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue) | Sort-Object StartTime | Select-Object -First 1
+    if ($null -ne $hostProc -and $started -lt $hostProc.StartTime.AddMinutes(-1)) { return 0 }
     return [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
 }
 

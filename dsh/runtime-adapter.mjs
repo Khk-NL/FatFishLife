@@ -228,8 +228,10 @@ const BUSY_SYSTEM = (returnHour, template, persona = busyPersona()) => `${person
 let busyCold = true;
 async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) {
   if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return null;
+  // 冷加载时先等预热（与预热共用一个 Promise），避免两个请求争单并发槽互相拖死。
+  if (busyCold) await Promise.race([warmBusyModel(), new Promise((r) => setTimeout(r, 60_000))]);
   // 第一次调用可能撞上模型冷加载（1.5B 实测 40 秒），给一次长超时；之后恢复正常。
-  if (busyCold) timeoutMs = 25_000;
+  if (busyCold) timeoutMs = 60_000;
   const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -241,7 +243,7 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
       body: JSON.stringify({
         model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
         stream: false,
-        keep_alive: '30m',
+        keep_alive: '8h',
         options: { temperature: 0.95, top_p: 0.92, num_predict: 56, num_ctx: 1024,
           presence_penalty: 0.6, frequency_penalty: 0.5, repeat_penalty: 1.15 },
         messages: [
@@ -273,26 +275,25 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
 // 1.5B 模型冷启动要几十秒，第一次峰时回话会被 timeout 打回固定文案。
 // 插件加载时先热一次（失败无所谓），之后 keep_alive=30m 常驻。
 // 注意：ollama 0.40.9 不认 keep_alive: '-1'，会回 {"error":"time: missing unit in duration"}。
-let busyWarm = false;
-async function warmBusyModel() {
-  if (busyWarm || process.env.FATFISH_BUSY_BRIEF === 'fixed') return;
-  busyWarm = true;
+let busyWarmPromise = null;
+function warmBusyModel() {
+  if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return Promise.resolve();
+  if (busyWarmPromise) return busyWarmPromise;
   const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-  try {
-    await fetch(base + '/api/generate', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
-        prompt: '你好',
-        stream: false,
-        keep_alive: '30m',
-        options: { num_predict: 8, num_ctx: 768 },
-      }),
-    });
-  } catch {
-    busyWarm = false;
-  }
+  busyWarmPromise = fetch(base + '/api/generate', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
+      prompt: '你好',
+      stream: false,
+      keep_alive: '8h',
+      options: { num_predict: 8, num_ctx: 768 },
+    }),
+  }).then(() => undefined).catch(() => {
+    busyWarmPromise = null;
+  });
+  return busyWarmPromise;
 }
 void warmBusyModel();
 
