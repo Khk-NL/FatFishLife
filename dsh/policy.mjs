@@ -1,4 +1,20 @@
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+
+// 2026-10-31 老大要求用现成库判节假日：chinese-days 覆盖法定节假日、调休上班与周末，
+// 每年国务院公布次年安排后作者会更新；没装这个包时退回「周末＝闲时」的简化判断。
+const requireFromBundle = createRequire(import.meta.url);
+let chineseDays;
+try {
+  // 仓库里随源码带一份（dsh/vendor/chinese-days），打包进桥后路径一致，避免线上缺依赖。
+  chineseDays = requireFromBundle('./vendor/chinese-days');
+} catch {
+  try {
+    chineseDays = requireFromBundle('chinese-days');
+  } catch {
+    chineseDays = undefined;
+  }
+}
 
 const id = value => /^(?:[1-9][0-9]*)$/.test(String(value ?? '')) ? String(value) : '';
 // 正文里点得到她的名字（非忙时才认；忙时只认真 @ 和戳）。
@@ -30,10 +46,28 @@ export function localDate(now) {
 export function restDay(now, { holidays = [], makeupWorkdays = [] } = {}) {
   const local = new Date(Number(now) + 8 * 60 * 60 * 1000);
   const date = local.toISOString().slice(0, 10);
+  // 手写名单优先：官方安排没跟上或想临时改，直接写日期就行。
   if (makeupWorkdays.includes(date)) return false;
   if (holidays.includes(date)) return true;
+  if (chineseDays?.isHoliday) {
+    try {
+      return Boolean(chineseDays.isHoliday(date));
+    } catch {
+      // 日期超出库的覆盖范围时落到下面的兜底判断。
+    }
+  }
   const day = local.getUTCDay();
   return day === 0 || day === 6;
+}
+
+/** 当天在节假日库里的名字（周一/周六这种也算），用于日志与自检。 */
+export function dayLabel(now) {
+  const date = localDate(now);
+  try {
+    return chineseDays?.getDayDetail?.(date)?.name ?? '';
+  } catch {
+    return '';
+  }
 }
 
 export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }], calendar = {}) {

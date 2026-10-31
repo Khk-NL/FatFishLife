@@ -114,6 +114,9 @@ def prepare() -> Path:
     (target / "package.json").write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     for file in ("policy.mjs", "runtime-adapter.mjs"):
         shutil.copy2(ROOT / "dsh" / file, target / "lib" / file)
+    vendor = ROOT / "dsh" / "vendor" / "chinese-days"
+    if vendor.is_dir():
+        shutil.copytree(vendor, target / "lib" / "vendor" / "chinese-days", dirs_exist_ok=True)
 
     def patch(name, transform):
         path = target / "lib" / name

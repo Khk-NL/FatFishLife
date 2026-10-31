@@ -1,0 +1,66 @@
+{
+  "name": "chinese-days",
+  "version": "1.5.9",
+  "description": "中国节假日、调休日、工作日、24节气查询，农历阳历互转，支持 TS、CommonJS、UMD 模块化使用，提供 ics 日历格式，可供 Google Calendar、Apple Calendar、Microsoft Outlook 等客户端订阅。",
+  "main": "dist/index.min.js",
+  "module": "dist/index.es.js",
+  "types": "dist/index.d.ts",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vsme/chinese-days.git"
+  },
+  "files": [
+    "dist/*",
+    "src/*",
+    "LICENSE",
+    "package.json",
+    "README.md",
+    "README.en.md"
+  ],
+  "scripts": {
+    "build": "tsc && vite build && ts-node scripts/build-json.ts && ts-node scripts/build-ics.ts",
+    "fetch": "ts-node scripts/fetch.ts",
+    "auto-update": "ts-node scripts/auto-update-holidays.ts",
+    "test": "jest",
+    "lint": "eslint . --ext .ts,.js --fix",
+    "lint:check": "eslint . --ext .ts,.js",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "format:lint": "npm run format && npm run lint"
+  },
+  "keywords": [
+    "中国日期",
+    "节假日",
+    "工作日",
+    "调休",
+    "24节气",
+    "农历",
+    "阴历",
+    "阳历",
+    "日历",
+    "订阅"
+  ],
+  "author": "Yaavi",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/vsme/chinese-days/issues"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "axios": "^1.7.5",
+    "cheerio": "^1.0.0",
+    "eslint": "^8.57.0",
+    "eslint-config-prettier": "^9.1.0",
+    "ical-generator": "^7.2.0",
+    "jest": "^29.7.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "vite-plugin-dts": "^4.0.3"
+  }
+}
