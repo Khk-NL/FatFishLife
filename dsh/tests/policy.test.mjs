@@ -6,7 +6,7 @@ import { beforeInbound, assertOutbound, ownerCommand, installSocialScope, parseN
 // 测试里不连本地模型：那句忙时回复用固定文案，保证确定性与速度。
 process.env.FATFISH_BUSY_BRIEF = 'fixed';
 
-const clock = value => Date.parse(`2026-10-31T${value}+08:00`); // Saturday is intentionally a work day.
+const clock = value => Date.parse(`2026-11-02T${value}+08:00`); // 2026-11-02 是周一：周末/节假日已按闲时算，忙时用例必须落在工作日。
 const access = { groupPolicy: 'open', dmPolicy: 'open', adminUsers: ['2'], allowAllUsers: true };
 const event = (body = '大肥鲸', extra = {}) => ({ post_type: 'message', message_type: 'group',
   self_id: 1, user_id: 3, group_id: 4, message: [{ type: 'text', data: { text: body } }], ...extra });
@@ -61,7 +61,7 @@ test('ten simultaneous pokes produce only one fixed text and no model/media disp
     event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 1 }))));
   assert.ok(result.every(item => item === false));
   assert.equal(f.sends.length, 1);
-  assert.equal(f.sends[0].params.message[0].data.text, '拉特兰通讯现在是峰时收费，12点再聊');
+  assert.equal(f.sends[0].params.message[0].data.text, 'DeepSeek这会儿峰时，12点再来找我');
 });
 
 test('afternoon fixed text and bot-account isolation', async () => {
@@ -214,7 +214,7 @@ test('小模型跑题或超长时退回固定文案', async () => {
     globalThis.fetch = original;
     process.env.FATFISH_BUSY_BRIEF = 'fixed';
   }
-  assert.equal(f.sends[0].params.message[0].data.text, '拉特兰通讯现在是峰时收费，12点再聊');
+  assert.equal(f.sends[0].params.message[0].data.text, 'DeepSeek这会儿峰时，12点再来找我');
 });
 
 test('/new 的定向写法能被识别，其它写法不受影响', () => {

@@ -22,7 +22,22 @@ export function commandText(value) {
   return /^[\/\\][\p{L}\p{N}_-]/u.test(candidate) ? candidate.replace(/^\\/, '/') : undefined;
 }
 
-export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }]) {
+// 2026-10-31 老大要求：周末和节假日没有峰时，全天都按闲时算。
+export function localDate(now) {
+  return new Date(Number(now) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+export function restDay(now, { holidays = [], makeupWorkdays = [] } = {}) {
+  const local = new Date(Number(now) + 8 * 60 * 60 * 1000);
+  const date = local.toISOString().slice(0, 10);
+  if (makeupWorkdays.includes(date)) return false;
+  if (holidays.includes(date)) return true;
+  const day = local.getUTCDay();
+  return day === 0 || day === 6;
+}
+
+export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }], calendar = {}) {
+  if (restDay(now, calendar)) return undefined;
   // Fixed UTC+8 avoids host timezone and daylight-saving differences.
   const local = new Date(Number(now) + 8 * 60 * 60 * 1000);
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
@@ -59,6 +74,8 @@ export class FatFishPolicy {
   sessionId(chatId) {
     return 'fatfish-qq-' + createHash('sha256').update(this.scope(chatId)).digest('hex');
   }
+
+  calendar() { return { holidays: this.config.holidays ?? [], makeupWorkdays: this.config.makeupWorkdays ?? [] }; }
 
   owner(userId) { return id(userId) === String(this.config.ownerId); }
 
@@ -133,7 +150,7 @@ export class FatFishPolicy {
     // 非忙碌时仍然认「正文叫名字」；忙碌时的判定见下面 addressed。
     const named = NAMES.some(name => body.includes(name));
     const explicit = poke || mentioned || named;
-    const returnHour = workWindow(now, this.config.busyWindows);
+    const returnHour = workWindow(now, this.config.busyWindows, this.calendar());
     // 和老大本人的私聊不受忙碌窗口限制：峰时也用正常模型回他。
     const ownerPrivate = kind === 'private' && this.owner(userId);
     if (returnHour !== undefined && !ownerPrivate) {
@@ -167,7 +184,7 @@ export class FatFishPolicy {
 
   /** 忙时文案：模板里的 {hour} 换成 12 / 18，或窗口结束时刻。 */
   busyText(returnHour) {
-    const template = String(this.config.busyText || '拉特兰通讯现在是峰时收费，{hour}点再聊');
+    const template = String(this.config.busyText || 'DeepSeek这会儿峰时，{hour}再来找我');
     const value = typeof returnHour === 'number' ? returnHour + '点' : String(returnHour ?? '');
     return template.replace(/\{hour\}点/g, value).replace(/\{hour\}/g, value);
   }
@@ -184,7 +201,7 @@ export class FatFishPolicy {
     if (this.getConfig) Object.assign(this.config, this.getConfig());
     if (this.config.silent) return false;
     if (!busy) return true;
-    const hour = workWindow(this.now(), this.config.busyWindows);
+    const hour = workWindow(this.now(), this.config.busyWindows, this.calendar());
     return hour !== undefined && hour === returnHour;
   }
 

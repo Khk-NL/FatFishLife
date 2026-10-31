@@ -31,7 +31,7 @@ export const Config = z.object({
   identity: z.object({ adapterId: z.string().default('napcat-main'), botId: z.string().pattern(/^[1-9][0-9]*$/).required(),
     ownerId: z.string().pattern(/^[1-9][0-9]*$/).required() }).description('可信身份：QQ号由传输层验证，称呼与群管理员身份不授予后台权限'),
   reply: z.object({ silent: z.boolean().default(true).description('全局静默：只收不发'),
-    busyText: z.string().default('拉特兰通讯现在是峰时收费，{hour}点再聊').description('忙时那句固定文案；{hour} 会替换成 12 或 18'),
+    busyText: z.string().default('DeepSeek这会儿峰时，{hour}再来找我').description('忙时那句固定文案；{hour} 会替换成 12 或 18'),
     groupCooldownSeconds: seconds(10), userCooldownSeconds: seconds(60), dedupSeconds: seconds(300),
     normalKeywords: z.array(z.string()).default(['苹果派', '啊噗噜派']).description('正常时段附加触发词，忙碌时全部失效') }).default({}),
   busyWindows: z.array(z.object({ start: time().required(), end: time().required(),

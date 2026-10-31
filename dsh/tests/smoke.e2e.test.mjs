@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { FatFishPolicy } from '../policy.mjs';
 import { beforeInbound, assertOutbound, ownerCommand } from '../runtime-adapter.mjs';
 
-const clock = value => Date.parse(`2026-10-31T${value}+08:00`);
+const clock = value => Date.parse(`2026-11-02T${value}+08:00`); // 周一，周末不算忙时
 const OWNER = '3124904460';
 const BOT = '1670515707';
 const ADAPTER = 'napcat';

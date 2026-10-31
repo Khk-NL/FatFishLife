@@ -22,18 +22,19 @@ test('percent controls compile into existing behavior units without changing pro
 });
 
 test('custom windows really control the message gate, including precise return time', () => {
-  const value=config(); value.busyWindows=[{start:'10:15',end:'12:30',weekdays:[6]}];
-  const policy=new FatFishPolicy(compileSettings(value).policy,{now:()=>Date.parse('2026-10-31T10:30:00+08:00')});
+  // 2026-10-31 起周末与节假日一律算闲时，忙时用例改用周一（2026-11-02）。
+  const value=config(); value.busyWindows=[{start:'10:15',end:'12:30',weekdays:[1]}];
+  const policy=new FatFishPolicy(compileSettings(value).policy,{now:()=>Date.parse('2026-11-02T10:30:00+08:00')});
   const decision=policy.decide({post_type:'message',message_type:'group',self_id:1,user_id:3,group_id:4,message:[{type:'at',data:{qq:'1'}},{type:'text',data:{text:'大肥鲸'}}]},
     {groupPolicy:'open'});
-  assert.equal(decision.kind,'busy'); assert.match(decision.text,/12:30再聊/);
-  assert.equal(workWindow(Date.parse('2026-11-01T10:30:00+08:00'),value.busyWindows),undefined);
+  assert.equal(decision.kind,'busy'); assert.match(decision.text,/12:30再来找我/);
+  assert.equal(workWindow(Date.parse('2026-11-03T10:30:00+08:00'),value.busyWindows),undefined);
 });
 
 test('overnight windows use the weekday on which the interval began', () => {
-  const windows=[{start:'23:00',end:'01:00',weekdays:[6]}];
-  assert.equal(workWindow(Date.parse('2026-11-01T00:30:00+08:00'),windows),1);
-  assert.equal(workWindow(Date.parse('2026-11-01T01:00:00+08:00'),windows),undefined);
+  const windows=[{start:'23:00',end:'01:00',weekdays:[1]}];
+  assert.equal(workWindow(Date.parse('2026-11-03T00:30:00+08:00'),windows),1);
+  assert.equal(workWindow(Date.parse('2026-11-03T01:00:00+08:00'),windows),undefined);
 });
 
 test('invalid cross-field settings are rejected', () => {
