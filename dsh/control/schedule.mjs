@@ -11,6 +11,8 @@ import { join } from 'node:path'
 
 /** 每天的运营任务。`at` 是本地时间 HH:MM。 */
 export const TASKS = [
+  { id: 'consolidate-noon', kind: 'consolidate', at: '12:05', label: '峰时消息谷时总结（上午）' },
+  { id: 'consolidate-evening', kind: 'consolidate', at: '18:05', label: '峰时消息谷时总结（下午）' },
   { id: 'bili-recommend-noon', kind: 'bili-recommend', at: '12:30', label: 'B站刷首页+推荐' },
   { id: 'bili-recommend-evening', kind: 'bili-recommend', at: '20:30', label: 'B站刷首页+推荐' },
   { id: 'bili-study', kind: 'bili-study', at: '21:00', label: 'B站标签学习' },

@@ -198,23 +198,27 @@ export class FatFishPolicy {
     const named = NAMES.some(name => body.includes(name));
     const explicit = poke || mentioned || named;
     const returnHour = workWindow(now, this.config.busyWindows, this.calendar());
-    // 和老大本人的私聊不受忙碌窗口限制：峰时也用正常模型回他。
+    // 峰时连老大私聊也不走 DeepSeek（2026-11-01 老大定的：峰时一律本地小模型，省钱）。
     const ownerPrivate = kind === 'private' && this.owner(userId);
-    if (returnHour !== undefined && !ownerPrivate) {
-      // 忙碌时段只认「真 @」和「戳」：正文里出现名字、被引用、被提及都不算。
+    if (returnHour !== undefined) {
+      // 忙碌时段只认「真 @」「戳」和老大私聊：正文里出现名字、被引用都不算。
       // 2026-10-29 按老大要求改的 —— 峰时不该因为别人提到关键词就冒泡。
-      const addressed = poke || mentioned;
+      const addressed = poke || mentioned || ownerPrivate;
       if (!addressed) return { kind: 'ignore', reason: 'work-unaddressed' };
       this.prune(this.cooldowns, now, Math.max(this.config.groupCooldownMs, this.config.userCooldownMs));
       const groupKey = `chat:${scope}`;
       const userKey = `user:${scope}:${userId}`;
-      if (now - (this.cooldowns.get(groupKey) ?? -Infinity) < this.config.groupCooldownMs ||
-          now - (this.cooldowns.get(userKey) ?? -Infinity) < this.config.userCooldownMs) {
+      // 老大的私聊不排队：他说一句就得回一句（还是本地小模型那句）。
+      if (!ownerPrivate &&
+          (now - (this.cooldowns.get(groupKey) ?? -Infinity) < this.config.groupCooldownMs ||
+           now - (this.cooldowns.get(userKey) ?? -Infinity) < this.config.userCooldownMs)) {
         return { kind: 'ignore', reason: 'cooldown' };
       }
       // Reserve synchronously before awaiting delivery, preventing a burst of pokes.
-      this.cooldowns.set(groupKey, now);
-      this.cooldowns.set(userKey, now);
+      if (!ownerPrivate) {
+        this.cooldowns.set(groupKey, now);
+        this.cooldowns.set(userKey, now);
+      }
       return { kind: 'busy', chatId, userId, returnHour,
         text: this.busyText(returnHour) };
     }

@@ -173,11 +173,14 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
 test('invalid identity has no permissive default', () => {
   assert.throws(() => new FatFishPolicy({}));
 });
-test('峰时和老大私聊不拦，仍然走正常模型', () => {
+test('峰时和老大私聊也走本地小模型（省钱），不再等 DeepSeek', () => {
   const f = fixture('10:00:00');
   const privateEvent = { post_type: 'message', message_type: 'private', self_id: 1, user_id: 2,
     message: [{ type: 'text', data: { text: '在吗' } }] };
-  assert.equal(f.policy.decide(privateEvent, access).kind, 'social');
+  const decision = f.policy.decide(privateEvent, access);
+  assert.equal(decision.kind, 'busy');
+  assert.equal(decision.chatId, 'private:2');
+  assert.ok(isBusyLine(decision.text, 12), decision.text);
 });
 
 test('峰时别人的私聊不会因为正文叫名字就冒泡', () => {

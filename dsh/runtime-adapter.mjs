@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { FatFishPolicy, GROUP_MODE_LABELS } from './policy.mjs';
 
@@ -163,41 +164,111 @@ export function applyModeCommand(policy, text) {
 
 export function scopedSessionId(policy, chatId) { return policy.sessionId(chatId); }
 
-// 忙碌时那句"12/18点再聊"由本地小模型生成，语气自然一点，不像模板自动回复。
-// 硬约束（写死在提示词里，不交给模型自由发挥）：
-//   · 只能表达"在忙"和"几点回来"
-//   · 不能聊别的话题、不能承诺别的、不能解释技术细节
-//   · 超过 40 字或格式不对就直接用固定文案兜底
-// 本地模型不可用时同样兜底，绝不让这一句话的失败影响主流程。
-async function busyBrief(returnHour, template, timeoutMs = 2500) {
+// 忙碌时那句由**本地小模型**生成：峰时不走 DeepSeek，省下的就是老大的钱。
+// 用户定的死限制（写死在提示词里，不交给模型自由发挥）：
+//   · 只说三件事：峰时成本翻倍、可以吐槽梁文峰和 DeepSeek 定价、自己其实很想跟人聊天
+//   · 被问"现在为什么还能发消息"就老实说：本地小模型回的，没走 DeepSeek，不花那个钱
+//   · 除此之外不接话、不回答问题、不承诺、不讲技术细节
+// 超长/跑题/格式不对一律用固定文案兜底，绝不影响主流程。
+const BUSY_SYSTEM = (returnHour, template) => `你在替吞星鲸鲸看摊。现在是 DeepSeek 峰时（工作日 9:00-12:00、14:00-18:00 双倍价），老大为了省钱让你用本地小模型回话。
+只能表达这三件事，别的一概不说：
+1) 峰时算力翻倍收钱，让对方 ${returnHour}点再来找你；
+2) 你可以嘀咕两句梁文峰和 DeepSeek 的峰时定价（不高兴、算得精）；
+3) 你可以说自己也挺想跟人聊天，只是这会儿说了就是烧钱。
+如果对方问你"现在怎么还能发消息/不是不让你说话吗"，就老实回答：这是本地小模型在回，没走 DeepSeek，不花那个钱。
+除此之外：不回答具体问题、不接对方话头、不承诺任何事、不解释技术细节。
+一到两句，不超过 45 个字，用鲸鱼娘那种有点不耐烦又精打细算的语气，不加引号。
+参考意思（别照抄）：${template}`;
+
+async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) {
   if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return null;
-  const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:6193').replace(/\/+$/, '');
+  const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(base + '/v1/chat/completions', {
+    const response = await fetch(base + '/api/chat', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       signal: controller.signal,
       body: JSON.stringify({
-        model: process.env.FATFISH_LOCAL_LLM_MODEL || 'fatfish-context',
-        temperature: 0.3,
-        max_tokens: 60,
+        model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
+        stream: false,
+        keep_alive: '-1',
+        options: { temperature: 0.85, top_p: 0.9, num_predict: 64, num_ctx: 768 },
         messages: [
-          { role: 'system', content: `你是群里那只爱吐槽的鲸鱼娘。现在正好是DeepSeek的峰时：工作日 9:00-12:00、14:00-18:00 按双倍价计费，谷时（含周末、法定假日）只要一半，所以你这时候开口就是在烧老大的钱。你知道这条规矩，也觉得该省，嘴上还是忍不住嘀咕两句梁文峰和这个定价。老大这会儿@你，你只能丢一句话打发：①用你自己的语气，不耐烦里带点精打细算，浅浅吐槽峰时涨价/梁文峰，别骂人别长篇；②必须提到"${returnHour}点"，说清什么时候再来；③不超过35个字，一句话，不加引号，不讲价格机制，不承诺别的事，不接对方话头。参考意思（别照抄）：${template}` },
-          { role: 'user', content: '（被艾特了）' },
+          { role: 'system', content: BUSY_SYSTEM(returnHour, template) },
+          { role: 'user', content: incoming || '（被@了）' },
         ],
       }),
     });
     if (!response.ok) return null;
     const data = await response.json();
-    const text = String(data?.choices?.[0]?.message?.content ?? '').trim().replace(/^["'「]|["'」]$/g, '');
-    if (!text || text.length > 40 || !text.includes(`${returnHour}点`)) return null;
-    return text;
+    const text = String(
+      data?.message?.content ?? data?.choices?.[0]?.message?.content ?? '',
+    ).trim().replace(/^["'「]|["'」]$/g, '').replace(/\s+/g, ' ');
+    if (!text || text.length > 60) return null;
+    const onTopic = text.includes(`${returnHour}点`)
+      || /本地|小模型|不花|没走\s*DeepSeek|省钱|峰时|翻倍|算力/.test(text);
+    return onTopic ? text : null;
   } catch {
     return null;
   } finally {
     clearTimeout(timer);
+  }
+}
+
+// 1.5B 模型冷启动要几十秒，第一次峰时回话会被 timeout 打回固定文案。
+// 插件加载时先热一次（失败无所谓），之后 keep_alive=-1 常驻。
+let busyWarm = false;
+async function warmBusyModel() {
+  if (busyWarm || process.env.FATFISH_BUSY_BRIEF === 'fixed') return;
+  busyWarm = true;
+  const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+  try {
+    await fetch(base + '/api/generate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
+        prompt: '你好',
+        stream: false,
+        keep_alive: '-1',
+        options: { num_predict: 8, num_ctx: 768 },
+      }),
+    });
+  } catch {
+    busyWarm = false;
+  }
+}
+void warmBusyModel();
+
+/** 拟人停顿：群 2–5 秒、私聊 2–3 秒（含模型思考时间，用户 2026-11-01 定）。 */
+function humanPause(kind) {
+  const hi = kind === 'group' ? 5000 : 3000;
+  const ms = 2000 + Math.floor(Math.random() * (hi - 2000 + 1));
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// 峰时攒消息：只追加一行到文件，不调模型、不进内存。
+// 谷时由 scripts/consolidate_peak.py 一次总结成记忆 / 成长 / 心情 / 日记。
+const PEAK_QUEUE = process.env.FATFISH_PEAK_QUEUE
+  || 'D:/Code/Projects/FatFishLife/data/dsh/peak-queue.jsonl';
+
+function queuePeakEvent(event, decision) {
+  try {
+    const text = String(event?.raw_message ?? '').trim();
+    if (!text) return;
+    mkdirSync(dirname(PEAK_QUEUE), { recursive: true });
+    const sender = event?.sender ?? {};
+    appendFileSync(PEAK_QUEUE, JSON.stringify({
+      at: Date.now(),
+      chatId: decision?.chatId ?? '',
+      userId: event?.user_id != null ? String(event.user_id) : '',
+      name: String(sender.card || sender.nickname || '').slice(0, 20),
+      text: text.slice(0, 300),
+    }) + '\n', 'utf8');
+  } catch {
+    // 攒不下就算了，不能影响回话。
   }
 }
 
@@ -211,12 +282,16 @@ export function parseNewTarget(text) {
 export async function beforeInbound(bridge, event) {
   const policy = bridge.deps.fatfishPolicy;
   const decision = policy.decide(event, bridge.deps.policy);
+  // 峰时也要留档：她这会儿不回或只回一句，内容先落盘，谷时再总结。
+  if (decision.kind === 'busy' || decision.reason === 'work-unaddressed') queuePeakEvent(event, decision);
   if (decision.kind === 'ignore') return false;
   if (decision.kind === 'busy') {
     if (policy.canSend({ busy: true, returnHour: decision.returnHour })) {
-      // policy 已按 busyText 模板生成 decision.text；小模型可用时优先用它那句。
-      const text = (await busyBrief(decision.returnHour, decision.text)) ?? decision.text;
+      const incoming = String(event?.raw_message ?? '').trim();
+      // policy 已按 busyText 模板生成 decision.text；本地小模型可用时优先用它那句。
+      const text = (await busyBrief(decision.returnHour, decision.text, incoming)) ?? decision.text;
       const [kind, target] = decision.chatId.split(':');
+      await humanPause(kind);
       const receipt = await bridge.deps.connection.call('send_msg', {
         message_type: kind, [kind === 'group' ? 'group_id' : 'user_id']: Number(target),
         message: [{ type: 'text', data: { text } }],

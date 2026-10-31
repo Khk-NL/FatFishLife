@@ -29,17 +29,18 @@ test('scheduledFor 落在当天同一时刻', () => {
 })
 
 test('到点才触发，提前一分钟不触发', () => {
-  assert.equal(dueTasks(at('12:29')).length, 0)
-  const due = dueTasks(at('12:30'))
-  assert.equal(due.length, 1)
-  assert.equal(due[0].id, 'bili-recommend-noon')
-  assert.equal(due[0].lateMinutes, 0)
+  assert.equal(dueTasks(at('12:04')).some((t) => t.id === 'consolidate-noon'), false)
+  const noon = dueTasks(at('12:05'))
+  assert.deepEqual(noon.map((t) => t.id), ['consolidate-noon'])
+  assert.equal(noon[0].lateMinutes, 0)
+  const bili = dueTasks(at('12:30')).find((t) => t.id === 'bili-recommend-noon')
+  assert.equal(bili.lateMinutes, 0)
 })
 
 test('宽限期内的迟到仍会触发', () => {
   const due = dueTasks(at('13:00'))
-  assert.equal(due.length, 1)
-  assert.equal(due[0].lateMinutes, 30)
+  const bili = due.find((t) => t.id === 'bili-recommend-noon')
+  assert.equal(bili.lateMinutes, 30)
 })
 
 test('超过宽限期不补跑（停机一夜不会一次性放出所有任务）', () => {
@@ -51,14 +52,14 @@ test('超过宽限期不补跑（停机一夜不会一次性放出所有任务�
 })
 
 test('同一天跑过就不再跑', () => {
-  const due = dueTasks(at('12:35'), { lastRun: { 'bili-recommend-noon': at('12:31') } })
-  assert.equal(due.length, 0)
+  const lastRun = { 'bili-recommend-noon': at('12:31'), 'consolidate-noon': at('12:06') }
+  assert.equal(dueTasks(at('12:35'), { lastRun }).length, 0)
 })
 
 test('昨天的记录不会挡住今天的任务', () => {
   const yesterday = new Date(2026, 9, 28, 12, 31, 0)
   const due = dueTasks(at('12:35'), { lastRun: { 'bili-recommend-noon': yesterday } })
-  assert.equal(due.length, 1)
+  assert.ok(due.some((t) => t.id === 'bili-recommend-noon'))
 })
 
 test('23:50 的两个任务在同一天互不干扰', () => {
@@ -73,19 +74,19 @@ test('凌晨不会误触发前一天的日记', () => {
 
 test('nextRun 返回最近的一个未来任务', () => {
   const next = nextRun(at('13:00'))
-  assert.equal(next.id, 'bili-recommend-evening')
-  assert.equal(next.at, '20:30')
-  assert.equal(next.when.getHours(), 20)
+  assert.equal(next.id, 'consolidate-evening')
+  assert.equal(next.at, '18:05')
+  assert.equal(next.when.getHours(), 18)
 })
 
 test('nextRun 在当天全部结束后指向明天的第一个', () => {
   const next = nextRun(at('23:59'))
-  assert.equal(next.id, 'bili-recommend-noon')
+  assert.equal(next.id, 'consolidate-noon')
   assert.equal(next.when.getDate(), 30)
 })
 
-test('任务表与 rules.md 的四个时间点一致', () => {
-  assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:30', '20:30', '21:00', '23:50'])
+test('任务表与 rules.md 的时间点一致', () => {
+  assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:05', '12:30', '18:05', '20:30', '21:00', '23:50'])
 })
 test('状态读写往返，重启后不重复触发靠它', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ff-sched-'))

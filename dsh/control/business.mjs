@@ -6,9 +6,11 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { execFile } from 'node:child_process'
 import { selectRecommendations } from './ops.mjs'
 import { buildInboxMessage, buildRecommendMessage, diaryMessages, recommendReasonMessages } from './compose.mjs'
 import { cleanReply } from './llm.mjs'
+import { DEFAULT_MEMORY_DB, DEFAULT_PYTHON } from './hub.mjs'
 
 const SEEN_LIMIT = 300
 
@@ -160,11 +162,52 @@ export async function runDiary(deps) {
 }
 
 /** 任务总入口：按 kind 分发；未知类型如实报错，不假装成功。 */
+/**
+ * 峰时攒下的消息，谷时一次总结（记忆 / 成长 / 心情 / 日记）。
+ * 真正的逻辑在 scripts/consolidate_peak.py：这里只负责起进程、把结果带回来。
+ */
+export function runConsolidate(deps) {
+  const { log } = deps
+  const script = process.env.FATFISH_CONSOLIDATE
+    || 'D:/Code/Projects/FatFishLife/scripts/consolidate_peak.py'
+  return new Promise((resolve) => {
+    execFile(DEFAULT_PYTHON, [script], {
+      timeout: 180_000,
+      windowsHide: true,
+      maxBuffer: 8 * 1024 * 1024,
+      env: {
+        ...process.env,
+        PYTHONIOENCODING: 'utf-8',
+        FATFISH_MEMORY_DB: process.env.FATFISH_MEMORY_DB || DEFAULT_MEMORY_DB,
+        FATFISH_HUB_WRITE: '1',
+      },
+    }, (error, stdout, stderr) => {
+      const text = String(stdout ?? '').trim().split(/\r?\n/).filter(Boolean).pop() || ''
+      let payload = null
+      try {
+        payload = JSON.parse(text)
+      } catch {
+        payload = null
+      }
+      if (error || !payload) {
+        const detail = String(stderr ?? '').trim().split(/\r?\n/).pop() || error?.message || 'no-output'
+        log('[fatfish] 峰时总结失败：' + detail)
+        resolve({ ok: false, reason: detail.slice(0, 200) })
+        return
+      }
+      log(`[fatfish] 峰时总结完成：${payload.items ?? 0} 条 → 记忆 ${payload.written?.memories ?? 0}`
+        + ` / 成长 ${payload.written?.growth ?? 0} / 心情 ${payload.written?.mood ?? 0}`)
+      resolve(payload)
+    })
+  })
+}
+
 export async function runTask(task, deps) {
   const kind = task?.kind
   if (kind === 'bili-recommend') return runBiliRecommend(deps)
   if (kind === 'bili-inbox') return runBiliInbox(deps)
   if (kind === 'bili-study') return runBiliStudy(deps)
   if (kind === 'diary') return runDiary(deps)
+  if (kind === 'consolidate') return runConsolidate(deps)
   return { ok: false, reason: 'unknown-kind:' + String(kind) }
 }
