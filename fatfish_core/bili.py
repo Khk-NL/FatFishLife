@@ -153,6 +153,21 @@ def send_dm(uid: str, text: str, *, dry_run: bool = True) -> dict:
     return run("dm", "send", str(uid).strip(), body, timeout=120, dry_run=dry_run)
 
 
+def post_dynamic(text: str, *, images: list[str] | None = None, dry_run: bool = False) -> dict:
+    """发图文动态（B站没有开放投稿接口，动态是唯一能自动发的内容形态）。"""
+    _require_writes("发动态")
+    body = str(text or "").strip()
+    if not body:
+        raise BiliError("动态内容为空")
+    args: list[str] = []
+    for path in images or []:
+        item = str(path).strip()
+        if item:
+            args += ["--image", item]
+    args.append(body)
+    return run("dynamic", "post", *args, timeout=180, dry_run=dry_run)
+
+
 def probe() -> dict:
     """连通性与登录态检查。"""
     try:

@@ -24,9 +24,14 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import sys
+import time
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError
+from urllib.parse import quote
+from urllib.request import Request, urlopen
 from uuid import uuid4
 from threading import Lock
 
@@ -327,7 +332,86 @@ def tts_check() -> str:
         return _dump({"ok": False, "error": str(exc)})
 
 
+# ---------- 生图（免费接口，不用 key；可用 FATFISH_IMAGE_API 换模板） ----------
+
+IMAGE_TEMPLATE = (
+    os.environ.get("FATFISH_IMAGE_API")
+    or "https://image.pollinations.ai/prompt/{prompt}?width={width}&height={height}&nologo=true&seed={seed}"
+)
+
+
+def _image_dir() -> Path:
+    custom = os.environ.get("FATFISH_IMAGE_DIR")
+    base = Path(custom) if custom else Path(__file__).resolve().parents[2] / "outputs/dsh-media/gen"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+@server.tool(description="按文字描述生成一张图，落盘后返回路径（发不发由调用方决定）；默认免费接口，不需要 key")
+def image_generate(prompt: str, width: int = 768, height: int = 768) -> str:
+    body = str(prompt or "").strip()
+    if not body:
+        return _dump({"ok": False, "error": "描述为空"})
+    width = max(256, min(int(width or 768), 1536))
+    height = max(256, min(int(height or 768), 1536))
+    url = IMAGE_TEMPLATE.format(
+        prompt=quote(body, safe=""), width=width, height=height, seed=random.randint(0, 10**6)
+    )
+    request = Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36",
+            "Accept": "image/avif,image/webp,image/jpeg,image/png,*/*",
+        },
+    )
+    payload = b""
+    for attempt in range(2):
+        try:
+            with urlopen(request, timeout=25) as response:  # noqa: S310 - 固定模板生成的地址
+                payload = response.read(8 * 1024 * 1024)
+            break
+        except HTTPError as exc:  # 免费接口限流：1 张 / 45 秒；高峰期还会 503
+            observe.event("image_failed", reason=f"HTTP{exc.code}")
+            if exc.code == 402:
+                return _dump({"ok": False, "error": "免费额度用完了，等 45 秒再说"})
+            if attempt == 0 and exc.code in (429, 503):
+                time.sleep(3)
+                continue
+            return _dump({"ok": False, "error": f"生图接口繁忙（HTTP {exc.code}），过会儿再试"})
+        except Exception as exc:  # noqa: BLE001
+            observe.event("image_failed", reason=type(exc).__name__)
+            if attempt == 0:
+                time.sleep(2)
+                continue
+            return _dump({"ok": False, "error": f"生图请求失败：{type(exc).__name__}"})
+    if payload[:3] == b"\xff\xd8\xff":
+        suffix = ".jpg"
+    elif payload[:8] == b"\x89PNG\r\n\x1a\n":
+        suffix = ".png"
+    elif payload[:4] == b"RIFF":
+        suffix = ".webp"
+    else:
+        return _dump({"ok": False, "error": "接口没有返回图片"})
+    path = _image_dir() / f"{uuid4().hex}{suffix}"
+    path.write_bytes(payload)
+    return _dump({"ok": True, "path": str(path), "bytes": len(payload), "prompt": body[:120]})
+
+
+
 # ---------- B 站（只读优先；写操作受 FATFISH_BILI_WRITE 控制） ----------
+
+@server.tool(description="发一条 B 站图文动态（B站没有开放投稿接口，动态是唯一能自动发的形态）；需 FATFISH_BILI_WRITE=1")
+def bili_dynamic_post(text: str, images: str = "", dry_run: bool = False) -> str:
+    body = str(text or "").strip()
+    if not body:
+        return _dump({"ok": False, "error": "动态内容为空"})
+    paths = [p.strip() for p in str(images or "").split(",") if p.strip()]
+    try:
+        result = bili.post_dynamic(body, images=paths, dry_run=bool(dry_run))
+        return _dump({"ok": result.get("ok"), "dry_run": bool(dry_run), "data": result.get("data")})
+    except bili.BiliError as exc:
+        return _dump({"ok": False, "error": str(exc)})
+
 
 @server.tool(description="B 站登录态与 CLI 连通性检查")
 def bili_check() -> str:
