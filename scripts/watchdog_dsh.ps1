@@ -12,6 +12,7 @@ param(
     [string]$LogDir = 'D:/Code/Projects/FatFishLife/outputs/agent',
     [string]$DataDir = 'D:/Code/Projects/FatFishLife/data/dsh',
     [string]$Trace = 'C:/Users/kongb/.dsh/media/onebot/fatfish-qq-2d989f916ec56ecd7d3628063d100fa55449765969f5bfbf3e30bbe446531814/qq-trace.jsonl',
+    [int]$BridgePort = 8645,
     [int]$HeartbeatStaleMinutes = 10,
     [int]$StuckTurnMinutes = 12,
     [int]$MaxRestartsPerHour = 3
@@ -94,7 +95,7 @@ function Restart-App([string]$Why) {
 $procs = Get-HostProcesses
 $alive = $procs.Count -gt 0
 $heartbeatAge = if ($alive) { Get-HeartbeatAgeMinutes } else { -1 }
-$port = if ($alive) { Test-PortListening 8643 } else { [pscustomobject]@{ listen = 0; established = 0 } }
+$port = if ($alive) { Test-PortListening $BridgePort } else { [pscustomobject]@{ listen = 0; established = 0 } }
 $stuck = if ($alive) { Get-StuckTurnMinutes } else { 0 }
 
 $verdict = 'ok'
@@ -104,7 +105,7 @@ if (-not $alive) {
 } elseif ($heartbeatAge -gt $HeartbeatStaleMinutes) {
     $verdict = 'restart'; $why = "scheduler heartbeat stale $heartbeatAge min"
 } elseif ($port.listen -eq 0) {
-    $verdict = 'restart'; $why = 'qq bridge not listening on 8643'
+    $verdict = 'restart'; $why = 'qq bridge not listening on ' + $BridgePort
 } elseif ($stuck -gt $StuckTurnMinutes) {
     $verdict = 'restart'; $why = "model turn stuck $stuck min"
 }
