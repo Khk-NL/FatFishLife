@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>群模式面板 · 吞星鲸鲸</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px; background: #0f1620; color: #e6edf3;
+         font: 14px/1.6 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  h1 { margin: 0 0 4px; font-size: 20px; }
+  .sub { color: #8b98a5; margin-bottom: 20px; }
+  .card { background: #161f2b; border: 1px solid #24303d; border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #1f2a36; vertical-align: middle; }
+  th { color: #8b98a5; font-weight: 500; font-size: 12px; letter-spacing: .04em; }
+  .gid { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .active { color: #7ee787; }
+  .muted { color: #6b7785; font-size: 12px; }
+  button { cursor: pointer; border-radius: 8px; border: 1px solid #2d3a48; background: #1b2532;
+           color: #cfd8e3; padding: 6px 10px; font-size: 13px; margin: 2px 4px 2px 0; }
+  button:hover { border-color: #3d5166; background: #223041; }
+  button.on { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  input { background: #0f1620; border: 1px solid #2d3a48; border-radius: 8px; color: #e6edf3;
+          padding: 7px 10px; font-size: 13px; width: 160px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  #toast { position: fixed; right: 20px; bottom: 20px; background: #1f6feb; color: #fff;
+           padding: 10px 14px; border-radius: 8px; opacity: 0; transition: opacity .2s; }
+  #toast.show { opacity: 1; }
+  code { background: #0f1620; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+  <h1>群模式面板</h1>
+  <div class="sub">点哪个群就是哪个群的口径，改完立刻生效，不用重启。</div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>群号</th><th>当前</th><th>改成</th><th>最后活动</th></tr></thead>
+      <tbody id="rows"><tr><td colspan="4" class="muted">读取中…</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <span class="muted">没扫到的群，手动加：</span>
+      <input id="manual" placeholder="群号，例如 1129335342">
+      <button onclick="addManual()">填进列表</button>
+      <span class="muted">（填完在上面那行点模式）</span>
+    </div>
+  </div>
+
+  <div class="card muted" id="foot"></div>
+  <div id="toast"></div>
+
+<script>
+let STATE = { groups: [], modes: [], default: 'talk' };
+
+function toast(text) {
+  const el = document.getElementById('toast');
+  el.textContent = text; el.classList.add('show');
+  clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 1600);
+}
+
+function labelOf(key) {
+  if (key === 'default') return `跟随默认（${labelOf(STATE.default)}）`;
+  const hit = STATE.modes.find(m => m.key === key);
+  return hit ? hit.label : key;
+}
+
+function render() {
+  const body = document.getElementById('rows');
+  if (!STATE.groups.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">还没有任何群出现过。先在群里说句话，或者手动加群号。</td></tr>';
+  } else {
+    body.innerHTML = STATE.groups.map(g => {
+      const buttons = STATE.modes.map(m =>
+        `<button class="${g.mode === m.key ? 'on' : ''}" title="${m.hint}" onclick="setMode('${g.id}','${m.key}')">${m.label}</button>`
+      ).join('');
+      const def = `<button class="${g.mode === 'default' ? 'on' : ''}" onclick="setMode('${g.id}','default')">跟随默认</button>`;
+      return `<tr>
+        <td class="gid">${g.id}</td>
+        <td class="${g.mode === 'quiet' ? 'muted' : 'active'}">${labelOf(g.mode)}</td>
+        <td>${buttons}${def}</td>
+        <td class="muted">${g.last || '—'}${g.seen ? ` · ${g.seen} 条` : ''}</td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('foot').innerHTML =
+    `默认模式：<b>${labelOf(STATE.default)}</b> · 主人：<code>${STATE.owner || '未配置'}</code>` +
+    `<br>写入文件：<code>${STATE.policy}</code> · 读取时间 ${STATE.updated}`;
+}
+
+async function load() {
+  const res = await fetch('/api/state', { cache: 'no-store' });
+  STATE = await res.json();
+  render();
+}
+
+async function setMode(group, mode) {
+  const res = await fetch('/api/mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ group, mode })
+  });
+  const data = await res.json();
+  if (!data.ok) { toast('保存失败：' + (data.error || '未知错误')); return; }
+  toast(`${group} → ${labelOf(mode)}`);
+  await load();
+}
+
+function addManual() {
+  const input = document.getElementById('manual');
+  const gid = input.value.trim();
+  if (!/^\d{5,12}$/.test(gid)) { toast('群号得是 5–12 位数字'); return; }
+  if (!STATE.groups.some(g => g.id === gid)) {
+    STATE.groups.unshift({ id: gid, mode: 'default', seen: 0, last: '' });
+    render();
+  }
+  input.value = '';
+}
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

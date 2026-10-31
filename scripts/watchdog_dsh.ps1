@@ -70,10 +70,20 @@ function Start-NapCat {
 }
 
 function Test-PortListening([int]$Port) {
-    $conns = @(Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue)
-    $listen = @($conns | Where-Object { $_.State -eq 'Listen' }).Count
-    $established = @($conns | Where-Object { $_.State -eq 'Established' }).Count
-    return [pscustomobject]@{ listen = $listen; established = $established }
+    # Get-NetTCPConnection reports nothing for listeners owned by higher-integrity
+    # processes (the DSH host lives one level up), so the old check said "down"
+    # forever and restarted the app every run. Probe with a real TCP connect.
+    $listen = 0
+    $client = New-Object System.Net.Sockets.TcpClient
+    try {
+        $iar = $client.BeginConnect('127.0.0.1', $Port, $null, $null)
+        if ($iar.AsyncWaitHandle.WaitOne(1500, $false) -and $client.Connected) { $listen = 1 }
+    } catch {
+        $listen = 0
+    } finally {
+        try { $client.Close() } catch { }
+    }
+    return [pscustomobject]@{ listen = $listen; established = 0 }
 }
 
 function Get-HeartbeatAgeMinutes {

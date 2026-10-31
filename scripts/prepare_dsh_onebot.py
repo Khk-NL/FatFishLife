@@ -89,6 +89,65 @@ async function normalizeImageExtension(filePath) {
     )
 
 
+def inbound_wire(source: str) -> str:
+    """在入站派发前记录时刻，供出站延迟计算“思考花了多久”。"""
+    source = replace(
+        source,
+        """import { currentTrace, TRACE_REASONS } from './trace.js';""",
+        """import { currentTrace, TRACE_REASONS } from './trace.js';
+import { noteInbound } from './outbound.js';""",
+    )
+    return replace(
+        source,
+        """        await this.ctx.dispatchFollowup(chatId, final, role, nickname);""",
+        """        noteInbound(chatId);
+        await this.ctx.dispatchFollowup(chatId, final, role, nickname);""",
+    )
+
+
+def outbound(source: str) -> str:
+    """回复拟人延迟：群里 2-5 秒、私聊 2-3 秒，从入站时刻算起（思考时间算在里面）。
+
+    没有入站记录的发送（定时任务、主动开口）不等，免得拖慢后台任务。"""
+    helper = """const FATFISH_INBOUND_AT = new Map();
+/**
+ * 记录一条入站消息的时刻，供出站延迟计算“到现在过了多久”。
+ */
+export function noteInbound(chatId) {
+    FATFISH_INBOUND_AT.set(String(chatId), Date.now());
+}
+/**
+ * 群 2-5 秒、私聊 2-3 秒的随机间隔；模型思考花掉的时间算在里面，不够才补等。
+ * FATFISH_HUMAN_DELAY=off 可整体关掉。
+ */
+async function fatfishHumanDelay(chatId) {
+    if (process.env.FATFISH_HUMAN_DELAY === 'off')
+        return;
+    const key = String(chatId);
+    const seen = FATFISH_INBOUND_AT.get(key);
+    if (seen === undefined)
+        return;
+    const hi = key.startsWith('group:') ? 5000 : 3000;
+    const target = 2000 + Math.floor(Math.random() * (hi - 2000 + 1));
+    const wait = Math.max(0, target - (Date.now() - seen));
+    if (wait > 0)
+        await new Promise(resolve => setTimeout(resolve, wait));
+}
+"""
+    source = replace(
+        source,
+        """import { splitChatId } from './chat.js';""",
+        """import { splitChatId } from './chat.js';
+""" + helper,
+    )
+    return replace(
+        source,
+        """    async sendMsg(chatId, segments, options) {""",
+        """    async sendMsg(chatId, segments, options) {
+        await fatfishHumanDelay(chatId);""",
+    )
+
+
 def prepare() -> Path:
     lock = json.loads((ROOT / "dsh/upstream-lock.json").read_text(encoding="utf-8"))["onebot"]
     cache = ROOT / ".tools/dsh-vendor"
@@ -283,7 +342,8 @@ def prepare() -> Path:
     patch("interim.js", interim)
     patch("connection.js", connection)
     patch("tools.js", tools)
-    patch("inbound.js", inbound)
+    patch("inbound.js", lambda source: inbound_wire(inbound(source)))
+    patch("outbound.js", outbound)
     evidence = {"upstream": lock, "adapted_files": {
         str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted((target / "lib").glob("*")) if path.is_file()
