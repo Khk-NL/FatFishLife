@@ -12,6 +12,8 @@ param(
     [string]$LogDir = 'D:/Code/Projects/FatFishLife/outputs/agent',
     [string]$DataDir = 'D:/Code/Projects/FatFishLife/data/dsh',
     [string]$Trace = 'C:/Users/kongb/.dsh/media/onebot/fatfish-qq-2d989f916ec56ecd7d3628063d100fa55449765969f5bfbf3e30bbe446531814/qq-trace.jsonl',
+    [string]$Python = 'D:/Code/Projects/FatFishLife/.tools/dsh-python/Scripts/python.exe',
+    [string]$PruneScript = 'D:/Code/Projects/FatFishLife/scripts/prune_dsh_cookies.py',
     [int]$BridgePort = 8645,
     [int]$HeartbeatStaleMinutes = 10,
     [int]$StuckTurnMinutes = 12,
@@ -107,11 +109,29 @@ function Get-StuckTurnMinutes {
     return [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
 }
 
+function Invoke-CookiePrune {
+    # DSH stores one dsh-auth-<random> cookie per random local port it ever started on.
+    # Chromium sends cookies by host and ignores the port, so the history goes into every
+    # request header until it overflows and the app fails with "Web authentication failed".
+    # Only safe while the app is closed: Chromium rewrites its in-memory copy on exit.
+    if (-not (Test-Path -LiteralPath $PruneScript)) { Write-Log 'cookie prune: script missing, skipped'; return }
+    if (-not (Test-Path -LiteralPath $Python)) { Write-Log 'cookie prune: python missing, skipped'; return }
+    try {
+        $out = & $Python $PruneScript 2>&1 | Out-String
+        $summary = ($out -split "`r?`n" | Where-Object { $_ -match 'PRUNE_RESULT' } | Select-Object -Last 1)
+        if (-not $summary) { $summary = 'PRUNE_RESULT unknown' }
+        Write-Log ('cookie prune: ' + $summary.Trim())
+    } catch {
+        Write-Log ('cookie prune failed: ' + $_.Exception.Message)
+    }
+}
+
 function Restart-App([string]$Why) {
     $procs = Get-HostProcesses
     Write-Log ("restart triggered: {0} (killing {1} processes)" -f $Why, $procs.Count)
     foreach ($p in $procs) { try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { } }
     Start-Sleep -Seconds 6
+    Invoke-CookiePrune
     try {
         Start-Process -FilePath $Exe -WorkingDirectory (Split-Path -Parent $Exe) | Out-Null
         Start-Sleep -Seconds 8
@@ -131,6 +151,10 @@ $napcat = Get-NapCatProcesses
 
 $verdict = 'ok'
 $why = ''
+if (-not $alive -and -not $Check) {
+    # App is closed right now: this is the safe moment to trim the auth cookie pile.
+    Invoke-CookiePrune
+}
 if (-not $alive) {
     $verdict = 'restart'; $why = 'process missing'
 } elseif ($heartbeatAge -gt $HeartbeatStaleMinutes) {
