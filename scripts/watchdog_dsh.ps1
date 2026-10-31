@@ -49,6 +49,26 @@ function Get-HostProcesses {
     @(Get-Process -Name 'DeepSeek Harness' -ErrorAction SilentlyContinue)
 }
 
+function Get-NapCatProcesses {
+    @(Get-Process -Name 'NapCatWinBootMain' -ErrorAction SilentlyContinue)
+}
+
+# NapCat needs admin rights for the QQ injection. We cannot create an elevated task
+# from a limited shell, but FatFishLife-Start already runs with RunLevel=Highest and
+# start_all.ps1 launches NapCat (AstrBot is retired via data\.astrbot-retired).
+function Start-NapCat {
+    try {
+        schtasks /Run /TN 'FatFishLife-Start' | Out-Null
+        Start-Sleep -Seconds 10
+        $after = Get-NapCatProcesses
+        Write-Log ("napcat start requested via FatFishLife-Start, now {0} processes" -f $after.Count)
+        return $after.Count -gt 0
+    } catch {
+        Write-Log ("error: napcat start failed - {0}" -f $_.Exception.Message)
+        return $false
+    }
+}
+
 function Test-PortListening([int]$Port) {
     $conns = @(Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue)
     $listen = @($conns | Where-Object { $_.State -eq 'Listen' }).Count
@@ -97,6 +117,7 @@ $alive = $procs.Count -gt 0
 $heartbeatAge = if ($alive) { Get-HeartbeatAgeMinutes } else { -1 }
 $port = if ($alive) { Test-PortListening $BridgePort } else { [pscustomobject]@{ listen = 0; established = 0 } }
 $stuck = if ($alive) { Get-StuckTurnMinutes } else { 0 }
+$napcat = Get-NapCatProcesses
 
 $verdict = 'ok'
 $why = ''
@@ -111,19 +132,37 @@ if (-not $alive) {
 }
 
 if ($Check) {
-    Write-Log ("check: processes={0} heartbeatAge={1}m listen={2} established={3} stuck={4}m => {5} {6}" -f `
-        $procs.Count, $heartbeatAge, $port.listen, $port.established, $stuck, $verdict, $why)
-    return
-}
-
-if ($verdict -ne 'restart') {
-    if ($port.established -eq 0 -and $port.listen -gt 0) {
-        Write-Log 'warn: bridge listening but NapCat not connected (start NapCat by hand)'
-    }
+    Write-Log ("check: processes={0} heartbeatAge={1}m listen={2} established={3} stuck={4}m napcat={5} => {6} {7}" -f `
+        $procs.Count, $heartbeatAge, $port.listen, $port.established, $stuck, $napcat.Count, $verdict, $why)
     return
 }
 
 $state = Read-State
+
+# NapCat is a separate program; if it died we only restart DSH when the bridge is dead.
+if ($napcat.Count -eq 0) {
+    $lastNapCat = $null
+    if ($state.napcatAt) { try { $lastNapCat = [datetime]$state.napcatAt } catch { } }
+    $cooled = ($null -eq $lastNapCat) -or (((Get-Date) - $lastNapCat).TotalMinutes -gt 10)
+    if ($cooled) {
+        Start-NapCat | Out-Null
+        $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue (Get-Date).ToString('o') -Force
+        Save-State $state
+    } else {
+        Write-Log 'napcat is not running but restarted less than 10 min ago - waiting'
+    }
+} else {
+    $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue $null -Force
+}
+
+if ($verdict -ne 'restart') {
+    if ($port.established -eq 0 -and $port.listen -gt 0) {
+        Write-Log 'warn: bridge listening but NapCat not connected yet'
+    }
+    Save-State $state
+    return
+}
+
 $recent = Count-RecentRestarts $state
 if ($recent -ge $MaxRestartsPerHour) {
     Write-Log ("blocked: {0} but already restarted {1} times this hour - manual check needed ({2})" -f $verdict, $recent, $why)
