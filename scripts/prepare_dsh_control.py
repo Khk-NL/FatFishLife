@@ -16,6 +16,7 @@ def pack() -> Path:
                      'business.mjs', 'proactive.mjs', 'compose.mjs', 'llm.mjs', 'hub.mjs', 'bili.mjs', 'transport.mjs',
                      'moodsync.mjs',
                      'petmood.mjs',
+                     'wallet.mjs',
                      'client.js', 'locale'):
             archive.add(source / name, arcname='package/' + name)
     digest = hashlib.sha256(target.read_bytes()).hexdigest()

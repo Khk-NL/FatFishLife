@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FatFishPolicy, commandText, workWindow } from '../policy.mjs';
+import { FatFishPolicy, commandText, workWindow, BUSY_LINES } from '../policy.mjs';
+
+// 忙时那句现在按时间在 BUSY_LINES 里轮换，断言改成“必须是其中一句渲染结果”。
+const isBusyLine = (text, hour = 12) => BUSY_LINES.some(line => line.replace(/\{hour\}点?/g, `${hour}点`) === text);
 import { beforeInbound, assertOutbound, ownerCommand, installSocialScope, parseNewTarget } from '../runtime-adapter.mjs';
 
 // 测试里不连本地模型：那句忙时回复用固定文案，保证确定性与速度。
@@ -61,7 +64,7 @@ test('ten simultaneous pokes produce only one fixed text and no model/media disp
     event('', { post_type: 'notice', notice_type: 'notify', sub_type: 'poke', target_id: 1 }))));
   assert.ok(result.every(item => item === false));
   assert.equal(f.sends.length, 1);
-  assert.equal(f.sends[0].params.message[0].data.text, 'DeepSeek这会儿峰时，12点再来找我');
+  assert.ok(isBusyLine(f.sends[0].params.message[0].data.text), f.sends[0].params.message[0].data.text);
 });
 
 test('afternoon fixed text and bot-account isolation', async () => {
@@ -214,7 +217,7 @@ test('小模型跑题或超长时退回固定文案', async () => {
     globalThis.fetch = original;
     process.env.FATFISH_BUSY_BRIEF = 'fixed';
   }
-  assert.equal(f.sends[0].params.message[0].data.text, 'DeepSeek这会儿峰时，12点再来找我');
+  assert.ok(isBusyLine(f.sends[0].params.message[0].data.text), f.sends[0].params.message[0].data.text);
 });
 
 test('/new 的定向写法能被识别，其它写法不受影响', () => {

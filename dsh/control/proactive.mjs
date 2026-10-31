@@ -60,9 +60,11 @@ function sameDay(a, b) {
  * @param {{now: Date, config: object, busyWindows: Array, state: object, random?: () => number}} input
  * @returns {{speak: boolean, reason: string, roll?: number, chance?: number, count?: number}}
  */
-export function shouldSpeak({ now, config, busyWindows, state, random = Math.random }) {
+export function shouldSpeak({ now, config, busyWindows, state, wallet = null, random = Math.random, hunger = null }) {
   const cfg = config ?? {}
+  const effect = hunger ?? { level: 'ok', chanceFactor: 1, reason: 'ok' }
   if (cfg.enabled !== true) return { speak: false, reason: 'disabled' }
+  if (effect.chanceFactor <= 0) return { speak: false, reason: effect.reason || 'hungry' }
   if (inBusyWindow(busyWindows, now)) return { speak: false, reason: 'busy' }
   if (inQuietHours(cfg, now)) return { speak: false, reason: 'quiet' }
   const lastAt = state?.lastAt ? new Date(state.lastAt) : null
@@ -73,7 +75,9 @@ export function shouldSpeak({ now, config, busyWindows, state, random = Math.ran
   const dayCount = state?.day && sameDay(new Date(state.day), now) ? Number(state.count ?? 0) : 0
   const cap = Math.max(1, Number(cfg.dailyCap ?? 3))
   if (dayCount >= cap) return { speak: false, reason: 'cap', count: dayCount }
-  const chance = Math.min(Math.max(Number(cfg.basePercent ?? 6), 0), 100) / 100
+  const base = Math.min(Math.max(Number(cfg.basePercent ?? 6), 0), 100) / 100
+  // 钱包瘪了就懒得开口：low 打对折，empty 直接不说话（见上面的 chanceFactor 早退）。
+  const chance = base * Number(effect.chanceFactor ?? 1)
   const roll = random()
   return { speak: roll < chance, reason: roll < chance ? 'roll' : 'miss', roll, chance, count: dayCount }
 }
@@ -85,7 +89,8 @@ export function shouldSpeak({ now, config, busyWindows, state, random = Math.ran
  */
 export async function runProactive(deps) {
   const { config, busyWindows, state, saveState, hub, llm, send, log, now } = deps
-  const decision = shouldSpeak({ now, config: config?.proactive, busyWindows, state, random: deps.random })
+  const decision = shouldSpeak({ now, config: config?.proactive, busyWindows, state,
+    random: deps.random, hunger: deps.hunger })
   if (!decision.speak) return { ok: true, spoke: false, ...decision }
   const owner = String(config?.runner?.ownerChat || '').trim()
   if (!owner) return { ok: false, spoke: false, reason: 'no-target' }

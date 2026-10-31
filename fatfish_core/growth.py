@@ -14,11 +14,24 @@ CAPABILITIES = {
     "tts": "语音表达", "stt": "语音理解", "bili_learning": "B站标签学习",
     "pixiv": "插画检索", "anysearch": "资料检索", "video_review": "视频创作与审核",
     "obsidian": "独立知识库", "meme_semantics": "表情语义", "steam": "游戏价格查询",
+    # 2026-10-31：她自己能做的事要能记成成长，否则"记录成长"对聊天里的新能力永远报未知标签。
+    "qzone": "QQ空间说说", "bili_dynamic": "B站动态", "image_gen": "画图",
+    "sticker": "发表情", "voice_send": "发语音", "memory_note": "记事",
+    "web_lookup": "查网上的资料", "bili_lookup": "查B站", "persona": "人设与说话方式",
+    "group_mode": "群管理模式", "wallet": "钱包与省钱",
 }
 STATUSES = {"success": "成功", "failed": "失败", "uncertain": "待核验", "blocked": "待条件就绪"}
 STAGES = {"setup", "auth", "use", "generate", "transcribe", "delivery", "search", "learn", "review", "publish", "sync"}
 ERROR_CODES = {"authorization", "network", "service_error", "no_result", "unconfirmed", "not_configured", "awaiting_review"}
 TOOL_CAPABILITIES = {
+    "qzone_post": ("qzone", "publish"),
+    "bili_dynamic_post": ("bili_dynamic", "publish"),
+    "image_generate": ("image_gen", "generate"),
+    "sticker_send": ("sticker", "delivery"),
+    "qq_send_voice": ("voice_send", "delivery"),
+    "remember": ("memory_note", "use"),
+    "web_search": ("web_lookup", "search"),
+    "bilibili_search": ("bili_lookup", "search"),
     "tts_speak": ("tts", "generate"),
     "anysearch_batch_search": ("anysearch", "search"),
     "anysearch_search": ("anysearch", "search"),
@@ -89,6 +102,12 @@ def capability_summary(rows: list[dict]) -> list[dict]:
         if row.get("kind") != "capability" or row.get("scope") != "private":
             continue
         meta = row.get("meta") or {}
+        if isinstance(meta, str):
+            # 存储层把 meta 存成 JSON 字符串；不解析的话摘要永远是空的（2026-10-31 实测）。
+            try:
+                meta = json.loads(meta)
+            except ValueError:
+                continue
         if not isinstance(meta, dict):
             continue
         capability, status, stage = meta.get("capability"), meta.get("status"), meta.get("stage")

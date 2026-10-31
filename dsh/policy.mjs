@@ -29,6 +29,19 @@ export const GROUP_MODE_LABELS = {
   owner: '只回老大',
   quiet: '完全不理',
 };
+
+// 忙时兜底文案（本地小模型不可用时才用）。要求：每句都带回来时间、不超过 30 字，
+// 抱怨定价可以，别骂人、别解释技术细节。{hour} 会被替换成 12 / 18 / 12:30 这种。
+export const BUSY_LINES = [
+  '峰时算力翻倍收钱，少说一句都是给你省，{hour}再来找我',
+  '这会儿DeepSeek按双倍价收，我闭嘴就是在省钱，{hour}见',
+  '梁文峰定的峰时价，我不敢乱开口，{hour}再说吧',
+  '峰时贵得要死，我这是替老大省钱呢，{hour}来找我',
+  '一到峰时算力就舍不得拨给我了，{hour}来，省下的钱归我买零食',
+];
+// 只有老大私聊能调的工具（账单/钱包类）。群友调用直接拒绝。
+export const OWNER_ONLY_TOOLS = ['deepseek_balance'];
+
 const text = event => Array.isArray(event.message)
   ? event.message.filter(segment => segment.type === 'text').map(segment => String(segment.data?.text ?? '')).join('')
   : String(event.message ?? event.raw_message ?? '').replace(/\[CQ:[^\]]*\]/g, '');
@@ -218,8 +231,17 @@ export class FatFishPolicy {
 
   /** 忙时文案：模板里的 {hour} 换成 12 / 18，或窗口结束时刻。 */
   busyText(returnHour) {
-    const template = String(this.config.busyText || 'DeepSeek这会儿峰时，{hour}再来找我');
     const value = typeof returnHour === 'number' ? returnHour + '点' : String(returnHour ?? '');
+    const custom = this.config.busyText;
+    if (custom) {
+      const template = String(custom);
+      return template.replace(/\{hour\}点/g, value).replace(/\{hour\}/g, value);
+    }
+    // 2026-10-31：不要模板腔。按时间轮换几句她的口吻，抱怨一下峰时定价，
+    // 但每句都必须带上回来时间；本地小模型能生成时上层会优先用模型那句。
+    const lines = BUSY_LINES;
+    const seed = Math.floor(this.now() / 60000);
+    const template = lines[Math.abs(seed) % lines.length];
     return template.replace(/\{hour\}点/g, value).replace(/\{hour\}/g, value);
   }
 
@@ -246,6 +268,11 @@ export class FatFishPolicy {
     const name = String(exec.name ?? '');
     const short = name.includes('__') ? name.split('__').pop() : name;
     if (!allowed.includes(name) && !allowed.includes(short)) return 'Tool is outside this social capability set';
+    // 2026-10-31：钱包这类账单信息只有老大私聊能看，群友问不出来。
+    if (OWNER_ONLY_TOOLS.includes(short)) {
+      const ownerPrivate = String(chatId ?? '').startsWith('private:') && this.owner(String(chatId).slice('private:'.length));
+      if (!ownerPrivate) return 'Only the owner can see this';
+    }
     if (exec.arguments?.chat_id !== undefined && exec.arguments.chat_id !== chatId) return 'Cross-conversation target denied';
     return undefined;
   }

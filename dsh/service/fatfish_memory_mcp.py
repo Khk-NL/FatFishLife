@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -332,6 +333,113 @@ def tts_check() -> str:
         return _dump({"ok": False, "error": str(exc)})
 
 
+# ---------- 钱包（余额 + 饿肚子）与每日自主上限 ----------
+
+AUTONOMY_CAPS = {"qzone_post": 3, "bili_dynamic_post": 3, "image_generate": 6}
+
+
+def _credentials_path() -> Path:
+    return Path.home() / ".dsh" / ".credentials.yaml"
+
+
+def _deepseek_key() -> str:
+    try:
+        text = _credentials_path().read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    match = re.search(r"^\s*DEEPSEEK_API_KEY:\s*(\S+)\s*$", text, re.M)
+    return match[1].strip().strip("'\"") if match else ""
+
+
+def _wallet() -> dict:
+    key = _deepseek_key()
+    if not key:
+        return {"ok": False, "error": "没找到 DeepSeek key"}
+    request = Request("https://api.deepseek.com/user/balance", headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urlopen(request, timeout=12) as response:  # noqa: S310 - 固定官方地址
+            data = json.loads(response.read().decode("utf-8", "replace"))
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": f"查不到余额：{type(exc).__name__}"}
+    infos = data.get("balance_infos") or []
+    cny = next((row for row in infos if row.get("currency") == "CNY"), infos[0] if infos else {})
+    amount = float(cny.get("total_balance") or 0)
+    level = "ok" if amount >= 5 else ("low" if amount >= 1.5 else "empty")
+    return {"ok": True, "cny": round(amount, 2), "level": level, "available": bool(data.get("is_available"))}
+
+
+def _autonomy_path() -> Path:
+    path = Path(__file__).resolve().parents[2] / "data/dsh/autonomy.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _autonomy(action: str) -> dict | None:
+    """返回 None＝放行；返回 dict＝拦下的理由（钱包见底或今天做太多了）。"""
+    cap = AUTONOMY_CAPS.get(action)
+    if not cap:
+        return None
+    wallet = _wallet()
+    if wallet.get("ok") and wallet.get("level") == "empty":
+        return {"ok": False, "error": "肚子饿了，今天不想动，先让老大充点钱"}
+    path = _autonomy_path()
+    today = time.strftime("%Y-%m-%d")
+    try:
+        state = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        state = {}
+    if state.get("day") != today:
+        state = {"day": today, "counts": {}}
+    counts = state.setdefault("counts", {})
+    used = int(counts.get(action) or 0)
+    if used >= cap:
+        return {"ok": False, "error": f"这类事今天已经做了 {used} 次了，懒得再动，明天再说"}
+    counts[action] = used + 1
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+    return None
+
+
+@server.tool(description="查自己钱包还剩多少钱（只有老大私聊能用；群友问不出来，别对外说）")
+def _wallet_snapshot_path() -> Path:
+    path = Path(__file__).resolve().parents[2] / "data/dsh/wallet.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _write_wallet_snapshot(wallet: dict) -> None:
+    """把最近一次查到的余额落盘，控制层（node）据此调节心情与主动开口。"""
+    if not wallet.get("ok"):
+        return
+    payload = {
+        "cny": wallet.get("cny"),
+        "level": wallet.get("level"),
+        "available": wallet.get("available"),
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    try:
+        path = _wallet_snapshot_path()
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def deepseek_balance() -> str:
+    wallet = _wallet()
+    if not wallet.get("ok"):
+        return _dump(wallet)
+    _write_wallet_snapshot(wallet)
+    hints = {
+        "ok": "钱还够，正常干活",
+        "low": "钱包有点瘪了，可以跟老大提一句该充钱了",
+        "empty": "饿得干不动了，只做老大明确要求的事，顺便提醒他充值",
+    }
+    return _dump({**wallet, "hint": hints.get(str(wallet.get("level")), "")})
+
+
 # ---------- 生图（免费接口，不用 key；可用 FATFISH_IMAGE_API 换模板） ----------
 
 IMAGE_TEMPLATE = (
@@ -352,6 +460,9 @@ def image_generate(prompt: str, width: int = 768, height: int = 768) -> str:
     body = str(prompt or "").strip()
     if not body:
         return _dump({"ok": False, "error": "描述为空"})
+    blocked = _autonomy("image_generate")
+    if blocked:
+        return _dump(blocked)
     width = max(256, min(int(width or 768), 1536))
     height = max(256, min(int(height or 768), 1536))
     url = IMAGE_TEMPLATE.format(
@@ -406,6 +517,9 @@ def bili_dynamic_post(text: str, images: str = "", dry_run: bool = False) -> str
     if not body:
         return _dump({"ok": False, "error": "动态内容为空"})
     paths = [p.strip() for p in str(images or "").split(",") if p.strip()]
+    blocked = _autonomy("bili_dynamic_post")
+    if blocked:
+        return _dump(blocked)
     try:
         result = bili.post_dynamic(body, images=paths, dry_run=bool(dry_run))
         return _dump({"ok": result.get("ok"), "dry_run": bool(dry_run), "data": result.get("data")})
@@ -460,6 +574,9 @@ def qzone_post(text: str, image: str = "") -> str:
         return _dump({"ok": False, "error": "说说内容为空"})
     if os.environ.get("FATFISH_QZONE_WRITE") != "1":
         return _dump({"ok": False, "error": "空间发布未开启（FATFISH_QZONE_WRITE=1 才允许）"})
+    blocked = _autonomy("qzone_post")
+    if blocked:
+        return _dump(blocked)
     message: Any = body
     path = str(image or "").strip()
     if path:

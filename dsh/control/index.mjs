@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { runTask } from './business.mjs';
 import { runProactive } from './proactive.mjs';
 import { applyMoodPending } from './moodsync.mjs';
+import { readWallet, transitionDelta, walletEffect, walletStatePath } from './wallet.mjs';
 import { syncPetMood } from './petmood.mjs';
 import { sendText, transportOf, transportOnline } from './transport.mjs';
 import { chat as llmChat } from './llm.mjs';
@@ -250,6 +251,27 @@ async function applyInner(ctx, config) {
     }
   }
 
+  // 钱包 → 心情：余额档位变化时推一次心情（饿了下调、充钱了回一点），
+  // 并把当前档位交给主动开口层，让它饿的时候少说或不说。
+  const applyWalletMood = async (wallet) => {
+    const effect = walletEffect(wallet)
+    let previous = null
+    try { previous = JSON.parse(readFileSync(walletStatePath(scheduleDir), 'utf8'))?.level ?? null } catch { /* 第一次没有记录 */ }
+    const change = transitionDelta(previous, effect.level)
+    if (change) {
+      try {
+        await hub.moodNudge(change.delta, change.reason)
+        ctx.logger.info('[fatfish] 钱包变化 ' + previous + '→' + effect.level + '，心情 ' + change.delta)
+      } catch (error) {
+        ctx.logger.warn('[fatfish] 心情调整失败：' + (error?.message ?? String(error)))
+      }
+    }
+    if (previous !== effect.level) {
+      try { writeJson(walletStatePath(scheduleDir), { level: effect.level, at: new Date().toISOString() }) } catch { /* 落盘失败不影响主流程 */ }
+    }
+    return effect
+  }
+
   // 主动开口层：每 5 分钟判断一次；真正发不发由 proactive.shouldSpeak 决定
   let proactiveRunning = false
   const tickProactive = async (now = new Date()) => {
@@ -260,10 +282,13 @@ async function applyInner(ctx, config) {
     try {
       writeJson(join(scheduleDir, 'proactive-heartbeat.json'), { at: now.toISOString() })
       await syncMood()
+      const wallet = readWallet(scheduleDir)
+      const hunger = await applyWalletMood(wallet)
+      status.wallet = { cny: wallet?.cny ?? null, level: hunger.level, at: now.toISOString() }
       const state = readJson(proactiveFile)
       const deps = depsOf(now, live)
       const outcome = await runProactive({ ...deps, busyWindows: live.busyWindows ?? DEFAULT_WINDOWS,
-        config: deps.config, state, saveState: async (next) => writeJson(proactiveFile, next) })
+        config: deps.config, state, hunger, saveState: async (next) => writeJson(proactiveFile, next) })
       status.proactive.lastAt = now.toISOString()
       status.proactive.lastResult = outcome.spoke === true ? { spoke: true, at: now.toISOString() } : { spoke: false, reason: outcome.reason }
       status.proactive.count = outcome.count ?? state.count ?? 0
