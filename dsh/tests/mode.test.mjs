@@ -13,7 +13,9 @@ function tempPolicy(extra = {}) {
     adapterId: 'napcat-main', botId: '1670515707', ownerId: '3124904460', silent: false, ...extra,
   }, null, 2));
   process.env.FATFISH_POLICY_FILE = file;
-  return { file, policy: new FatFishPolicy(JSON.parse(readFileSync(file, 'utf8'))) };
+  // 固定到非忙时段（03:00），否则在 09:00-12:00 / 14:00-18:00 跑测试会走到忙时分支。
+  const fixed = new Date('2026-10-31T03:00:00+08:00');
+  return { file, policy: new FatFishPolicy(JSON.parse(readFileSync(file, 'utf8')), { now: () => fixed }) };
 }
 
 test('parseModeCommand 认 /mode 的各种写法', () => {
