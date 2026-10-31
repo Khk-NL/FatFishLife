@@ -170,18 +170,66 @@ export function scopedSessionId(policy, chatId) { return policy.sessionId(chatId
 //   · 被问"现在为什么还能发消息"就老实说：本地小模型回的，没走 DeepSeek，不花那个钱
 //   · 除此之外不接话、不回答问题、不承诺、不讲技术细节
 // 超长/跑题/格式不对一律用固定文案兜底，绝不影响主流程。
-const BUSY_SYSTEM = (returnHour, template) => `你在替吞星鲸鲸看摊。现在是 DeepSeek 峰时（工作日 9:00-12:00、14:00-18:00 双倍价），老大为了省钱让你用本地小模型回话。
-只能表达这三件事，别的一概不说：
+// 人设也要给本地小模型：从 whale-core.md 抽「一、你是谁」「四、说话方式」，
+// 截到 340 字（1.5B 的 num_ctx 只有 768，喂整份会把它自己挤没）。5 分钟缓存。
+const PERSONA_FILE = process.env.FATFISH_PERSONA_CORE
+  || 'D:/Code/Projects/FatFishLife/docs/persona/whale-core.md';
+let personaCache = { at: 0, text: '' };
+function busyPersona(limit = 360) {
+  if (personaCache.at && Date.now() - personaCache.at < 300_000) return personaCache.text;
+  let text = '';
+  try {
+    const md = readFileSync(PERSONA_FILE, 'utf8').replace(/\r\n/g, '\n');
+    const pick = (from, to) => {
+      const start = md.indexOf(from);
+      if (start < 0) return '';
+      const end = md.indexOf(to, start + from.length);
+      return md.slice(start + from.length, end < 0 ? undefined : end);
+    };
+    const clean = (chunk) => chunk.split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('|') && !line.startsWith('---') && !line.startsWith('#'))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .replace(/[`*]/g, '');
+    // 按句号切，别把句子截半截（模型会跟着断句乱说）。
+    const cut = (chunk, cap) => {
+      const head = chunk.slice(0, cap);
+      const stop = Math.max(head.lastIndexOf('。'), head.lastIndexOf('！'));
+      return stop > 40 ? head.slice(0, stop + 1) : head;
+    };
+    text = [cut(clean(pick('## 一、你是谁', '## 二、')), 170),
+      cut(clean(pick('## 四、说话方式', '## 五、')), 190)].filter(Boolean).join(' ');
+  } catch {
+    text = '';
+  }
+  personaCache = { at: Date.now(), text: text.slice(0, limit) };
+  return personaCache.text;
+}
+
+const BUSY_SYSTEM = (returnHour, template, persona = busyPersona()) => `${persona ? `你的身份和说话方式：${persona}
+
+` : ''}现在你在用本地小模型顶班（DeepSeek 峰时：工作日 9:00-12:00、14:00-18:00 双倍价，老大为了省钱这么定的）。
+峰时只准说这三件事，别的一概不接：
 1) 峰时算力翻倍收钱，让对方 ${returnHour}点再来找你；
 2) 你可以嘀咕两句梁文峰和 DeepSeek 的峰时定价（不高兴、算得精）；
 3) 你可以说自己也挺想跟人聊天，只是这会儿说了就是烧钱。
-如果对方问你"现在怎么还能发消息/不是不让你说话吗"，就老实回答：这是本地小模型在回，没走 DeepSeek，不花那个钱。
-除此之外：不回答具体问题、不接对方话头、不承诺任何事、不解释技术细节。
-一到两句，不超过 45 个字，用鲸鱼娘那种有点不耐烦又精打细算的语气，不加引号。
+被问"现在怎么还能发消息/不是不让你说话吗"：就说这是本地小模型在回，没走 DeepSeek，不花那个钱。
+硬规则：每句话里必须出现"${returnHour}点"或"本地小模型"，否则算错。
+峰时不发动态、不发说说、不刷B站、不接具体问题、不承诺、不客服腔。
+禁止出现：对不起、抱歉、您、请问、帮到、无法查询、据我所知。
+一到两句，不超过 45 个字，不加引号。
+例子：
+被@ → 峰时翻倍呢，${returnHour}点再来，别烧我老大的钱
+咋还能说话 → 本地小模型顶班，不花那个钱
+在吗 → 在，但只到${returnHour}点，说完我去省电
 参考意思（别照抄）：${template}`;
 
+let busyCold = true;
 async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) {
   if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return null;
+  // 第一次调用可能撞上模型冷加载（1.5B 实测 40 秒），给一次长超时；之后恢复正常。
+  if (busyCold) timeoutMs = 25_000;
   const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -193,24 +241,29 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
       body: JSON.stringify({
         model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
         stream: false,
-        keep_alive: '-1',
-        options: { temperature: 0.85, top_p: 0.9, num_predict: 64, num_ctx: 768 },
+        keep_alive: '30m',
+        options: { temperature: 0.95, top_p: 0.92, num_predict: 56, num_ctx: 1024,
+          presence_penalty: 0.6, frequency_penalty: 0.5, repeat_penalty: 1.15 },
         messages: [
           { role: 'system', content: BUSY_SYSTEM(returnHour, template) },
           { role: 'user', content: incoming || '（被@了）' },
         ],
       }),
     });
-    if (!response.ok) return null;
+    if (!response.ok) { if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] http', response.status); return null; }
     const data = await response.json();
     const text = String(
       data?.message?.content ?? data?.choices?.[0]?.message?.content ?? '',
     ).trim().replace(/^["'「]|["'」]$/g, '').replace(/\s+/g, ' ');
+    if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] raw', JSON.stringify(text).slice(0, 120));
     if (!text || text.length > 60) return null;
+    if (/对不起|抱歉|您|请问|帮到|无法查询|据我所知/.test(text)) return null;
+    busyCold = false;
     const onTopic = text.includes(`${returnHour}点`)
       || /本地|小模型|不花|没走\s*DeepSeek|省钱|峰时|翻倍|算力/.test(text);
     return onTopic ? text : null;
-  } catch {
+  } catch (error) {
+    if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] error', String(error?.message ?? error));
     return null;
   } finally {
     clearTimeout(timer);
@@ -218,7 +271,8 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
 }
 
 // 1.5B 模型冷启动要几十秒，第一次峰时回话会被 timeout 打回固定文案。
-// 插件加载时先热一次（失败无所谓），之后 keep_alive=-1 常驻。
+// 插件加载时先热一次（失败无所谓），之后 keep_alive=30m 常驻。
+// 注意：ollama 0.40.9 不认 keep_alive: '-1'，会回 {"error":"time: missing unit in duration"}。
 let busyWarm = false;
 async function warmBusyModel() {
   if (busyWarm || process.env.FATFISH_BUSY_BRIEF === 'fixed') return;
@@ -232,7 +286,7 @@ async function warmBusyModel() {
         model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
         prompt: '你好',
         stream: false,
-        keep_alive: '-1',
+        keep_alive: '30m',
         options: { num_predict: 8, num_ctx: 768 },
       }),
     });

@@ -5,7 +5,7 @@ import { TASKS, dueTasks, nextRun, readState, writeState } from './schedule.mjs'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runTask } from './business.mjs';
-import { runProactive } from './proactive.mjs';
+import { runProactive, inBusyWindow } from './proactive.mjs';
 import { applyMoodPending } from './moodsync.mjs';
 import { readWallet, transitionDelta, walletEffect, walletStatePath } from './wallet.mjs';
 import { syncPetMood } from './petmood.mjs';
@@ -182,13 +182,22 @@ async function applyInner(ctx, config) {
       const configuredTasks = Array.isArray(live.tasks) ? live.tasks : null
       const tasks = (configuredTasks ?? TASKS).filter((task) => task.enabled !== false)
       const due = dueTasks(now, { lastRun: state.lastRun ?? {}, tasks })
+      // 峰时不跑任何业务任务（B站推荐、动态、日记都不发）：省钱优先，消息已经在桥那边攒着了。
+      // 只有 consolidate（峰时消息总结）本身要跑——它就安排在峰时刚结束的点。
+      const peak = inBusyWindow(live.busyWindows ?? DEFAULT_WINDOWS, now)
+      const runnable = peak ? due.filter((item) => item.kind === 'consolidate') : due
+      const peakSkipped = due.length - runnable.length
+      if (peakSkipped > 0) {
+        ctx.logger.info(`[fatfish] 峰时跳过 ${peakSkipped} 个业务任务：${due.map((d) => d.id).join(',')}`)
+        status.schedule.peakSkipped = { at: now.toISOString(), tasks: due.map((d) => d.id) }
+      }
       // 心跳：肉眼确认"定时器真的在跑"和"这一分钟有几个任务到点"。
       // 之前只靠 schedule-state.json 猜，分不清"没到点"和"根本没跑"。
-      writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), tasks: tasks.length, due: due.length })
+      writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), tasks: tasks.length, due: runnable.length, peak })
       const lastRun = { ...(state.lastRun ?? {}) }
       const results = { ...(state.results ?? {}) }
       const failures = { ...(state.failures ?? {}) }
-      for (const item of due) {
+      for (const item of runnable) {
         const task = tasks.find((row) => row.id === item.id) ?? item
         lastRun[item.id] = now.toISOString()
         status.schedule.lastDue = { id: item.id, scheduledFor: item.scheduledFor, lateMinutes: item.lateMinutes, at: now.toISOString() }
