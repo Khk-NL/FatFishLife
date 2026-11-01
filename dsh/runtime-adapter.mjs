@@ -217,7 +217,7 @@ const BUSY_SYSTEM = (returnHour, template, persona = busyPersona()) => `${person
 被问"现在怎么还能发消息/不是不让你说话吗"：就说这是本地小模型在回，没走 DeepSeek，不花那个钱。
 硬规则：每句话里必须出现"${returnHour}点"或"本地小模型"，否则算错。
 峰时不发动态、不发说说、不刷B站、不接具体问题、不承诺、不客服腔。
-禁止出现：对不起、抱歉、您、请问、帮到、无法查询、据我所知。
+禁止出现：对不起、抱歉、您、请问、帮到、无法查询、据我所知、工作人员、客服、负责人、联系、请。
 一到两句，不超过 45 个字，不加引号。
 例子：
 被@ → 峰时翻倍呢，${returnHour}点再来，别烧我老大的钱
@@ -259,11 +259,16 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
     ).trim().replace(/^["'「]|["'」]$/g, '').replace(/\s+/g, ' ');
     if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] raw', JSON.stringify(text).slice(0, 120));
     if (!text || text.length > 60) return null;
-    if (/对不起|抱歉|您|请问|帮到|无法查询|据我所知/.test(text)) return null;
+    const flat = text.replace(/\s+/g, '');
+    if (/对不起|抱歉|您|请问|帮到|无法查询|据我所知|工作人员|客服|负责人|联系|请/.test(flat)) return null;
     busyCold = false;
-    const onTopic = text.includes(`${returnHour}点`)
+    const onTopic = flat.includes(`${returnHour}点`)
       || /本地|小模型|不花|没走\s*DeepSeek|省钱|峰时|翻倍|算力/.test(text);
-    return onTopic ? text : null;
+    if (!onTopic) return null;
+    if (!flat.includes(`${returnHour}点`)) {
+      return text.replace(/[。！!～~，,]+$/, '') + `，${returnHour}点后再说`;
+    }
+    return text;
   } catch (error) {
     if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] error', String(error?.message ?? error));
     return null;
@@ -288,7 +293,7 @@ function warmBusyModel() {
       prompt: '你好',
       stream: false,
       keep_alive: '8h',
-      options: { num_predict: 8, num_ctx: 768 },
+      options: { num_predict: 8, num_ctx: 1024 },
     }),
   }).then(() => undefined).catch(() => {
     busyWarmPromise = null;
