@@ -128,10 +128,15 @@ export class FatFishPolicy {
 
   /** 某个群当前的模式；没单独设过就用 groupDefaultMode。 */
   groupMode(groupId) {
+    const key = String(groupId);
     const table = this.config.groupModes;
-    const explicit = table && Object.prototype.hasOwnProperty.call(table, String(groupId))
-      ? table[String(groupId)] : undefined;
-    const value = explicit ?? this.config.groupDefaultMode ?? 'talk';
+    const explicit = table && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+    if (explicit) return GROUP_MODES.includes(explicit) ? explicit : 'talk';
+    // 人多的大群默认只听不说：先看 policy.json 里的 groupSizes（桥定期同步），再回落到默认模式。
+    const threshold = Number(this.config.largeGroupThreshold ?? 100);
+    const size = Number(this.config.groupSizes?.[key] ?? 0);
+    if (threshold > 0 && size > threshold) return 'listen';
+    const value = this.config.groupDefaultMode ?? 'talk';
     return GROUP_MODES.includes(value) ? value : 'talk';
   }
 

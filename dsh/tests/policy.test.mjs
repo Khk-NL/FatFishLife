@@ -232,3 +232,12 @@ test('/new 的定向写法能被识别，其它写法不受影响', () => {
   assert.equal(parseNewTarget('/newx group:1027577412'), null);
   assert.equal(parseNewTarget('你好'), null);
 });
+
+test('超过 100 人的群默认只听不说，显式设置可覆盖', () => {
+  const { policy } = fixture('09:05', { groupSizes: { '111': 250, '222': 30 } })
+  assert.equal(policy.groupMode('111'), 'listen')
+  assert.equal(policy.groupMode('222'), 'talk')
+  assert.equal(policy.groupMode('333'), 'talk')
+  policy.setGroupMode('111', 'talk')
+  assert.equal(policy.groupMode('111'), 'talk')
+})

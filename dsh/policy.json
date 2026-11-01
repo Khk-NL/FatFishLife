@@ -36,5 +36,7 @@
       "end": "18:00"
     }
   ],
-  "busyText": "DeepSeek这会儿峰时，{hour}再来找我"
+  "busyText": "DeepSeek这会儿峰时，{hour}再来找我",
+  "groupSizes": {},
+  "largeGroupThreshold": 100
 }

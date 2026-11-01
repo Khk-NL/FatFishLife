@@ -59,6 +59,8 @@ export function fileModeOverlay(file = policyFilePath()) {
     const overlay = {};
     if (raw.groupDefaultMode) overlay.groupDefaultMode = raw.groupDefaultMode;
     if (raw.groupModes && typeof raw.groupModes === 'object') overlay.groupModes = raw.groupModes;
+    if (raw.groupSizes && typeof raw.groupSizes === 'object') overlay.groupSizes = raw.groupSizes;
+    if (raw.largeGroupThreshold !== undefined) overlay.largeGroupThreshold = raw.largeGroupThreshold;
     return overlay;
   } catch { return {}; }
 }
