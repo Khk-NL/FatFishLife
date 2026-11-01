@@ -18,6 +18,16 @@ test('只保留命中关键词的条目', () => {
   assert.deepEqual(picked.map((i) => i.bvid), ['BV1', 'BV3', 'BV4'])
 })
 
+test('一条关键词都没命中时，退一步推当天最热的一条', () => {
+  const plain = [
+    { bvid: 'BVa', title: '猫咪日常', stat: { view: 10 } },
+    { bvid: 'BVb', title: '做饭教程', stat: { view: 900 } },
+  ]
+  const { picked } = selectRecommendations(plain)
+  assert.deepEqual(picked.map((i) => i.bvid), ['BVb'])
+  assert.equal(picked[0].keyword, null)
+})
+
 test('最多 3 条，超出部分给出原因', () => {
   const many = Array.from({ length: 6 }, (_, i) => ({ bvid: `BV${i}`, title: '明日方舟 相关' }))
   const { picked, skipped } = selectRecommendations(many)

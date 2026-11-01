@@ -74,10 +74,15 @@ test('推荐：命中关键词才发，发完记住 bvid', async () => {
   assert.ok(!sent[0].text.includes('BVbbb'))
   assert.deepEqual(state.seenBvid, ['BVaaa'])
 
-  // 第二次：已经推过的会被过滤掉，不应再发
+  // 第二次：命中的已经推过，退一步推剩下那条（关键词都没命中时的兜底）
   const again = await runBiliRecommend({ ...deps, state })
-  assert.equal(again.sent, 0)
-  assert.equal(again.reason, 'no-pick')
+  assert.equal(again.sent, 1)
+  assert.deepEqual(state.seenBvid, ['BVbbb', 'BVaaa'])
+
+  // 第三次：全都推过了，才应该 no-pick
+  const third = await runBiliRecommend({ ...deps, state })
+  assert.equal(third.sent, 0)
+  assert.equal(third.reason, 'no-pick')
 })
 
 test('推荐：没有配置发送目标时只记录、不外发', async () => {

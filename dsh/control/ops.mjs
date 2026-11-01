@@ -31,16 +31,32 @@ export function selectRecommendations(items, options = {}) {
   const limit = options.limit ?? MAX_RECOMMENDATIONS
   const picked = []
   const skipped = []
+  const candidates = []
 
   for (const item of items ?? []) {
     const bvid = String(item?.bvid ?? '').trim()
     const title = String(item?.title ?? '')
     if (!bvid) { skipped.push({ bvid: '', reason: '没有 bvid，无法去重' }); continue }
     if (seen.has(bvid)) { skipped.push({ bvid, reason: '已经推过' }); continue }
-    if (picked.length >= limit) { skipped.push({ bvid, reason: `已达每日上限 ${limit} 条` }); continue }
-    const hit = keywords.find((word) => title.includes(word))
-    if (!hit) { skipped.push({ bvid, reason: '标题未命中关键词' }); continue }
-    picked.push({ bvid, title, keyword: hit, seen: item.seen !== false })
+    candidates.push({
+      bvid,
+      title,
+      keyword: keywords.find((word) => title.includes(word)) ?? null,
+      views: Number(item?.stat?.view ?? 0),
+      seen: item.seen !== false,
+    })
+  }
+
+  const hits = candidates.filter((item) => item.keyword)
+  // 有命中的就只推命中的；一条都没有时，退一步推一条当天最热的，
+  // 否则 feed 里偶尔没有关键词就会整天 no-pick（2026-11-01 实测连续两天如此）。
+  const ordered = hits.length
+    ? hits
+    : [...candidates].sort((a, b) => b.views - a.views).slice(0, 1)
+
+  for (const item of ordered) {
+    if (picked.length >= limit) { skipped.push({ bvid: item.bvid, reason: `已达每日上限 ${limit} 条` }); continue }
+    picked.push(item)
   }
   return { picked, skipped }
 }
