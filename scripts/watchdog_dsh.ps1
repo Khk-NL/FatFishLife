@@ -15,6 +15,8 @@ param(
     [string]$Python = 'D:/Code/Projects/FatFishLife/.tools/dsh-python/Scripts/python.exe',
     [string]$PruneScript = 'D:/Code/Projects/FatFishLife/scripts/prune_dsh_cookies.py',
     [int]$BridgePort = 8646,
+    [string]$GuardScript = 'D:/Code/Projects/FatFishLife/scripts/version_guard.py',
+    [int]$GuardEveryMinutes = 60,
     [int]$HeartbeatStaleMinutes = 10,
     [int]$StuckTurnMinutes = 12,
     [int]$MaxRestartsPerHour = 3
@@ -113,6 +115,21 @@ function Get-StuckTurnMinutes {
     return [math]::Round(((Get-Date) - $started).TotalMinutes, 1)
 }
 
+function Invoke-VersionGuard {
+    # QQ 会自动更新，而 NapCat 的支持表是按 QQ 构建号写死的；更新跑在前面就会 0x80000003 崩。
+    # 这里每小时对一次版本，不在表里就让 version_guard.py 自己换 NapCat。
+    if (-not (Test-Path -LiteralPath $GuardScript)) { return }
+    $state = Read-State
+    $last = 0
+    if ($state.PSObject.Properties['guardAt']) { $last = [int64]$state.guardAt }
+    $age = ([DateTimeOffset]::Now.ToUnixTimeSeconds()) - $last
+    if ($age -lt ($GuardEveryMinutes * 60)) { return }
+    $out = & $Python $GuardScript 2>&1 | Out-String
+    Write-Log ('version guard: ' + ($out.Trim() -replace "`r?`n", ' | '))
+    $state | Add-Member -NotePropertyName guardAt -NotePropertyValue ([DateTimeOffset]::Now.ToUnixTimeSeconds()) -Force
+    Save-State $state
+}
+
 function Invoke-CookiePrune {
     # DSH stores one dsh-auth-<random> cookie per random local port it ever started on.
     # Chromium sends cookies by host and ignores the port, so the history goes into every
@@ -150,6 +167,7 @@ $procs = Get-HostProcesses
 $alive = $procs.Count -gt 0
 $heartbeatAge = if ($alive) { Get-HeartbeatAgeMinutes } else { -1 }
 $port = if ($alive) { Test-PortListening $BridgePort } else { [pscustomobject]@{ listen = 0; established = 0 } }
+if ($alive -and -not $Check) { Invoke-VersionGuard }
 $stuck = if ($alive) { Get-StuckTurnMinutes } else { 0 }
 $napcat = Get-NapCatProcesses
 
