@@ -14,7 +14,7 @@ param(
     [string]$Trace = 'C:/Users/kongb/.dsh/media/onebot/fatfish-qq-2d989f916ec56ecd7d3628063d100fa55449765969f5bfbf3e30bbe446531814/qq-trace.jsonl',
     [string]$Python = 'D:/Code/Projects/FatFishLife/.tools/dsh-python/Scripts/python.exe',
     [string]$PruneScript = 'D:/Code/Projects/FatFishLife/scripts/prune_dsh_cookies.py',
-    [int]$BridgePort = 8645,
+    [int]$BridgePort = 8646,
     [int]$HeartbeatStaleMinutes = 10,
     [int]$StuckTurnMinutes = 12,
     [int]$MaxRestartsPerHour = 3

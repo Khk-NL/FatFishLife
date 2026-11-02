@@ -213,6 +213,17 @@ async function applyInner(ctx, config) {
         } catch (error) {
           outcome = { ok: false, reason: error?.message ?? String(error) }
         }
+        // 任务真的跑成了就自动记一条成长，不依赖她自己想起来。
+        if (outcome?.ok === true) {
+          try {
+            const { execFile } = await import('node:child_process');
+            const { DEFAULT_PYTHON } = await import('./hub.mjs');
+            const capability = { 'bili-recommend': 'bili_lookup', 'bili-study': 'bili_learning', 'diary': 'obsidian', 'consolidate': 'memory_note' };
+            const label = capability[item.kind] ?? 'memory_note';
+            execFile(DEFAULT_PYTHON, ['D:/Code/Projects/FatFishLife/scripts/growth_cli.py', 'record', '--capability', label, '--status', 'success', '--note', `${item.id} 自动记录`],
+              { timeout: 30_000, windowsHide: true }, () => {});
+          } catch { /* 记不上不影响任务本身 */ }
+        }
         results[item.id] = { at: now.toISOString(), ok: outcome?.ok === true, sent: outcome?.sent ?? 0,
           reason: outcome?.reason ?? outcome?.skipped
             ?? (Array.isArray(outcome?.results) ? JSON.stringify(outcome.results).slice(0, 300) : undefined),
