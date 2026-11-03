@@ -1,13 +1,13 @@
 # DSH watchdog v2: keep the app (and its QQ bridge) alive.
 # Checks, cheapest first:
 #   1. process missing            -> start it
-#   2. scheduler heartbeat stale  -> hung main loop -> restart
-#   3. port 8643 not listening    -> bridge dead     -> restart
-#   4. a model turn stuck > N min -> restart
+#   2. scheduler/bridge unhealthy -> warn (restart only with explicit opt-in)
+#   3. a long model/tool turn     -> warn; never infer a dead host from one turn
 # Cooldown keeps it from looping (max restarts per rolling hour).
 # ASCII only: PowerShell 5.1 misreads UTF-8 Chinese comments without BOM.
 param(
     [switch]$Check,
+    [switch]$AllowHostRestart,
     [string]$Exe = 'D:/dsh/DeepSeek Harness.exe',
     [string]$LogDir = 'D:/Code/Projects/FatFishLife/outputs/agent',
     [string]$DataDir = 'D:/Code/Projects/FatFishLife/data/dsh',
@@ -19,6 +19,8 @@ param(
     [int]$GuardEveryMinutes = 60,
     [int]$HeartbeatStaleMinutes = 10,
     [int]$StuckTurnMinutes = 12,
+    [int]$StartupGraceMinutes = 3,
+    [int]$FaultConfirmMinutes = 4,
     [int]$MaxRestartsPerHour = 3
 )
 
@@ -63,10 +65,12 @@ function Get-NapCatProcesses {
 function Start-NapCat {
     try {
         schtasks /Run /TN 'FatFishLife-Start' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "scheduled task failed with exit code $LASTEXITCODE" }
         Start-Sleep -Seconds 10
         $after = Get-NapCatProcesses
-        Write-Log ("napcat start requested via FatFishLife-Start, now {0} processes" -f $after.Count)
-        return $after.Count -gt 0
+        $qq = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue)
+        Write-Log ("napcat start requested: bootstrap={0} qq={1}; login/OneBot readiness is checked separately" -f $after.Count, $qq.Count)
+        return ($after.Count -gt 0 -and $qq.Count -gt 0)
     } catch {
         Write-Log ("error: napcat start failed - {0}" -f $_.Exception.Message)
         return $false
@@ -87,7 +91,58 @@ function Test-PortListening([int]$Port) {
     } finally {
         try { $client.Close() } catch { }
     }
-    return [pscustomobject]@{ listen = $listen; established = 0 }
+    return [pscustomobject]@{ listen = $listen; online = (Get-BridgeOnline) }
+}
+
+function Get-BridgeOnline {
+    # The control plugin observes the existing authenticated OneBot transport.
+    # Old/missing heartbeat schemas mean unknown, never disconnected.
+    $heartbeat = Join-Path $DataDir 'scheduler-heartbeat.json'
+    try {
+        if (((Get-Date) - (Get-Item -LiteralPath $heartbeat -ErrorAction Stop).LastWriteTime).TotalMinutes -gt 2) { return $null }
+        $row = Get-Content -LiteralPath $heartbeat -Raw -Encoding UTF8 -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop
+        if ($row.transport.present -is [bool] -and $row.transport.online -is [bool]) {
+            return ($row.transport.present -and $row.transport.online)
+        }
+    } catch { }
+    return $null
+}
+
+function Get-HostAgeMinutes($Processes) {
+    try {
+        $first = $Processes | Sort-Object StartTime | Select-Object -First 1
+        if ($null -ne $first) { return ((Get-Date) - $first.StartTime).TotalMinutes }
+    } catch { }
+    return $null
+}
+
+function Get-HostVerdict([bool]$Alive, $Age, [double]$HeartbeatAge, [int]$Listening, [double]$Stuck) {
+    if (-not $Alive) { return [pscustomobject]@{ verdict = 'restart'; why = 'process missing' } }
+    if ($null -ne $Age -and $Age -lt $StartupGraceMinutes) {
+        return [pscustomobject]@{ verdict = 'wait'; why = 'host startup grace period' }
+    }
+    if ($HeartbeatAge -gt $HeartbeatStaleMinutes) {
+        $action = if ($AllowHostRestart) { 'restart' } else { 'warn' }
+        return [pscustomobject]@{ verdict = $action; why = "scheduler heartbeat stale $HeartbeatAge min" }
+    }
+    if ($Listening -eq 0) {
+        $action = if ($AllowHostRestart) { 'restart' } else { 'warn' }
+        return [pscustomobject]@{ verdict = $action; why = 'qq bridge not listening on ' + $BridgePort }
+    }
+    if ($Stuck -gt $StuckTurnMinutes) {
+        return [pscustomobject]@{ verdict = 'warn'; why = "model/tool turn running $Stuck min; live host preserved" }
+    }
+    return [pscustomobject]@{ verdict = 'ok'; why = '' }
+}
+
+function Confirm-HostFault($State, [string]$Why) {
+    $faultKey = $Why -replace '\d+(?:\.\d+)? min', 'timeout'
+    if ($State.faultReason -eq $faultKey -and $State.faultSince) {
+        try { return (((Get-Date) - [datetime]$State.faultSince).TotalMinutes -ge $FaultConfirmMinutes) } catch { }
+    }
+    $State | Add-Member -NotePropertyName faultReason -NotePropertyValue $faultKey -Force
+    $State | Add-Member -NotePropertyName faultSince -NotePropertyValue (Get-Date).ToString('o') -Force
+    return $false
 }
 
 function Get-HeartbeatAgeMinutes {
@@ -116,16 +171,18 @@ function Get-StuckTurnMinutes {
 }
 
 function Invoke-VersionGuard {
-    # QQ 会自动更新，而 NapCat 的支持表是按 QQ 构建号写死的；更新跑在前面就会 0x80000003 崩。
-    # 这里每小时对一次版本，不在表里就让 version_guard.py 自己换 NapCat。
+    # Monitoring must not replace a live injection runtime. Upgrades are a
+    # separate maintenance action; --check never downloads or stops QQ.
     if (-not (Test-Path -LiteralPath $GuardScript)) { return }
     $state = Read-State
     $last = 0
     if ($state.PSObject.Properties['guardAt']) { $last = [int64]$state.guardAt }
     $age = ([DateTimeOffset]::Now.ToUnixTimeSeconds()) - $last
     if ($age -lt ($GuardEveryMinutes * 60)) { return }
-    $out = & $Python $GuardScript 2>&1 | Out-String
+    $out = & $Python $GuardScript --check 2>&1 | Out-String
+    $code = $LASTEXITCODE
     Write-Log ('version guard: ' + ($out.Trim() -replace "`r?`n", ' | '))
+    if ($code -ne 0) { Write-Log ("warn: version check exit={0}; no automatic install performed" -f $code) }
     $state | Add-Member -NotePropertyName guardAt -NotePropertyValue ([DateTimeOffset]::Now.ToUnixTimeSeconds()) -Force
     Save-State $state
 }
@@ -149,9 +206,14 @@ function Invoke-CookiePrune {
 
 function Restart-App([string]$Why) {
     $procs = Get-HostProcesses
-    Write-Log ("restart triggered: {0} (killing {1} processes)" -f $Why, $procs.Count)
-    foreach ($p in $procs) { try { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue } catch { } }
+    Write-Log ("restart triggered: {0} (closing {1} processes)" -f $Why, $procs.Count)
+    foreach ($p in $procs) { try { $null = $p.CloseMainWindow() } catch { } }
+    if ($procs.Count -gt 0) { Start-Sleep -Seconds 8 }
+    $left = Get-HostProcesses
+    foreach ($p in $left) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
+    if ($left.Count -gt 0) { Write-Log ("forced {0} processes after graceful close timeout" -f $left.Count) }
     Start-Sleep -Seconds 6
+    if ((Get-HostProcesses).Count -gt 0) { Write-Log 'error: host still running; relaunch cancelled'; return }
     Invoke-CookiePrune
     try {
         Start-Process -FilePath $Exe -WorkingDirectory (Split-Path -Parent $Exe) | Out-Null
@@ -166,37 +228,27 @@ function Restart-App([string]$Why) {
 $procs = Get-HostProcesses
 $alive = $procs.Count -gt 0
 $heartbeatAge = if ($alive) { Get-HeartbeatAgeMinutes } else { -1 }
-$port = if ($alive) { Test-PortListening $BridgePort } else { [pscustomobject]@{ listen = 0; established = 0 } }
+$hostAge = if ($alive) { Get-HostAgeMinutes $procs } else { $null }
+$port = if ($alive) { Test-PortListening $BridgePort } else { [pscustomobject]@{ listen = 0; online = $null } }
 if ($alive -and -not $Check) { Invoke-VersionGuard }
 $stuck = if ($alive) { Get-StuckTurnMinutes } else { 0 }
 $napcat = Get-NapCatProcesses
 
-$verdict = 'ok'
-$why = ''
-if (-not $alive -and -not $Check) {
-    # App is closed right now: this is the safe moment to trim the auth cookie pile.
-    Invoke-CookiePrune
-}
-if (-not $alive) {
-    $verdict = 'restart'; $why = 'process missing'
-} elseif ($heartbeatAge -gt $HeartbeatStaleMinutes) {
-    $verdict = 'restart'; $why = "scheduler heartbeat stale $heartbeatAge min"
-} elseif ($port.listen -eq 0) {
-    $verdict = 'restart'; $why = 'qq bridge not listening on ' + $BridgePort
-} elseif ($stuck -gt $StuckTurnMinutes) {
-    $verdict = 'restart'; $why = "model turn stuck $stuck min"
-}
-
+$decision = Get-HostVerdict $alive $hostAge $heartbeatAge $port.listen $stuck
+$verdict = $decision.verdict
+$why = $decision.why
 if ($Check) {
-    Write-Log ("check: processes={0} heartbeatAge={1}m listen={2} established={3} stuck={4}m napcat={5} => {6} {7}" -f `
-        $procs.Count, $heartbeatAge, $port.listen, $port.established, $stuck, $napcat.Count, $verdict, $why)
+    $online = if ($null -eq $port.online) { 'unknown' } else { [string]$port.online }
+    Write-Output ("check: processes={0} heartbeatAge={1}m listen={2} onebotOnline={3} stuck={4}m napcat={5} => {6} {7}" -f `
+        $procs.Count, $heartbeatAge, $port.listen, $online, $stuck, $napcat.Count, $verdict, $why)
     return
 }
 
 $state = Read-State
 
 # NapCat is a separate program; if it died we only restart DSH when the bridge is dead.
-if ($napcat.Count -eq 0) {
+$qqCount = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue).Count
+if ($verdict -ne 'wait' -and $port.online -ne $true -and ($napcat.Count -eq 0 -or $qqCount -eq 0)) {
     $lastNapCat = $null
     if ($state.napcatAt) { try { $lastNapCat = [datetime]$state.napcatAt } catch { } }
     $cooled = ($null -eq $lastNapCat) -or (((Get-Date) - $lastNapCat).TotalMinutes -gt 10)
@@ -212,11 +264,28 @@ if ($napcat.Count -eq 0) {
 }
 
 if ($verdict -ne 'restart') {
-    if ($port.established -eq 0 -and $port.listen -gt 0) {
-        Write-Log 'warn: bridge listening but NapCat not connected yet'
+    $state | Add-Member -NotePropertyName faultReason -NotePropertyValue $null -Force
+    $state | Add-Member -NotePropertyName faultSince -NotePropertyValue $null -Force
+    if ($port.listen -gt 0 -and $port.online -eq $false) {
+        Write-Log 'warn: authenticated OneBot transport is offline'
+    } elseif ($port.listen -gt 0 -and $null -eq $port.online) {
+        Write-Log 'bridge listening; OneBot status unknown (no fresh transport heartbeat)'
+    } elseif ($verdict -eq 'wait') {
+        Write-Log $why
     }
+    if ($verdict -eq 'warn') { Write-Log ('warn: ' + $why + '; automatic host restart disabled') }
     Save-State $state
     return
+}
+
+# A transient bridge/heartbeat failure must survive two scheduled checks before
+# it can close the desktop. Missing processes can still be started immediately.
+if ($alive) {
+    if (-not (Confirm-HostFault $state $why)) {
+        Write-Log ("waiting to confirm host fault: {0}" -f $why)
+        Save-State $state
+        return
+    }
 }
 
 $recent = Count-RecentRestarts $state

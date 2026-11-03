@@ -193,7 +193,7 @@ async function applyInner(ctx, config) {
       }
       // 心跳：肉眼确认"定时器真的在跑"和"这一分钟有几个任务到点"。
       // 之前只靠 schedule-state.json 猜，分不清"没到点"和"根本没跑"。
-      writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), tasks: tasks.length, due: runnable.length, peak })
+      writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), tasks: tasks.length, due: runnable.length, peak, transport: status.transport })
       const lastRun = { ...(state.lastRun ?? {}) }
       const results = { ...(state.results ?? {}) }
       const failures = { ...(state.failures ?? {}) }
@@ -242,7 +242,7 @@ async function applyInner(ctx, config) {
       const message = error?.message ?? String(error)
       ctx.logger.warn('[fatfish] 定时检查失败：' + message)
       // 失败也要留痕：没有日志目录可看时，这是唯一能确认"跑过但抛了"的证据。
-      try { writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), error: message }) } catch {}
+      try { writeJson(join(scheduleDir, 'scheduler-heartbeat.json'), { at: now.toISOString(), error: message, transport: status.transport }) } catch {}
     } finally {
       running = false
     }

@@ -1,5 +1,9 @@
 # 功能审查与复用清单（更新至 2026-10-29）
 
+## 2026-11-03：任务中断与稳定性修复
+
+复用现有巡逻狗、OneBot transport、原生重试及提示词 section provider，修复错误断线指标、默认强杀长任务、启动取证和手动换装的失败恢复。两个本地插件已更新并正常重启 DSH；真实 transport 心跳在线。系统只补充蓝屏记录条件，未重启电脑，0x50 根因尚未确定。验证及授权边界见 [稳定性修复记录](STABILITY_REPAIR-20261103.md)。
+
 ## 2026-10-29：弃用 AstrBot 的全量迁移取舍
 
 用户要求不再使用 AstrBot，全部功能迁入 DSH 且优先复用社区插件。逐项核查离线社区快照 176 个精选件后，只有知识库（`dsh-knowledge-base` 0.1.5）、笔记（`dsh-obsidian` 0.2.6）、B 站只读（`dsh-plugin-bilibili` 0.2.4）、联网搜索（DSH 原生）能直接复用；TTS 换插件等于换掉现有硅基克隆音色，记忆换插件会丢按群隔离与候选审核，故这两类继续用 `fatfish_core`。Pixiv、电子书、漫画、QQ 空间、Steam 促销追踪在社区无对应实现。`dsh-video-downloader` 能下 B 站音视频，但违反只读红线，明确不采用。取舍与状态见[迁移对照表](DSH_FEATURE_MIGRATION-20261029.md)。

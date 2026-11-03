@@ -37,6 +37,7 @@ test('control reads native volatile settings on each tick and disposes its timer
   const ctx = new Proxy({
     logger: { info() {}, warn() {} },
     provide() {}, on() {},
+    get(name) { return name === 'dshOnebotTransport' ? { connected: () => true } : undefined; },
     effect(setup) { dispose = setup(); },
     tools: { register(tool) { statusTool = tool; } },
   }, { get(target, key) {
@@ -54,6 +55,7 @@ test('control reads native volatile settings on each tick and disposes its timer
   assert.equal((await read('control-mount.json')).stage, 'done');
   assert.equal((await read('control-mount.json')).tasks, 1);
   assert.equal((await read('scheduler-heartbeat.json')).tasks, 1);
+  assert.deepEqual((await read('scheduler-heartbeat.json')).transport, { present: true, online: true });
   assert.equal((await read('schedule-state.json')).results['disabled-runner'].reason, 'runner-disabled');
   assert.equal((await statusTool.execute({})).runner.ownerChat, 'private:10003');
   await timers.get(300_000).callback();
@@ -75,5 +77,5 @@ test('control reads native volatile settings on each tick and disposes its timer
   await new Promise(resolve => setImmediate(resolve));
   assert.equal((await read('schedule-state.json')).results['enabled-runner'].reason, 'unknown-kind:test-only');
   dispose();
-  assert.deepEqual(cleared, [timers.get(30_000), timers.get(300_000)]);
+  assert.deepEqual(cleared, [timers.get(30_000), timers.get(300_000), timers.get(600_000)]);
 });

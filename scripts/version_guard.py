@@ -83,6 +83,42 @@ def download(url: str, target: Path) -> None:
         shutil.copyfileobj(response, handle)
 
 
+def replace_installation(extract: Path, home: Path = NAPCAT_HOME) -> Path:
+    """Stage a complete copy, then swap directories; restore the old one on failure."""
+    home = home.resolve()
+    if not home.name or not (home / 'napcat.mjs').is_file():
+        raise RuntimeError('原安装目录不完整，取消替换')
+    stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
+    backup = home.with_name(f'{home.name}.bak-{stamp}')
+    # TemporaryDirectory owns only its newly-created sibling staging directory.
+    # The old installation is renamed, retained, and restored if the swap fails.
+    with tempfile.TemporaryDirectory(prefix=f'{home.name}.new-', dir=home.parent) as folder:
+        stage = Path(folder).resolve()
+        if stage.parent != home.parent:
+            raise RuntimeError('暂存目录不在安装目录旁，取消替换')
+        shutil.copytree(extract, stage, dirs_exist_ok=True)
+        if (home / 'config').is_dir():
+            shutil.copytree(home / 'config', stage / 'config', dirs_exist_ok=True)
+        if not (stage / 'napcat.mjs').is_file():
+            raise RuntimeError('暂存安装不完整，旧目录未替换')
+        home.rename(backup)
+        try:
+            stage.rename(home)
+        except Exception:
+            backup.rename(home)
+            raise
+    return backup
+
+
+def stop_napcat() -> None:
+    # Explicit maintenance only: monitoring invokes --check. Stop the injection
+    # runtime before touching loaded files, and fail if permissions are missing.
+    subprocess.run(['powershell', '-NoProfile', '-Command',
+                    "$ErrorActionPreference='Stop'; "
+                    "Get-Process QQ,NapCatWinBootMain -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction Stop"],
+                   capture_output=True, timeout=60, check=True)
+
+
 def upgrade_napcat() -> str:
     tag = latest_tag()
     log(f"发现新版本 NapCat {tag}，开始下载")
@@ -100,16 +136,17 @@ def upgrade_napcat() -> str:
         major, build = qq_version()
         if (major, build) not in builds:
             raise SystemExit(f"{tag} 也不支持 {major}-{build}")
-        # 换装：保留 config，其它目录整体替换
-        backup = NAPCAT_HOME.with_name(f"NapCat.bak-{datetime.now():%Y%m%d-%H%M%S}")
-        shutil.copytree(NAPCAT_HOME / "config", extract / "config", dirs_exist_ok=True)
-        shutil.move(str(NAPCAT_HOME), str(backup))
-        shutil.copytree(extract, NAPCAT_HOME)
+        stop_napcat()
+        try:
+            backup = replace_installation(extract)
+        except Exception:
+            # The old installation remains/restores at its original path.
+            subprocess.run(['schtasks', '/Run', '/TN', 'FatFishLife-Start'], capture_output=True, timeout=60)
+            raise
         log(f"NapCat 已换装 {tag}（旧版备份 {backup.name}），支持 {major}-{build}")
-    subprocess.run(["powershell", "-NoProfile", "-Command",
-                    "Get-Process QQ,NapCatWinBootMain -ErrorAction SilentlyContinue | Stop-Process -Force"],
-                   capture_output=True, timeout=60)
-    subprocess.run(["cmd", "/c", "schtasks /Run /TN FatFishLife-Start"], capture_output=True, timeout=60)
+    restarted = subprocess.run(['schtasks', '/Run', '/TN', 'FatFishLife-Start'], capture_output=True, timeout=60)
+    if restarted.returncode:
+        raise RuntimeError(f'NapCat {tag} 已安装且旧版已备份，但启动任务失败（退出码 {restarted.returncode}）；勿重复换装，请检查启动任务')
     return tag
 
 
