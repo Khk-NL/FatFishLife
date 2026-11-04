@@ -4,7 +4,7 @@ $source = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/watchdog_dsh.ps1
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-$names = @('Get-BridgeOnline', 'Test-PortListening', 'Get-HostVerdict', 'Confirm-HostFault')
+$names = @('Get-BridgeOnline', 'Test-PortListening', 'Get-HostVerdict', 'Confirm-HostFault', 'Test-NapCatNeedsStart')
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
     if ($fn.Name -in $names) { . ([scriptblock]::Create($fn.Extent.Text)) }
 }
@@ -39,6 +39,13 @@ try {
     Assert-Equal (Get-HostVerdict $true 1 9999 0 99).verdict 'wait' 'Startup grace'
     Assert-Equal (Get-HostVerdict $false $null -1 0 0).why 'process missing' 'Missing host'
     Assert-Equal (Get-HostVerdict $true 30 0 1 0).verdict 'ok' 'Healthy host'
+    Assert-Equal (Get-HostVerdict $true 30 0 1 0 $false).verdict 'warn' 'Offline QQ is not reported healthy'
+    Assert-Equal (Test-NapCatNeedsStart $true 1 4 10 1) $false 'Connected bot is preserved'
+    Assert-Equal (Test-NapCatNeedsStart $false 0 0 $null 0) $true 'Missing bot starts'
+    Assert-Equal (Test-NapCatNeedsStart $false 1 2 10 0) $true 'Hung pre-JS QQ recovers despite leftover processes'
+    Assert-Equal (Test-NapCatNeedsStart $false 1 2 1 0) $false 'Startup grace preserves booting QQ'
+    Assert-Equal (Test-NapCatNeedsStart $false 1 2 10 1) $false 'QR/login wait is preserved'
+    Assert-Equal (Test-NapCatNeedsStart $null 1 2 10 0) $false 'Unknown connection does not terminate live QQ'
     Assert-Equal (Get-HostVerdict $true 30 11 1 0).verdict 'warn' 'Stale scheduler preserves live host by default'
     Assert-Equal (Get-HostVerdict $true 30 0 0 0).verdict 'warn' 'Missing bridge preserves live host by default'
     Assert-Equal (Get-HostVerdict $true 30 0 1 99).verdict 'warn' 'Long tool calls never trigger host restart'

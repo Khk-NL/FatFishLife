@@ -1,10 +1,10 @@
-# DSH watchdog v2: keep the app (and its QQ bridge) alive.
+﻿# DSH watchdog v2: keep the app (and its QQ bridge) alive.
 # Checks, cheapest first:
 #   1. process missing            -> start it
 #   2. scheduler/bridge unhealthy -> warn (restart only with explicit opt-in)
 #   3. a long model/tool turn     -> warn; never infer a dead host from one turn
 # Cooldown keeps it from looping (max restarts per rolling hour).
-# ASCII only: PowerShell 5.1 misreads UTF-8 Chinese comments without BOM.
+# UTF-8 with BOM: the scheduled task also supports Windows PowerShell 5.1.
 param(
     [switch]$Check,
     [switch]$AllowHostRestart,
@@ -15,6 +15,7 @@ param(
     [string]$Python = 'D:/Code/Projects/FatFishLife/.tools/dsh-python/Scripts/python.exe',
     [string]$PruneScript = 'D:/Code/Projects/FatFishLife/scripts/prune_dsh_cookies.py',
     [int]$BridgePort = 8646,
+    [int]$NapCatWebPort = 6099,
     [string]$GuardScript = 'D:/Code/Projects/FatFishLife/scripts/version_guard.py',
     [int]$GuardEveryMinutes = 60,
     [int]$HeartbeatStaleMinutes = 10,
@@ -116,7 +117,14 @@ function Get-HostAgeMinutes($Processes) {
     return $null
 }
 
-function Get-HostVerdict([bool]$Alive, $Age, [double]$HeartbeatAge, [int]$Listening, [double]$Stuck) {
+function Test-NapCatNeedsStart($Online, [int]$BootstrapCount, [int]$QQCount, $BootstrapAge, [int]$WebListening) {
+    if ($Online -eq $true) { return $false }
+    if ($BootstrapCount -eq 0 -or $QQCount -eq 0) { return $true }
+    # A QR/login wait has a live native WebUI. Only recover pre-JS startup hangs.
+    return ($Online -eq $false -and $null -ne $BootstrapAge -and $BootstrapAge -ge $StartupGraceMinutes -and $WebListening -eq 0)
+}
+
+function Get-HostVerdict([bool]$Alive, $Age, [double]$HeartbeatAge, [int]$Listening, [double]$Stuck, $Online = $null) {
     if (-not $Alive) { return [pscustomobject]@{ verdict = 'restart'; why = 'process missing' } }
     if ($null -ne $Age -and $Age -lt $StartupGraceMinutes) {
         return [pscustomobject]@{ verdict = 'wait'; why = 'host startup grace period' }
@@ -132,6 +140,7 @@ function Get-HostVerdict([bool]$Alive, $Age, [double]$HeartbeatAge, [int]$Listen
     if ($Stuck -gt $StuckTurnMinutes) {
         return [pscustomobject]@{ verdict = 'warn'; why = "model/tool turn running $Stuck min; live host preserved" }
     }
+    if ($Online -eq $false) { return [pscustomobject]@{ verdict = 'warn'; why = 'authenticated OneBot transport is offline' } }
     return [pscustomobject]@{ verdict = 'ok'; why = '' }
 }
 
@@ -234,7 +243,7 @@ if ($alive -and -not $Check) { Invoke-VersionGuard }
 $stuck = if ($alive) { Get-StuckTurnMinutes } else { 0 }
 $napcat = Get-NapCatProcesses
 
-$decision = Get-HostVerdict $alive $hostAge $heartbeatAge $port.listen $stuck
+$decision = Get-HostVerdict $alive $hostAge $heartbeatAge $port.listen $stuck $port.online
 $verdict = $decision.verdict
 $why = $decision.why
 if ($Check) {
@@ -248,13 +257,20 @@ $state = Read-State
 
 # NapCat is a separate program; if it died we only restart DSH when the bridge is dead.
 $qqCount = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue).Count
-if ($verdict -ne 'wait' -and $port.online -ne $true -and ($napcat.Count -eq 0 -or $qqCount -eq 0)) {
+$napcatAge = Get-HostAgeMinutes $napcat
+$webListening = if ($port.online -eq $false) { (Test-PortListening $NapCatWebPort).listen } else { 0 }
+$needsNapCat = Test-NapCatNeedsStart $port.online $napcat.Count $qqCount $napcatAge $webListening
+if ($verdict -ne 'wait' -and $needsNapCat) {
     $lastNapCat = $null
     if ($state.napcatAt) { try { $lastNapCat = [datetime]$state.napcatAt } catch { } }
     $cooled = ($null -eq $lastNapCat) -or (((Get-Date) - $lastNapCat).TotalMinutes -gt 10)
-    if ($cooled) {
+    $napcatRecent = Count-RecentRestarts ([pscustomobject]@{ restarts = @($state.napcatRestarts) })
+    if ($napcatRecent -ge $MaxRestartsPerHour) {
+        Write-Log ("blocked: NapCat recovery already requested {0} times this hour; inspect native startup logs" -f $napcatRecent)
+    } elseif ($cooled) {
         Start-NapCat | Out-Null
         $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue (Get-Date).ToString('o') -Force
+        $state | Add-Member -NotePropertyName napcatRestarts -NotePropertyValue (@(@($state.napcatRestarts) + (Get-Date).ToString('o') | Select-Object -Last 20)) -Force
         Save-State $state
     } else {
         Write-Log 'napcat is not running but restarted less than 10 min ago - waiting'

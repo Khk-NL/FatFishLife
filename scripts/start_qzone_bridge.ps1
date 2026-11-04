@@ -1,4 +1,4 @@
-param(
+﻿param(
   [switch]$Check,
   [switch]$Stop
 )
@@ -8,6 +8,11 @@ $bridgeDir = 'D:/Code/tmp-qzone'
 $envFile = 'D:/Code/Projects/FatFishLife/outputs/secrets/qzone.env'
 $logFile = 'D:/Code/Projects/FatFishLife/outputs/agent/qzone-bridge.log'
 $port = 5700
+$accessToken = ''
+if (Test-Path -LiteralPath $envFile) {
+  $tokenLine = Get-Content -LiteralPath $envFile -Encoding UTF8 | Where-Object { $_ -like 'FATFISH_QZONE_ACCESS_TOKEN=*' } | Select-Object -First 1
+  if ($tokenLine) { $accessToken = $tokenLine.Substring('FATFISH_QZONE_ACCESS_TOKEN='.Length).Trim() }
+}
 
 function Test-Port {
   param([int]$Port)
@@ -15,7 +20,7 @@ function Test-Port {
   # 所以用一次真实的 HTTP 请求判断它活着没有。
   try {
     $body = '{}'
-    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/get_login_info" -Method Post -Body $body -ContentType 'application/json' -Headers @{ Authorization = 'Bearer fatfishqzone20261031' } -TimeoutSec 6 -UseBasicParsing
+    $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/get_login_info" -Method Post -Body $body -ContentType 'application/json' -Headers @{ Authorization = ('Bearer ' + $accessToken) } -TimeoutSec 6 -UseBasicParsing
     return ($resp.StatusCode -eq 200)
   } catch {
     return $false
@@ -48,6 +53,8 @@ if (-not (Test-Path $envFile)) {
   exit 1
 }
 
+if (-not $accessToken) { Write-Output 'missing FATFISH_QZONE_ACCESS_TOKEN in local secrets file'; exit 1 }
+
 if ($Check) {
   Write-Output "env file: $envFile"
   Write-Output "bridge dir: $bridgeDir"
@@ -65,7 +72,7 @@ $cookie = $cookieLine.Substring('QZONE_COOKIE_STRING='.Length)
 $env:QZONE_COOKIE_STRING = $cookie
 $env:ONEBOT_HOST = '127.0.0.1'
 $env:ONEBOT_PORT = "$port"
-$env:ONEBOT_ACCESS_TOKEN = 'fatfishqzone20261031'
+$env:ONEBOT_ACCESS_TOKEN = $accessToken
 $env:QZONE_CACHE_PATH = './test_cache'
 $env:QZONE_ENABLE_QR = '0'
 
@@ -75,7 +82,12 @@ if (-not (Test-Path $tsx)) {
   exit 1
 }
 
-$proc = Start-Process -FilePath $tsx -ArgumentList 'src/main.ts' -WorkingDirectory $bridgeDir -WindowStyle Hidden -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
+$proc = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/s', '/c', ('""' + $tsx + '" src/main.ts"')) -WorkingDirectory $bridgeDir -WindowStyle Hidden -PassThru -RedirectStandardOutput $logFile -RedirectStandardError "$logFile.err"
 Write-Output "started qzone bridge pid $($proc.Id)"
 Start-Sleep -Seconds 8
-Write-Output "listening: $(Test-Port -Port $port)"
+$ready = Test-Port -Port $port
+Write-Output "listening: $ready"
+if (-not $ready) {
+  Write-Output "bridge did not become ready; inspect $logFile and its error log"
+  exit 1
+}
