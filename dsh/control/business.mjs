@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { selectRecommendations } from './ops.mjs'
-import { buildInboxMessage, buildRecommendMessage, diaryMessages, recommendReasonMessages } from './compose.mjs'
+import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, recommendReasonMessages } from './compose.mjs'
 import { cleanReply } from './llm.mjs'
 import { DEFAULT_MEMORY_DB, DEFAULT_PYTHON } from './hub.mjs'
 
@@ -197,7 +197,36 @@ export function runConsolidate(deps) {
       }
       log(`[fatfish] 峰时总结完成：${payload.items ?? 0} 条 → 记忆 ${payload.written?.memories ?? 0}`
         + ` / 成长 ${payload.written?.growth ?? 0} / 心情 ${payload.written?.mood ?? 0}`)
-      resolve(payload)
+      // 峰时收工后主动找老大说一句：问好 / 说心情 / 讲学到的事 / 吐槽。
+      if (payload.ok !== true || !payload.summary) {
+        resolve(payload)
+        return
+      }
+      ;(async () => {
+        try {
+          let mood = deps.mood
+          if (!mood && deps.hub?.moodGet) {
+            try { mood = await deps.hub.moodGet() } catch { mood = undefined }
+          }
+          const messages = consolidateGreetingMessages({
+            summary: payload.summary,
+            mood,
+            terms: Array.isArray(deps.state?.terms) ? deps.state.terms : [],
+            hour: new Date().getHours(),
+          })
+          const text = cleanReply(await deps.llm.chat(messages), 160)
+          if (!text) {
+            resolve(payload)
+            return
+          }
+          const outcome = await deliver(deps, text)
+          log(`[fatfish] 峰时收工问候：${outcome.sent ? '已发送' : '未发送（' + (outcome.skipped ?? outcome.reason ?? '?') + '）'}`)
+          resolve({ ...payload, sent: outcome.sent, greeting: text.slice(0, 40) })
+        } catch (error) {
+          log('[fatfish] 峰时收工问候失败：' + (error?.message ?? error))
+          resolve(payload)
+        }
+      })()
     })
   })
 }

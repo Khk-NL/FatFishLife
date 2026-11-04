@@ -1,4 +1,4 @@
-﻿# DSH watchdog v2: keep the app (and its QQ bridge) alive.
+# DSH watchdog v2: keep the app (and its QQ bridge) alive.
 # Checks, cheapest first:
 #   1. process missing            -> start it
 #   2. scheduler/bridge unhealthy -> warn (restart only with explicit opt-in)
@@ -64,18 +64,22 @@ function Get-NapCatProcesses {
 # from a limited shell, but FatFishLife-Start already runs with RunLevel=Highest and
 # start_all.ps1 launches NapCat (AstrBot is retired via data\.astrbot-retired).
 function Start-NapCat {
-    try {
-        schtasks /Run /TN 'FatFishLife-Start' | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "scheduled task failed with exit code $LASTEXITCODE" }
-        Start-Sleep -Seconds 10
-        $after = Get-NapCatProcesses
-        $qq = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue)
-        Write-Log ("napcat start requested: bootstrap={0} qq={1}; login/OneBot readiness is checked separately" -f $after.Count, $qq.Count)
-        return ($after.Count -gt 0 -and $qq.Count -gt 0)
-    } catch {
-        Write-Log ("error: napcat start failed - {0}" -f $_.Exception.Message)
-        return $false
+    $attempts = 2
+    for ($i = 1; $i -le $attempts; $i++) {
+        try {
+            schtasks /Run /TN 'FatFishLife-Start' | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "scheduled task failed with exit code $LASTEXITCODE" }
+            Start-Sleep -Seconds 10
+            $after = Get-NapCatProcesses
+            $qq = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue)
+            Write-Log ("napcat start requested (attempt {0}/{1}): bootstrap={2} qq={3}; login/OneBot readiness is checked separately" -f $i, $attempts, $after.Count, $qq.Count)
+            if ($after.Count -gt 0 -and $qq.Count -ge 5) { return $true }
+            if ($i -lt $attempts) { Start-Sleep -Seconds 30 }
+        } catch {
+            Write-Log ("error: napcat start failed (attempt {0}/{1}) - {2}" -f $i, $attempts, $_.Exception.Message)
+        }
     }
+    return $false
 }
 
 function Test-PortListening([int]$Port) {

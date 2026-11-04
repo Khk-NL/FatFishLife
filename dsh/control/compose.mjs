@@ -81,6 +81,23 @@ export function recommendReasonMessages(item, moodText = '') {
   ]
 }
 
+/** 峰时收工后主动找老大：问好/说心情/说学到的东西/吐槽，都要具体。 */
+export function consolidateGreetingMessages({ summary, mood, terms = [], hour = 18 }) {
+  const pieces = []
+  if (summary) pieces.push(`峰时你不在的时候，群里和私聊攒下这些事：\n${summary}`)
+  if (mood?.description) pieces.push(`你此刻的心情：${mood.description}`)
+  if (terms.length) pieces.push(`最近群里常说的词：${terms.slice(0, 5).join('、')}`)
+  pieces.push('')
+  pieces.push(`现在是 ${hour} 点，峰时结束了，你先开口找老大说一句。`)
+  pieces.push('只挑一件最想说的：问好、说自己的心情、讲峰时学到/看到的一件事，或者吐槽两句。')
+  pieces.push('一到两句、40 字以内，像发消息那样；别把攒下的消息逐条复述，别列要点，别做汇报。')
+  pieces.push('例子：醒了，峰时那些破事攒了一堆 / 上午那波讨论我记下了，回头细说 / 有人教了我个新梗，等你回来讲给你')
+  return [
+    { role: 'system', content: PERSONA_RULES },
+    { role: 'user', content: pieces.join('\n') },
+  ]
+}
+
 /** 今天的日记提示词：事实由调用方给，不许模型编。 */
 export function diaryMessages({ day, digest, mood, terms, recent }) {
   const facts = [

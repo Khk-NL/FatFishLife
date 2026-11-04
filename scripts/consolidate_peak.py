@@ -52,6 +52,14 @@ def read_queue(path: Path = QUEUE) -> list[dict]:
     return items[-MAX_ITEMS:]
 
 
+def clean_text(raw: object) -> str:
+    """去掉 CQ 码（图片/表情的 URL 又长又没用）、链接和多余空白。"""
+    text = str(raw or "")
+    text = re.sub(r"\[CQ:[^\]]*\]", "[图]", text)
+    text = re.sub(r"https?://\S+", "", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def compact(items: list[dict]) -> str:
     """把队列压成给模型看的一小段文本；按时间正序，超长丢最早的。"""
     lines: list[str] = []
@@ -59,7 +67,9 @@ def compact(items: list[dict]) -> str:
     for row in reversed(items):
         name = str(row.get("name") or row.get("userId") or "群友")[:12]
         where = "私聊" if str(row.get("chatId", "")).startswith("private:") else "群聊"
-        text = re.sub(r"\s+", " ", str(row.get("text", ""))).strip()[:120]
+        text = clean_text(row.get("text"))[:120]
+        if not text or text == "[图]":
+            continue
         line = f"[{where}] {name}: {text}"
         if total + len(line) > MAX_CHARS:
             break
@@ -204,6 +214,20 @@ def main() -> int:
         print(json.dumps({"ok": False, "error": f"写库失败：{error}", "items": len(items)},
                          ensure_ascii=False))
         return 1
+
+    # 模型返回空壳时不能归档，否则这批消息就白攒了。
+    usable = written["memories"] or written["growth"] or written["journal"] or written["mood"]
+    if not usable and not args.dry_run:
+        print(json.dumps({"ok": False, "error": "模型没产出可用内容，队列保留", "items": len(items),
+                          "summary": str(result.get("summary", ""))[:80]}, ensure_ascii=False))
+        return 1
+
+    summary = re.sub(r"\s+", " ", str(result.get("summary") or "")).strip()
+    if summary and not args.dry_run:
+        digest = DATA_DIR / "peak-digest.txt"
+        digest.parent.mkdir(parents=True, exist_ok=True)
+        digest.write_text(f"{time.strftime('%m-%d %H:%M')} 峰时攒下 {len(items)} 条：{summary[:300]}\n",
+                          encoding="utf-8")
 
     moved = None if args.dry_run else archive(queue_path)
     print(json.dumps({

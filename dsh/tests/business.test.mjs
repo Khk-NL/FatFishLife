@@ -185,3 +185,27 @@ test('主动开口成功后写状态并记一次情绪', async () => {
   assert.equal(saved.count, 1)
   void nudges
 })
+
+test('consolidateGreetingMessages：带上摘要、心情和“现在几点”的要求', async () => {
+  const { consolidateGreetingMessages } = await import('../control/compose.mjs')
+  const messages = consolidateGreetingMessages({
+    summary: '群里在聊方舟新版本',
+    mood: { description: '有点困' },
+    terms: ['无敌', '整活'],
+    hour: 18,
+  })
+  const user = messages.find((m) => m.role === 'user')?.content ?? ''
+  assert.match(user, /群里在聊方舟新版本/)
+  assert.match(user, /有点困/)
+  assert.match(user, /无敌、整活/)
+  assert.match(user, /现在是 18 点/)
+  assert.match(user, /问好|心情|吐槽/)
+})
+
+test('consolidateGreetingMessages：没有摘要也能生成，不报错', async () => {
+  const { consolidateGreetingMessages } = await import('../control/compose.mjs')
+  const messages = consolidateGreetingMessages({ summary: '', hour: 12 })
+  const user = messages.find((m) => m.role === 'user')?.content ?? ''
+  assert.match(user, /现在是 12 点/)
+  assert.equal(messages[0].role, 'system')
+})
