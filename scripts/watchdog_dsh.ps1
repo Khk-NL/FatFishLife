@@ -26,6 +26,17 @@ param(
 )
 
 $ErrorActionPreference = 'Continue'
+# 静默运行：把本进程自己的控制台窗口藏起来（计划任务里也能生效，不需要管理员）
+try {
+    if (-not ('FatFishWindow' -as [type])) {
+        Add-Type -Namespace FatFish -Name Window -MemberDefinition @'
+[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+'@
+    }
+    $ffHwnd = [FatFish.Window]::GetConsoleWindow()
+    if ($ffHwnd -ne [IntPtr]::Zero) { [void][FatFish.Window]::ShowWindow($ffHwnd, 0) }
+} catch { }
 $logPath = Join-Path $LogDir 'watchdog.log'
 $statePath = Join-Path $LogDir 'watchdog-state.json'
 
