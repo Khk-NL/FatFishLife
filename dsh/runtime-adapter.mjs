@@ -1,7 +1,8 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { FatFishPolicy, GROUP_MODE_LABELS } from './policy.mjs';
+import { createLocalBriefClient } from './local-brief-client.mjs';
 
 const controlContext = new AsyncLocalStorage();
 
@@ -11,8 +12,7 @@ const controlContext = new AsyncLocalStorage();
  */
 const GROWTH_DIGEST_FILE = process.env.FATFISH_GROWTH_DIGEST || 'D:/Code/Projects/FatFishLife/data/dsh/growth-digest.txt';
 let growthDigestCache = { at: 0, text: '' };
-function growthDigest() {
-  if (Date.now() - growthDigestCache.at < 5 * 60_000) return growthDigestCache.text;
+function growthDigest() {  if (Date.now() - growthDigestCache.at < 5 * 60_000) return growthDigestCache.text;
   try {
     const raw = readFileSync(GROWTH_DIGEST_FILE, 'utf8').trim();
     growthDigestCache = { at: Date.now(), text: raw.slice(0, 400) };
@@ -39,6 +39,116 @@ function peakDigest() {
   return peakDigestCache.text;
 }
 
+/**
+ * 她自己的账本：最近一篇日记 + 最近一天自动任务的执行结果。
+ * 这些事都是"她做的"，提示词里要认领，不能一问三不知。
+ */
+const JOURNAL_DIR = process.env.FATFISH_JOURNAL_DIR || 'D:/obsidian/vaults/SCSldr/Journal';
+const SCHEDULE_STATE_FILE = process.env.FATFISH_SCHEDULE_STATE || 'D:/Code/Projects/FatFishLife/data/dsh/schedule-state.json';
+const TASK_LABELS = {
+  'bili-recommend-noon': '中午的B站推荐',
+  'bili-recommend-evening': '晚上的B站推荐',
+  'bili-study': '学群里的新梗',
+  diary: '写日记',
+  'consolidate-noon': '中午的峰时汇总',
+  'consolidate-evening': '傍晚的峰时汇总',
+};
+let diaryRecapCache = { at: 0, day: '', text: '' };
+function diaryRecap() {
+  if (Date.now() - diaryRecapCache.at < 5 * 60_000) return diaryRecapCache;
+  let day = '';
+  let text = '';
+  try {
+    const names = readdirSync(JOURNAL_DIR).filter((name) => /^\d{4}-\d{2}-\d{2}\.md$/.test(name)).sort();
+    const latest = names[names.length - 1];
+    if (latest) {
+      day = latest.replace(/\.md$/, '');
+      const raw = readFileSync(`${JOURNAL_DIR}/${latest}`, 'utf8');
+      const body = raw.replace(/^---[\s\S]*?---\s*/, '');
+      text = body
+        .replace(/^#+.*$/gm, '')
+        .replace(/^>\s?/gm, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 260);
+    }
+  } catch {
+    text = '';
+  }
+  diaryRecapCache = { at: Date.now(), day, text };
+  return diaryRecapCache;
+}
+
+let taskRecapCache = { at: 0, lines: [] };
+function taskRecap() {
+  if (Date.now() - taskRecapCache.at < 2 * 60_000) return taskRecapCache.lines;
+  const lines = [];
+  try {
+    const state = JSON.parse(readFileSync(SCHEDULE_STATE_FILE, 'utf8'));
+    const results = state?.results ?? {};
+    const cutoff = Date.now() - 24 * 60 * 60_000;
+    const rows = Object.entries(results)
+      .map(([id, row]) => ({ id, row, at: Date.parse(row?.at ?? '') }))
+      .filter((item) => Number.isFinite(item.at) && item.at >= cutoff)
+      .sort((a, b) => a.at - b.at);
+    for (const { id, row, at } of rows.slice(-6)) {
+      const label = TASK_LABELS[id] ?? id;
+      const clock = new Date(at + 8 * 60 * 60_000).toISOString().slice(11, 16);
+      lines.push(`${clock} ${label}：${describeOutcome(id, row)}`);
+    }
+  } catch {
+    /* 没有记录就当没做过，不编 */
+  }
+  taskRecapCache = { at: Date.now(), lines };
+  return lines;
+}
+
+const DELIVERY_REASONS = {
+  offline: 'QQ 离线',
+  'no-target': '没有可发的目标',
+  'transport-missing': '发送通道没挂上',
+  'empty-queue': '峰时没攒到消息',
+};
+
+function deliveryRows(reason) {
+  if (typeof reason !== 'string' || !reason.startsWith('[')) return [];
+  try {
+    const parsed = JSON.parse(reason);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function describeOutcome(id, row) {
+  if (!row) return '没有记录';
+  const rows = deliveryRows(row.reason);
+  const failure = rows.find((item) => item && item.ok === false);
+  const failText = failure?.reason ? (DELIVERY_REASONS[failure.reason] ?? failure.reason) : '';
+  if (row.ok !== true) {
+    if (failText) return `没发出去（${failText}）`;
+    return `没跑成（${row.error ?? row.reason ?? '原因不明'}）`;
+  }
+  if (row.reason === 'empty-queue') return DELIVERY_REASONS['empty-queue'];
+  if (id === 'diary') {
+    const day = row.detail ?? '今天';
+    return row.sent > 0
+      ? `日记写好了（${day}），也发给老大了`
+      : `日记写好了（${day}），没发出去（${failText || '没连上QQ'}）`;
+  }
+  if (id === 'bili-study') {
+    return `学了 ${row.detail ?? '几个'} 个新词`;
+  }
+  if (row.sent > 0) {
+    const picked = Array.isArray(row.detail) && row.detail.length ? `（${row.detail.join('/')}）` : '';
+    return `已经发给老大了${picked}`;
+  }
+  if (failText) return `选好了但${failText}`;
+  if (Array.isArray(row.detail) && row.detail.length) return `选好了 ${row.detail.length} 条，没发出去`;
+  if (String(id).startsWith('consolidate')) return '汇总完了，没发消息';
+  return '做了，没发消息';
+}
+
 const SOCIAL_CHANNEL_BASE_PROMPT = [
   '你正在QQ当前会话中聊天，按已配置的人格用纯文本输出给对方看的最终回复。',
   '长度分档：闲聊、应声、玩笑一到两句；对方问攻略、步骤、机制、值不值得、抓位、报错、对比这类需要信息量的问题，就写三到八句，先给结论，再给关键理由和适用条件，必要时分段；不要用 Markdown 标题、表格、"推荐理由："这类报告体，也别写成公众号长文。',
@@ -62,9 +172,18 @@ const SOCIAL_CHANNEL_BASE_PROMPT = [
 export function socialChannelPrompt() {
   const growth = growthDigest();
   const peak = peakDigest();
+  const diary = diaryRecap();
+  const tasks = taskRecap();
   return [SOCIAL_CHANNEL_BASE_PROMPT,
     ...(growth ? [`你最近做到过的事（你自己记的，不用念给老大听，遇到相关话题再拿出来说）：\n${growth}`] : []),
     ...(peak ? [`峰时你不在的时候攒下的消息，汇总成这样（自己知道就行，不用主动念）：\n${peak}`] : []),
+    ...(diary.text
+      ? [`你${diary.day}自己写的日记，内容是这样的：\n${diary.text}\n别人问起日记、昨天怎么样、你自己写了啥，就照这个说，这是你自己写的，不是别人替你写的。`]
+      : ['你还没写过日记；别人问就直说没写，别编。']),
+    ...(tasks.length
+      ? [`你自己最近干的活（都是你做的，别当成别人的事）：\n${tasks.join('\n')}`]
+      : ['最近一天没有自动任务记录。']),
+    '有人问你"今天写日记了吗""推荐发了吗"，就按上面这些实情说；不确定就说不确定，不要瞎编，也不要用"我看看后台"这类话。',
   ].join('\n');
 }
 
@@ -276,35 +395,20 @@ const BUSY_SYSTEM = (returnHour, template, persona = busyPersona()) => `${person
 在吗 → 在，但只到${returnHour}点，说完我去省电
 参考意思（别照抄）：${template}`;
 
-let busyCold = true;
-async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) {
+const busyModel = createLocalBriefClient({
+  baseUrl: process.env.FATFISH_LOCAL_LLM_URL,
+  model: process.env.FATFISH_LOCAL_LLM_MODEL,
+});
+async function busyBrief(returnHour, template, incoming = '') {
   if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return null;
-  // 冷加载时先等预热（与预热共用一个 Promise），避免两个请求争单并发槽互相拖死。
-  if (busyCold) await Promise.race([warmBusyModel(), new Promise((r) => setTimeout(r, 60_000))]);
-  // 第一次调用可能撞上模型冷加载（1.5B 实测 40 秒），给一次长超时；之后恢复正常。
-  if (busyCold) timeoutMs = 60_000;
-  const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetch(base + '/api/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: controller.signal,
-      body: JSON.stringify({
-        model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
-        stream: false,
-        keep_alive: '8h',
-        options: { temperature: 0.95, top_p: 0.92, num_predict: 56, num_ctx: 1024,
+    const data = await busyModel.chat([
+      { role: 'system', content: BUSY_SYSTEM(returnHour, template) },
+      { role: 'user', content: incoming || '（被@了）' },
+    ], { temperature: 0.95, top_p: 0.92, num_predict: 56, num_ctx: 1024,
           presence_penalty: 0.6, frequency_penalty: 0.5, repeat_penalty: 1.15 },
-        messages: [
-          { role: 'system', content: BUSY_SYSTEM(returnHour, template) },
-          { role: 'user', content: incoming || '（被@了）' },
-        ],
-      }),
-    });
-    if (!response.ok) { if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] http', response.status); return null; }
-    const data = await response.json();
+    );
+    if (!data) return null;
     const text = String(
       data?.message?.content ?? data?.choices?.[0]?.message?.content ?? '',
     ).trim().replace(/^["'「]|["'」]$/g, '').replace(/\s+/g, ' ');
@@ -312,7 +416,6 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
     if (!text || text.length > 60) return null;
     const flat = text.replace(/\s+/g, '');
     if (/对不起|抱歉|您|请问|帮到|无法查询|据我所知|工作人员|客服|负责人|联系|请/.test(flat)) return null;
-    busyCold = false;
     const onTopic = flat.includes(`${returnHour}点`)
       || /本地|小模型|不花|没走\s*DeepSeek|省钱|峰时|翻倍|算力/.test(text);
     if (!onTopic) return null;
@@ -323,35 +426,8 @@ async function busyBrief(returnHour, template, incoming = '', timeoutMs = 3500) 
   } catch (error) {
     if (process.env.FATFISH_BUSY_DEBUG) console.error('[busy] error', String(error?.message ?? error));
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
-
-// 1.5B 模型冷启动要几十秒，第一次峰时回话会被 timeout 打回固定文案。
-// 插件加载时先热一次（失败无所谓），之后 keep_alive=30m 常驻。
-// 注意：ollama 0.40.9 不认 keep_alive: '-1'，会回 {"error":"time: missing unit in duration"}。
-let busyWarmPromise = null;
-function warmBusyModel() {
-  if (process.env.FATFISH_BUSY_BRIEF === 'fixed') return Promise.resolve();
-  if (busyWarmPromise) return busyWarmPromise;
-  const base = (process.env.FATFISH_LOCAL_LLM_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '');
-  busyWarmPromise = fetch(base + '/api/generate', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      model: process.env.FATFISH_LOCAL_LLM_MODEL || 'qwen2.5:1.5b',
-      prompt: '你好',
-      stream: false,
-      keep_alive: '8h',
-      options: { num_predict: 8, num_ctx: 1024 },
-    }),
-  }).then(() => undefined).catch(() => {
-    busyWarmPromise = null;
-  });
-  return busyWarmPromise;
-}
-void warmBusyModel();
 
 /** 拟人停顿：群 2–5 秒、私聊 2–3 秒（含模型思考时间，用户 2026-11-01 定）。 */
 function humanPause(kind) {
@@ -441,6 +517,9 @@ export const SOCIAL_MEDIA_TOOLS = [
   'deepseek_balance',
   // 2026-10-31：成长记录。学了新东西、被人教会一件事，她自己记一条，不用老大提醒。
   'growth_record', 'growth_summary',
+  // 2026-11-05：她自己的日记、心情、记忆也要能自己查、自己写——否则永远不知道自己写了什么。
+  'journal_recent', 'journal_write', 'day_digest', 'mood_get', 'mood_nudge',
+  'remember', 'recall_all', 'style_terms', 'lore_search', 'lore_context',
 ];
 
 export function installSocialScope(ctx, bridge) {

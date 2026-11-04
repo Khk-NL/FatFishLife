@@ -171,7 +171,7 @@ def prepare() -> Path:
     # of the DSH 0.x release train. Fix metadata rather than force-install.
     package["peerDependencies"]["@deepseek-ai/schemastery"] = "^3.18.0"
     (target / "package.json").write_text(json.dumps(package, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    for file in ("policy.mjs", "runtime-adapter.mjs"):
+    for file in ("policy.mjs", "runtime-adapter.mjs", "local-brief-client.mjs"):
         shutil.copy2(ROOT / "dsh" / file, target / "lib" / file)
     vendor = ROOT / "dsh" / "vendor" / "chinese-days"
     if vendor.is_dir():

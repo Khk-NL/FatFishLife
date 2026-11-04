@@ -155,7 +155,10 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
   assert.equal(installed.filter, undefined);
   const allowed = ['read_image', 'meme_find', 'meme_random', 'tts_speak', 'qq_send_voice', 'qq_send_image',
     // 2026-10-30：被问攻略/机制时得能真查，否则只能靠印象糊弄（用户投诉“没有含金量”）。
-    'web_search', 'read_page', 'web_fetch', 'bilibili_search', 'bilibili_video', 'bilibili_subtitles'];
+    'web_search', 'read_page', 'web_fetch', 'bilibili_search', 'bilibili_video', 'bilibili_subtitles',
+    // 2026-11-05：她得知道自己写了什么，日记/记忆/心情的工具必须能调。
+    'journal_recent', 'journal_write', 'day_digest', 'mood_get', 'mood_nudge', 'remember', 'recall_all',
+    'style_terms', 'lore_search', 'lore_context'];
   for (const name of allowed) {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }
@@ -164,7 +167,7 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }
   for (const name of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task',
-    'recall', 'kb_query', 'remember', 'mcp__fatfish__recall', 'mcp__fatfish__fatfish_status', 'mcp__fatfish__tts_check']) {
+    'recall', 'kb_query', 'mcp__fatfish__fatfish_status', 'mcp__fatfish__tts_check']) {
     assert.ok(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }));
   }
   assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', allowed));
@@ -190,7 +193,7 @@ test('峰时别人的私聊不会因为正文叫名字就冒泡', () => {
   assert.equal(f.policy.decide(strangerPrivate, access).reason, 'work-unaddressed');
 });
 
-test('峰时被@时那句可以来自本地小模型，失败才用固定文案', async () => {
+test('峰时冷加载先回复固定文案，加载好后才用本地小模型', async () => {
   const f = fixture('10:00:00');
   const original = globalThis.fetch;
   globalThis.fetch = async () => ({ ok: true, async json() {
@@ -199,12 +202,15 @@ test('峰时被@时那句可以来自本地小模型，失败才用固定文案'
   try {
     process.env.FATFISH_BUSY_BRIEF = 'qwen';
     await beforeInbound(f.bridge, event('', { message: [{ type: 'at', data: { qq: '1' } }] }));
+    assert.ok(isBusyLine(f.sends[0].params.message[0].data.text));
+    const warm = fixture('10:00:00');
+    await beforeInbound(warm.bridge, event('', { message: [{ type: 'at', data: { qq: '1' } }] }));
+    assert.equal(warm.sends[0].params.message[0].data.text, '在送货呢，12点回来哈');
   } finally {
     globalThis.fetch = original;
     process.env.FATFISH_BUSY_BRIEF = 'fixed';
   }
   assert.equal(f.sends.length, 1);
-  assert.equal(f.sends[0].params.message[0].data.text, '在送货呢，12点回来哈');
 });
 
 test('小模型跑题或超长时退回固定文案', async () => {
