@@ -187,10 +187,27 @@ def archive(path: Path = QUEUE) -> Path | None:
     return target
 
 
+def prune_archives(keep_days: int = 1) -> list[str]:
+    """汇总完就清：只留最近 keep_days 天的归档，省存储。"""
+    if keep_days < 0 or not ARCHIVE_DIR.exists():
+        return []
+    cutoff = time.time() - keep_days * 86400
+    removed: list[str] = []
+    for item in sorted(ARCHIVE_DIR.glob("peak-*.jsonl")):
+        try:
+            if item.stat().st_mtime < cutoff:
+                item.unlink()
+                removed.append(item.name)
+        except OSError:
+            continue
+    return removed
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--queue", default=str(QUEUE))
+    parser.add_argument("--keep-days", type=int, default=1, help="归档保留天数（默认 1 天）")
     args = parser.parse_args()
 
     queue_path = Path(args.queue)
@@ -230,9 +247,11 @@ def main() -> int:
                           encoding="utf-8")
 
     moved = None if args.dry_run else archive(queue_path)
+    removed = [] if args.dry_run else prune_archives(keep_days=args.keep_days)
     print(json.dumps({
         "ok": True, "items": len(items), "written": written,
         "archive": str(moved) if moved else None,
+        "pruned": removed,
         "summary": str(result.get("summary", ""))[:200],
     }, ensure_ascii=False))
     return 0
