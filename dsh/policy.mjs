@@ -109,7 +109,10 @@ export class FatFishPolicy {
       dedupMs: 300000, normalKeywords: [], groupModes: {}, groupDefaultMode: 'talk',
       // 插话默认关，值由 profile 的 fatfish-control 配置给（见 cordis.patch.yml）。
       chimePercent: 0, chimeContinuePercent: 0, chimeMinGapMs: 120000, continueWindowMs: 150000,
-      chimeMaxPerHour: 4, chatterPercent: 0, ...config };
+      chimeMaxPerHour: 4, chatterPercent: 0,
+      // 小群更活跃：人数不超过 smallGroupThreshold 的群，插话概率乘 smallGroupChimeMultiplier，
+      // 最小间隔放宽到 smallGroupMinGapMs（老大 2026-11-05 要求）。
+      smallGroupThreshold: 50, smallGroupChimeMultiplier: 1, smallGroupMinGapMs: 120000, ...config };
     this.now = now;
     this.random = random;
     this.getConfig = getConfig;
@@ -147,6 +150,12 @@ export class FatFishPolicy {
     return GROUP_MODES.includes(value) ? value : 'talk';
   }
 
+  /** 这个群算不算小群（人数来自 policy.json 的 groupSizes，由桥定期同步）。 */
+  isSmallGroup(groupId) {
+    const threshold = Number(this.config.smallGroupThreshold ?? 50);
+    const size = Number(this.config.groupSizes?.[String(groupId)] ?? 0);
+    return threshold > 0 && size > 0 && size <= threshold;
+  }
   /** 设置某个群的模式，返回设置前的值。 */
   setGroupMode(groupId, mode) {
     if (!GROUP_MODES.includes(mode)) throw new Error('未知群模式: ' + mode);
@@ -267,8 +276,14 @@ export class FatFishPolicy {
         const last = this.lastSpoke.get(`chat:${scope}`) ?? -Infinity;
         const gap = now - last;
         const continuing = gap >= 0 && gap <= this.config.continueWindowMs;
-        const percent = continuing ? this.config.chimeContinuePercent : this.config.chimePercent;
-        const gapOk = continuing || gap >= this.config.chimeMinGapMs;
+        const small = this.isSmallGroup(target);
+        const boost = small ? Number(this.config.smallGroupChimeMultiplier ?? 1) : 1;
+        const base = continuing ? this.config.chimeContinuePercent : this.config.chimePercent;
+        const percent = base * (boost > 0 ? boost : 1);
+        const minGap = small
+          ? Number(this.config.smallGroupMinGapMs ?? this.config.chimeMinGapMs)
+          : this.config.chimeMinGapMs;
+        const gapOk = continuing || gap >= minGap;
         if (gapOk && this.chatterAllowed(target, now) && this.random() * 100 < percent) {
           this.markSpoke(target, now);
           return { kind: 'social', chatId, userId, poke, chime: true, continuing };

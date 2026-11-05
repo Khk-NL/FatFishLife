@@ -211,6 +211,23 @@ test('群里没人叫她时按概率插话，连续说话概率更高但受每�
   assert.equal(policy.decide(msg('开空调吧'), access).kind, 'ignore');
 });
 
+test('五十人以下的小群插话更积极，大群维持原概率', () => {
+  const base = { botId: '1', ownerId: '2', adapterId: 'test', silent: false,
+    chimePercent: 10, chimeContinuePercent: 10, chimeMinGapMs: 120000, continueWindowMs: 0,
+    chimeMaxPerHour: 5, smallGroupThreshold: 50, smallGroupChimeMultiplier: 3, smallGroupMinGapMs: 60000,
+    groupSizes: { '7': 20, '8': 80 } };
+  const small = new FatFishPolicy(base, { random: () => 0.25, now: () => clock('20:00:00') });
+  const tiny = { post_type: 'message', message_type: 'group', self_id: 1, user_id: 3, group_id: 7,
+    message: [{ type: 'text', data: { text: '随便聊聊' } }] };
+  // 10% × 3 = 30%，随机 25% 命中
+  assert.equal(small.decide(tiny, access).chime, true);
+  const big = new FatFishPolicy(base, { random: () => 0.25, now: () => clock('20:00:00') });
+  const large = { post_type: 'message', message_type: 'group', self_id: 1, user_id: 3, group_id: 8,
+    message: [{ type: 'text', data: { text: '随便聊聊' } }] };
+  // 大群还是 10%，随机 25% 不命中
+  assert.equal(big.decide(large, access).reason, 'unaddressed');
+});
+
 test('插话开关关掉时保持原来的忽略行为', () => {
   const f = fixture('20:00:00');
   assert.equal(f.policy.decide(event('今天真热'), access).kind, 'ignore');
