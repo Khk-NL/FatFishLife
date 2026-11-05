@@ -9,6 +9,7 @@ import { runProactive, inBusyWindow } from './proactive.mjs';
 import { applyMoodPending } from './moodsync.mjs';
 import { readWallet, transitionDelta, walletEffect, walletStatePath } from './wallet.mjs';
 import { syncPetMood } from './petmood.mjs';
+import { ensureSpeakUpTarget, identityFromPolicyFile } from './speakup.mjs';
 import { sendText, transportOf, transportOnline } from './transport.mjs';
 import { chat as llmChat } from './llm.mjs';
 import * as bili from './bili.mjs';
@@ -342,10 +343,30 @@ async function applyInner(ctx, config) {
   const petTimer = setInterval(syncPet, 10 * 60_000)
   if (typeof petTimer.unref === 'function') petTimer.unref()
 
+  // speak-up 的「目标会话」自动校正：QQ 桥的会话 id 每次启动都多一个后缀（`-mvxdynm2`），
+  // 而设置页里勾的是不带后缀的历史 id，导致插件判定"目标不能说话"、一次都发不出来（2026-11-05 实测）。
+  // 这里每 10 分钟对一次，把目标指到最新实例；已经对上就不写盘。
+  const syncSpeakUp = () => {
+    try {
+      const policyFile = process.env.FATFISH_POLICY_FILE || 'D:/Code/Projects/FatFishLife/dsh/policy.json'
+      const identity = identityFromPolicyFile(policyFile)
+      if (!identity) return
+      const outcome = ensureSpeakUpTarget({ identity, ownerId: identity.ownerId })
+      status.speakUp = { at: new Date().toISOString(), ...outcome }
+      if (outcome.changed) ctx.logger.info('[fatfish] speak-up 目标会话已校正为 ' + outcome.target)
+    } catch (error) {
+      ctx.logger.warn('[fatfish] speak-up 目标校正异常：' + (error?.message ?? String(error)))
+    }
+  }
+  syncSpeakUp()
+  const speakUpTimer = setInterval(syncSpeakUp, 10 * 60_000)
+  if (typeof speakUpTimer.unref === 'function') speakUpTimer.unref()
+
   ctx.effect(() => () => {
     clearInterval(dueTimer)
     clearInterval(proactiveTimer)
     clearInterval(petTimer)
+    clearInterval(speakUpTimer)
   })
   let pending = Promise.resolve();
   ctx.on('loader/volatile-update', () => {
