@@ -84,6 +84,7 @@ async function normalizeImageExtension(filePath) {
         "                const settings = this.ctx.getSettings(chatId);\n"
         "                const imagePath = await normalizeImageExtension(resolved.path);\n"
         "                settings.lastImagePath = imagePath;\n"
+        "                settings.recentImagePaths = [...(settings.recentImagePaths ?? []).filter(path => path !== imagePath), imagePath].slice(-16);\n"
         "                settings.pendingImageRef = undefined;\n"
         "                return '[图片:' + imagePath + ']';",
     )

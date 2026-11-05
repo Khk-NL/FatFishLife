@@ -562,7 +562,7 @@ export function imageReadDenial(bridge, exec, chatId) {
   if (short !== 'read_image') return undefined;
   const target = exec.arguments?.file_path;
   if (!chatId || typeof target !== 'string' || !isAbsolute(target)) return 'Image must use an allowed local media path';
-  const roots = [bridge.deps.config?.mediaDir, ...(bridge.deps.config?.extraMediaRoots ?? [])];
+  const roots = [...(bridge.deps.config?.extraMediaRoots ?? [])];
   const policy = bridge.deps.fatfishPolicy;
   if (String(chatId).startsWith('private:') && policy.owner(String(chatId).slice(8))) {
     roots.push(bridge.effectiveCwd?.(chatId));
@@ -571,12 +571,23 @@ export function imageReadDenial(bridge, exec, chatId) {
   // without reading image contents. Its original format/size checks still run.
   try {
     const file = realpathSync(target);
-    for (const root of roots) {
-      if (typeof root !== 'string') continue;
+    const contained = root => {
+      if (typeof root !== 'string') return false;
       let resolved;
-      try { resolved = realpathSync(root); } catch { continue; }
+      try { resolved = realpathSync(root); } catch { return false; }
       const path = relative(resolved, file);
-      if (path !== '' && path !== '..' && !path.startsWith('..' + sep) && !isAbsolute(path)) return undefined;
+      return path !== '' && path !== '..' && !path.startsWith('..' + sep) && !isAbsolute(path);
+    };
+    if (contained(bridge.deps.config?.mediaDir)) {
+      // Reuse the inbound pipeline's existing per-chat settings, not a new
+      // media registry. A shared account cache is not shared reading authority.
+      const paths = bridge.registry?.getSettings(chatId)?.recentImagePaths ?? [];
+      return paths.some(path => {
+        try { return realpathSync(path) === file; } catch { return false; }
+      }) ? undefined : 'Image is not registered to this conversation';
+    }
+    for (const root of roots) {
+      if (contained(root)) return undefined;
     }
   } catch { /* Missing files and broken links cannot establish provenance. */ }
   return 'Image is outside the allowed media roots';

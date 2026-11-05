@@ -7,7 +7,7 @@ import tarfile
 import tempfile
 import unittest
 
-from scripts.prepare_dsh_onebot import inbound_record, media_record
+from scripts.prepare_dsh_onebot import inbound, inbound_record, media_record
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,7 +52,7 @@ class SnowLumaPreparationTests(unittest.TestCase):
             for name in ('inbound.js', 'media.js', 'stt.js', 'cq.js', 'chat.js', 'errors.js', 'trace.js'):
                 source = upstream(name)
                 if name == 'inbound.js':
-                    source = inbound_record(source)
+                    source = inbound_record(inbound(source))
                 elif name == 'media.js':
                     source = media_record(source)
                 (target / name).write_text(source, encoding='utf-8')
@@ -131,6 +131,27 @@ assert.deepEqual(await readFile(resolved.path), bytes);
 response = { url: 'http://127.0.0.1/not-allowed', file: 'source.silk' };
 assert.equal(await resolve(), '');
 assert.equal(resolved, undefined);
+// Image provenance reuses the existing per-chat settings, bounded at 16 paths.
+const imageSettings = new Map();
+pipeline.ctx.getSettings = chat => {
+    if (!imageSettings.has(chat)) imageSettings.set(chat, {});
+    return imageSettings.get(chat);
+};
+let imagePath;
+pipeline.ctx.media.resolve = async () => ({ kind: 'image', path: imagePath });
+const images = [];
+for (let i = 0; i < 18; i++) {
+    imagePath = join(process.cwd(), `incoming-${i}.png`);
+    images.push(imagePath);
+    await writeFile(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]));
+    assert.equal(await pipeline.resolveMediaRef({kind: 'image'}, 'group:1'), '[图片:' + imagePath + ']');
+}
+assert.deepEqual(imageSettings.get('group:1').recentImagePaths, images.slice(-16));
+await pipeline.resolveMediaRef({kind: 'image'}, 'group:2');
+assert.deepEqual(imageSettings.get('group:2').recentImagePaths, [images.at(-1)]);
+await pipeline.resolveMediaRef({kind: 'image'}, 'group:1');
+assert.equal(imageSettings.get('group:1').recentImagePaths.length, 16);
+assert.equal(imageSettings.get('group:1').lastImagePath, images.at(-1));
 console.log('record contracts passed');
 """
             (target / 'check.mjs').write_text(script, encoding='utf-8')
