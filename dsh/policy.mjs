@@ -223,7 +223,11 @@ export class FatFishPolicy {
         this.markSpoke(target, now);
         return { kind: 'social', chatId, userId, poke, chime: true, via: 'mode' };
       };
-      if (mode === 'listen') return canChatter('group-listen');
+      // 2026-11-05 老大：「只听不说的话就是不要说啊，无论是哪种主动发言，只有被@和戳一戳」，
+      // 所以 listen 群不给闲聊概率，只放行 @/戳，其余（关键词、叫名字、接话）一律不回。
+      if (mode === 'listen') {
+        if (!(poke || mentioned)) return { kind: 'ignore', reason: 'group-listen', observe: true };
+      }
       if (mode === 'owner' && !this.owner(userId)) return canChatter('group-owner-only');
       if (mode === 'mention' && !(poke || mentioned)) return canChatter('group-mention-only');
     }

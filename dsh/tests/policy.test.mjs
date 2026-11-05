@@ -217,11 +217,17 @@ test('插话开关关掉时保持原来的忽略行为', () => {
   assert.equal(f.policy.decide(event('今天真热'), access).reason, 'unaddressed');
 });
 
-test('只听不说的群也能偶尔闲聊，完全不理的群一句都不说', () => {
+test('只听不说的群一句话都不主动说，被 @ 才回；完全不理的群一句都不说', () => {
   const base = { botId: '1', ownerId: '2', adapterId: 'test', silent: false, chatterPercent: 100,
+    chimePercent: 100, chimeContinuePercent: 100, chimeMinGapMs: 0,
     groupModes: { '4': 'listen', '5': 'quiet' }, chimeMaxPerHour: 5 };
   const policy = new FatFishPolicy(base, { random: () => 0, now: () => clock('20:00:00') });
-  assert.equal(policy.decide(event('随便聊聊'), access).chime, true);
+  // 老大 2026-11-05：只听不说＝只回 @ 和戳，关键词、叫名字、接话一律不回。
+  assert.equal(policy.decide(event('随便聊聊'), access).reason, 'group-listen');
+  assert.equal(policy.decide(event('吞星鲸鲸 在吗'), access).reason, 'group-listen');
+  const at = { post_type: 'message', message_type: 'group', self_id: 1, user_id: 3, group_id: 4,
+    message: [{ type: 'at', data: { qq: '1' } }, { type: 'text', data: { text: '在吗' } }] };
+  assert.equal(policy.decide(at, access).kind, 'social');
   const quiet = { post_type: 'message', message_type: 'group', self_id: 1, user_id: 3, group_id: 5,
     message: [{ type: 'text', data: { text: '随便聊聊' } }] };
   assert.equal(policy.decide(quiet, access).kind, 'ignore');
