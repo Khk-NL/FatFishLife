@@ -6,7 +6,7 @@
 //
 // 规则来源：dsh/rules.md。改时间先改这里，再改文档，别只改文档。
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** 每天的运营任务。`at` 是本地时间 HH:MM。 */
@@ -17,6 +17,7 @@ export const TASKS = [
   { id: 'bili-recommend-evening', kind: 'bili-recommend', at: '20:30', label: 'B站刷首页+推荐' },
   { id: 'bili-study', kind: 'bili-study', at: '21:00', label: 'B站标签学习' },
   { id: 'bili-dynamic', kind: 'bili-dynamic', at: '22:30', label: '发一条B站动态' },
+  { id: 'qzone-thought', kind: 'qzone-thought', at: '21:30', label: '发一条QQ空间说说' },
   { id: 'diary', kind: 'diary', at: '23:50', label: '日记与成长总结' },
 ]
 
@@ -101,5 +102,20 @@ export function readState(dir) {
 
 export function writeState(dir, state) {
   mkdirSync(dir, { recursive: true })
-  writeFileSync(statePath(dir), JSON.stringify(state, null, 2) + '\n')
+  const pending = statePath(dir) + '.tmp'
+  writeFileSync(pending, JSON.stringify(state, null, 2) + '\n')
+  renameSync(pending, statePath(dir))
+}
+
+/** Persist before external effects: an interrupted task must not publish twice. */
+export function claimTask(dir, task, now) {
+  const state = readState(dir)
+  const previous = new Date(state.lastRun?.[task.id] ?? 0)
+  if (previous >= new Date(task.scheduledFor)) return false
+  const at = now.toISOString()
+  writeState(dir, { ...state,
+    lastRun: { ...(state.lastRun ?? {}), [task.id]: at },
+    results: { ...(state.results ?? {}), [task.id]: { at, ok: false, reason: 'started-result-unknown' } },
+  })
+  return true
 }

@@ -5,7 +5,23 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { TASKS, dueTasks, minutesOfDay, nextRun, scheduledFor, DEFAULT_GRACE_MINUTES, readState, writeState, statePath } from '../control/schedule.mjs'
+import { TASKS, dueTasks, minutesOfDay, nextRun, scheduledFor, DEFAULT_GRACE_MINUTES, readState, writeState, statePath, claimTask } from '../control/schedule.mjs'
+
+test('发布前持久化claim，进程中断后不重复执行且保留其他任务回执', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'fatfish-claim-'))
+  try {
+    const now = new Date(2026, 10, 5, 21, 30)
+    const item = { id: 'qzone-thought', scheduledFor: now.toISOString() }
+    writeState(dir, { results: { earlier: { ok: true, tid: 'earlier-receipt' } } })
+    assert.equal(claimTask(dir, item, now), true)
+    const afterCrash = readState(dir)
+    assert.equal(afterCrash.results.earlier.tid, 'earlier-receipt')
+    assert.equal(afterCrash.results[item.id].reason, 'started-result-unknown')
+    assert.equal(claimTask(dir, item, new Date(now.getTime() + 1000)), false)
+    assert.deepEqual(dueTasks(now, { lastRun: afterCrash.lastRun,
+      tasks: [{ id: item.id, kind: item.id, at: '21:30' }] }), [])
+  } finally { rmSync(dir, { recursive: true, force: true }) }
+})
 
 const at = (hhmmss) => {
   const [h, m, s = '00'] = hhmmss.split(':')
@@ -86,7 +102,7 @@ test('nextRun 在当天全部结束后指向明天的第一个', () => {
 })
 
 test('任务表与 rules.md 的时间点一致', () => {
-  assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:05', '12:30', '18:05', '20:30', '21:00', '22:30', '23:50'])
+  assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:05', '12:30', '18:05', '20:30', '21:00', '21:30', '22:30', '23:50'])
 })
 test('状态读写往返，重启后不重复触发靠它', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ff-sched-'))

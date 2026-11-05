@@ -13,7 +13,7 @@ def pack() -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(target, 'w:gz') as archive:
         for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'ops.mjs', 'settings.mjs',
-                     'business.mjs', 'proactive.mjs', 'compose.mjs', 'llm.mjs', 'hub.mjs', 'bili.mjs', 'transport.mjs',
+                     'business.mjs', 'proactive.mjs', 'compose.mjs', 'llm.mjs', 'hub.mjs', 'qzone.mjs', 'bili.mjs', 'transport.mjs',
                      'moodsync.mjs',
                      'petmood.mjs',
                      'speakup.mjs',

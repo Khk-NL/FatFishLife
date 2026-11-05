@@ -40,7 +40,7 @@ export const BUSY_LINES = [
   '一到峰时算力就舍不得拨给我了，{hour}来，省下的钱归我买零食',
 ];
 // 只有老大私聊能调的工具（账单/钱包类）。群友调用直接拒绝。
-export const OWNER_ONLY_TOOLS = ['deepseek_balance'];
+export const OWNER_ONLY_TOOLS = ['deepseek_balance', 'qzone_post', 'qzone_delete', 'bili_dynamic_post'];
 
 const text = event => Array.isArray(event.message)
   ? event.message.filter(segment => segment.type === 'text').map(segment => String(segment.data?.text ?? '')).join('')
@@ -339,10 +339,10 @@ export class FatFishPolicy {
     const name = String(exec.name ?? '');
     const short = name.includes('__') ? name.split('__').pop() : name;
     if (!allowed.includes(name) && !allowed.includes(short)) return 'Tool is outside this social capability set';
-    // 2026-10-31：钱包这类账单信息只有老大私聊能看，群友问不出来。
+    // 账单与公开发布/删除只接受认证的老大私聊；定时运营走独立管理开关。
     if (OWNER_ONLY_TOOLS.includes(short)) {
       const ownerPrivate = String(chatId ?? '').startsWith('private:') && this.owner(String(chatId).slice('private:'.length));
-      if (!ownerPrivate) return 'Only the owner can see this';
+      if (!ownerPrivate) return 'Only the owner in private chat can use this';
     }
     if (exec.arguments?.chat_id !== undefined && exec.arguments.chat_id !== chatId) return 'Cross-conversation target denied';
     return undefined;

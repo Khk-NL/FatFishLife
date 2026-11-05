@@ -16,6 +16,27 @@ test('runBiliDynamic：默认发一条，写不出来就不发', async () => {
   assert.equal(empty.reason, 'empty-dynamic');
 });
 
+test('动态发布尊重静默、每日开关与生成期间的关闭，不把业务失败记为成功', async () => {
+  let generated = 0; let posted = 0
+  const config = { workflows: { daily: { enabled: true, publishEnabled: true } } }
+  const deps = { config, currentConfig: () => config,
+    hub: { dayDigest: async () => ({}), moodGet: async () => ({}) },
+    llm: { chat: async () => { generated++; config.workflows.daily.publishEnabled = false; return '今天好饿' } },
+    bili: { dynamicPost: async () => { posted++; return { ok: false } } } }
+  assert.equal((await runBiliDynamic(deps)).skipped, 'publish-disabled')
+  assert.equal(generated, 1); assert.equal(posted, 0)
+  config.workflows.daily.publishEnabled = true
+  config.reply = { silent: true }
+  assert.equal((await runBiliDynamic(deps)).skipped, 'silent')
+  config.reply.silent = false; config.workflows.daily.enabled = false
+  assert.equal((await runBiliDynamic(deps)).skipped, 'publish-disabled')
+  assert.equal(generated, 1)
+  config.workflows.daily.enabled = true
+  deps.llm.chat = async () => '今天好饿'
+  assert.equal((await runBiliDynamic(deps)).reason, 'dynamic-not-confirmed')
+  assert.equal(posted, 1)
+})
+
 // 定时业务与主动开口的离线测试：全部用假依赖，不联网、不发 QQ、不花 token。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -26,8 +47,18 @@ import { join } from 'node:path'
 import {
   buildInboxMessage, buildRecommendMessage, formatDuration, formatViews, formatRecommendLine,
 } from '../control/compose.mjs'
-import { runBiliDynamic, runBiliRecommend, runDiary, runTask } from '../control/business.mjs'
+import { runBiliDynamic, runBiliRecommend, runDiary, runQzoneThought, runTask } from '../control/business.mjs'
 import { inBusyWindow, inQuietHours, minutesOfDay, runProactive, shouldSpeak } from '../control/proactive.mjs'
+
+test('空间桥离线或登录过期时不花模型费用生成待发正文', async () => {
+  for (const status of [{ online: false }, { online: true, valid: false }]) {
+    const result = await runQzoneThought({ config: {}, qzoneStatus: async () => status,
+      llm: { chat: async () => { throw new Error('must not generate') } },
+      postThought: async () => { throw new Error('must not post') } })
+    assert.equal(result.ok, false)
+    assert.match(result.reason, /qzone-(bridge-offline|login-invalid)/)
+  }
+})
 
 const video = (bvid, title, extra = {}) => ({
   bvid, title, duration: 754, stat: { view: 23456 }, author: { name: '某UP' }, ...extra,
@@ -226,4 +257,66 @@ test('consolidateGreetingMessages：没有摘要也能生成，不报错', async
   const user = messages.find((m) => m.role === 'user')?.content ?? ''
   assert.match(user, /现在是 12 点/)
   assert.equal(messages[0].role, 'system')
+})
+
+test('发说说：模型写感想并发出去，失败带原因，关掉发布就跳过', async () => {
+  const posted = [];
+  const deps = {
+    settings: { workflows: { daily: {} } },
+    now: () => new Date(2026, 10, 5, 21, 30),
+    mood: { description: '还不错' },
+    hub: { styleTerms: async () => ({ terms: ['摸鱼', '整活'] }) },
+    llm: { chat: async (messages) => {
+      const text = messages.map((row) => row.content).join(' ');
+      assert.match(text, /感想/);
+      assert.match(text, /不写任何群名/);
+      return '今天摸鱼摸得心安理得 (´・ω・`)';
+    } },
+    postThought: async (text) => { posted.push(text); return { ok: true, tid: 'tid-1' }; },
+  };
+  const out = await runQzoneThought(deps);
+  assert.equal(out.ok, true);
+  assert.equal(out.tid, 'tid-1');
+  assert.equal(posted.length, 1);
+
+  const failed = await runQzoneThought({ ...deps, postThought: async () => ({ ok: false, reason: '未登录' }) });
+  assert.equal(failed.ok, false);
+  assert.equal(failed.reason, '未登录');
+
+  const skipped = await runQzoneThought({ ...deps, settings: { workflows: { daily: { publishEnabled: false } } } });
+  assert.equal(skipped.skipped, 'publish-disabled');
+});
+
+test('说说执行读取生产config与Date，关闭或静默时零模型零发布', async () => {
+  const calls = []
+  const deps = {
+    config: { workflows: { daily: { publishEnabled: true } } },
+    now: new Date(2026, 10, 5, 21, 30),
+    llm: { chat: async () => { calls.push('llm'); return '今天有点开心'; } },
+    postThought: async () => { calls.push('post'); return { ok: true, tid: 'receipt' }; },
+  }
+  assert.equal((await runQzoneThought(deps)).tid, 'receipt')
+  for (const config of [
+    { workflows: { daily: { publishEnabled: false } } },
+    { workflows: { daily: { enabled: false } } },
+    { reply: { silent: true } },
+    { runner: { enabled: false } },
+  ]) {
+    calls.length = 0
+    assert.ok((await runQzoneThought({ ...deps, config })).skipped)
+    assert.deepEqual(calls, [])
+  }
+})
+
+test('说说生成期间关闭发布，最终出口重读开关并停止发送', async () => {
+  let current = { workflows: { daily: { publishEnabled: true } } }
+  let posted = 0
+  const out = await runQzoneThought({
+    config: current,
+    currentConfig: () => current,
+    llm: { chat: async () => { current = { reply: { silent: true } }; return '准备发出的感想'; } },
+    postThought: async () => { posted++; return { ok: true, tid: 'unexpected' }; },
+  })
+  assert.equal(out.skipped, 'silent')
+  assert.equal(posted, 0)
 })

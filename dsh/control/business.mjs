@@ -8,7 +8,8 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { selectRecommendations } from './ops.mjs'
-import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, dynamicMessages, recommendReasonMessages } from './compose.mjs'
+import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, dynamicMessages, qzoneThoughtMessages, recommendReasonMessages } from './compose.mjs'
+import { postThought as qzonePostThought } from './qzone.mjs'
 import { cleanReply } from './llm.mjs'
 import { DEFAULT_MEMORY_DB, DEFAULT_PYTHON } from './hub.mjs'
 
@@ -237,23 +238,64 @@ export function runConsolidate(deps) {
  */
 export async function runBiliDynamic(deps) {
   const { bili, hub, llm, config, log = () => {} } = deps
-  if (config?.workflows?.daily?.publishEnabled === false) {
-    return { ok: true, skipped: 'publish-disabled' }
-  }
-  const day = localDay(new Date())
+  const blocked = publicationSkipReason(deps)
+  if (blocked) return { ok: true, skipped: blocked }
+  const day = localDay(typeof deps.now === 'function' ? deps.now() : deps.now ?? new Date())
   const [digest, mood] = await Promise.all([
     hub.dayDigest(day).catch(() => null),
     hub.moodGet().catch(() => null),
   ])
   const text = cleanReply(await llm.chat(dynamicMessages({ day, digest, mood }), { temperature: 1.05, maxTokens: 200 }), 120)
   if (!text) return { ok: false, reason: 'empty-dynamic' }
+  const lateBlock = publicationSkipReason(deps)
+  if (lateBlock) return { ok: true, skipped: lateBlock }
   try {
     const result = await bili.dynamicPost(text)
+    if (result?.ok !== true) return { ok: false, reason: 'dynamic-not-confirmed' }
     log('[fatfish] 动态已发布：' + text.slice(0, 40))
-    return { ok: true, detail: text, result }
+    return { ok: true, sent: 1, detail: text, result }
   } catch (error) {
     return { ok: false, reason: String(error?.message ?? error).slice(0, 160), detail: text }
   }
+}
+
+/** 生成前与真正发布前均核对管理界面的实时门禁。 */
+function publicationSkipReason(deps) {
+    const settings = deps.currentConfig?.() ?? deps.config ?? deps.settings ?? {}
+    if (settings.runner?.enabled === false) return 'runner-disabled'
+    if (settings.reply?.silent === true) return 'silent'
+    const daily = settings.workflows?.daily ?? {}
+    if (daily.enabled === false || daily.publishEnabled === false) return 'publish-disabled'
+    if (deps.canPublish && !deps.canPublish()) return 'publish-blocked'
+    return null
+}
+
+export async function runQzoneThought(deps) {
+  const skipped = publicationSkipReason(deps)
+  if (skipped) return { ok: true, skipped }
+  if (deps.qzoneStatus) {
+    const status = await deps.qzoneStatus()
+    if (!status?.online) return { ok: false, reason: 'qzone-bridge-offline' }
+    if (!status.valid) return { ok: false, reason: 'qzone-login-invalid' }
+  }
+  const now = typeof deps.now === 'function' ? deps.now() : deps.now ?? new Date()
+  const day = localDay(now)
+  let mood = null
+  try { mood = deps.mood ?? (await deps.hub?.moodGet?.()) ?? null } catch { mood = null }
+  let terms = []
+  try {
+    const learned = await deps.hub?.styleTerms?.({ days: 3, limit: 8 })
+    terms = Array.isArray(learned?.terms) ? learned.terms : []
+  } catch { terms = [] }
+  const messages = qzoneThoughtMessages({ day, mood, terms, hint: deps.hint ?? '' })
+  const text = cleanReply(await deps.llm.chat(messages), 70)
+  if (!text) return { ok: false, reason: 'empty-text' }
+  const finalSkip = publicationSkipReason(deps)
+  if (finalSkip) return { ok: true, skipped: finalSkip }
+  const post = deps.postThought ?? qzonePostThought
+  const result = await post(text)
+  if (!result?.ok) return { ok: false, reason: result?.reason ?? 'post-failed', detail: text }
+  return { ok: true, sent: 1, detail: text, tid: result.tid }
 }
 
 export async function runTask(task, deps) {
@@ -264,5 +306,6 @@ export async function runTask(task, deps) {
   if (kind === 'diary') return runDiary(deps)
   if (kind === 'consolidate') return runConsolidate(deps)
   if (kind === 'bili-dynamic') return runBiliDynamic(deps)
+  if (kind === 'qzone-thought') return runQzoneThought(deps)
   return { ok: false, reason: 'unknown-kind:' + String(kind) }
 }

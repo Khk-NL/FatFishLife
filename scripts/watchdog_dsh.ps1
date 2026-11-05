@@ -1,4 +1,4 @@
-# DSH watchdog v2: keep the app (and its QQ bridge) alive.
+﻿# DSH watchdog v2: keep the app (and its QQ bridge) alive.
 # Checks, cheapest first:
 #   1. process missing            -> start it
 #   2. scheduler/bridge unhealthy -> warn (restart only with explicit opt-in)
@@ -17,6 +17,11 @@ param(
     [int]$BridgePort = 8646,
     [int]$NapCatWebPort = 6099,
     [string]$GuardScript = 'D:/Code/Projects/FatFishLife/scripts/version_guard.py',
+    [string]$QzoneDir = 'D:/Code/tmp-qzone',
+    [string]$QzoneBase = 'http://127.0.0.1:5700',
+    [string]$QzoneStarter = 'D:/Code/Projects/FatFishLife/scripts/start_qzone_bridge.ps1',
+    [string]$HideScript = 'D:/Code/Projects/FatFishLife/outputs/agent/run-hidden.vbs',
+    [int]$QzoneEveryMinutes = 10,
     [int]$GuardEveryMinutes = 60,
     [int]$HeartbeatStaleMinutes = 10,
     [int]$StuckTurnMinutes = 12,
@@ -93,14 +98,14 @@ function Start-NapCat {
     return $false
 }
 
-function Test-PortListening([int]$Port) {
+function Test-PortListening([int]$Port, [string]$Address = '127.0.0.1') {
     # Get-NetTCPConnection reports nothing for listeners owned by higher-integrity
     # processes (the DSH host lives one level up), so the old check said "down"
     # forever and restarted the app every run. Probe with a real TCP connect.
     $listen = 0
     $client = New-Object System.Net.Sockets.TcpClient
     try {
-        $iar = $client.BeginConnect('127.0.0.1', $Port, $null, $null)
+        $iar = $client.BeginConnect($Address, $Port, $null, $null)
         if ($iar.AsyncWaitHandle.WaitOne(1500, $false) -and $client.Connected) { $listen = 1 }
     } catch {
         $listen = 0
@@ -211,6 +216,54 @@ function Invoke-VersionGuard {
     Save-State $state
 }
 
+function Get-QzoneStarterArguments([uri]$BaseUri, [switch]$ProbeOnly) {
+    $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $QzoneStarter + '"'),
+        '-Base', ('"' + $BaseUri.AbsoluteUri + '"'), '-BridgeDir', ('"' + $QzoneDir + '"'),
+        '-LogFile', ('"' + (Join-Path $LogDir 'qzone-bridge.log') + '"'))
+    if ($ProbeOnly) { $args += '-Check' }
+    return $args
+}
+
+function Invoke-QzoneBridge($State) {
+    # QQ Zone bridge (onebot-qzone, D:/Code/tmp-qzone) posts her thoughts to Qzone.
+    # Reuse the starter's private Token/Cookie loader for both probe and recovery.
+    $baseUri = $null
+    if (-not [uri]::TryCreate($QzoneBase, [UriKind]::Absolute, [ref]$baseUri) -or
+        $baseUri.Scheme -ne 'http' -or -not $baseUri.IsLoopback -or
+        $baseUri.AbsolutePath -ne '/' -or $baseUri.Query -or $baseUri.Fragment -or $baseUri.UserInfo) {
+        Write-Log 'qzone bridge: expected a loopback HTTP base; start skipped'
+        return
+    }
+    if (-not (Test-Path -LiteralPath $QzoneStarter)) { Write-Log 'qzone bridge: starter missing, skipped'; return }
+    $alive = $false
+    try {
+        $probeArgs = Get-QzoneStarterArguments $baseUri -ProbeOnly
+        & powershell.exe @probeArgs 2>&1 | Out-Null
+        $probeCode = $LASTEXITCODE
+        $alive = ($probeCode -eq 0 -or $probeCode -eq 2)
+        if ($probeCode -eq 2) { Write-Log 'warn: qzone bridge online; login is invalid, re-login required' }
+    } catch { $alive = $false }
+    if ($alive) { $State | Add-Member -NotePropertyName qzoneAt -NotePropertyValue $null -Force; return }
+    if ((Test-PortListening $baseUri.Port ($baseUri.DnsSafeHost.Trim('[', ']'))).listen -gt 0) {
+        Write-Log 'warn: qzone endpoint is unhealthy but its port is occupied; no duplicate start'
+        return
+    }
+    $last = $null
+    if ($State.qzoneAt) { try { $last = [datetime]$State.qzoneAt } catch { } }
+    if ($last -and ((Get-Date) - $last).TotalMinutes -lt $QzoneEveryMinutes) { return }
+    if (-not (Test-Path -LiteralPath $QzoneDir)) { Write-Log 'qzone bridge: directory missing, skipped'; return }
+    Write-Log 'qzone bridge not answering; starting silently'
+    try {
+        $starterArgs = Get-QzoneStarterArguments $baseUri
+        Start-Process -FilePath 'powershell.exe' -ArgumentList $starterArgs -WorkingDirectory $QzoneDir -WindowStyle Hidden -ErrorAction Stop | Out-Null
+        $State | Add-Member -NotePropertyName qzoneAt -NotePropertyValue (Get-Date).ToString('o') -Force
+        Save-State $State
+        Write-Log 'qzone bridge start requested'
+    } catch {
+        Write-Log ('qzone bridge start failed: ' + $_.Exception.Message)
+    }
+}
+
 function Invoke-CookiePrune {
     # DSH stores one dsh-auth-<random> cookie per random local port it ever started on.
     # Chromium sends cookies by host and ignores the port, so the history goes into every
@@ -269,6 +322,7 @@ if ($Check) {
 }
 
 $state = Read-State
+Invoke-QzoneBridge $state
 
 # NapCat is a separate program; if it died we only restart DSH when the bridge is dead.
 $qqCount = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue).Count

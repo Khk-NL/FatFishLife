@@ -1,4 +1,4 @@
-// bili-cli 的薄封装：只跑读操作（首页推荐、收件箱），拿 JSON。
+// bili-cli 的薄封装：读取首页/收件箱，显式授权后发布动态，拿 JSON。
 //
 // 不在这里做业务判断 —— 选片、文案、发不发都在 business/compose 层，
 // 这样可以用假 CLI 结果跑测试，不必联网。
@@ -55,4 +55,14 @@ export async function feedInbox(options = {}) {
   if (payload?.ok === false) throw new Error('bili feed inbox 返回 ok=false')
   const items = payload?.data?.items ?? payload?.data?.messages ?? []
   return Array.isArray(items) ? items : []
+}
+
+/** 复用现有 bili dynamic post；调用方须传入管理界面的实时发布许可。 */
+export async function dynamicPost(text, options = {}) {
+  if (options.write !== true) throw new Error('publish-disabled')
+  const body = String(text ?? '').trim()
+  if (!body) throw new Error('empty-dynamic')
+  const payload = await (options.run ?? runBili)(['dynamic', 'post', body], { ...options, timeoutMs: 180_000 })
+  if (payload?.ok !== true) throw new Error('bili dynamic post 未确认成功')
+  return payload
 }

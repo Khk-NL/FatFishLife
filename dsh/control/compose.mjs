@@ -169,3 +169,27 @@ export function dynamicMessages({ day = '', digest = null, mood = null } = {}) {
     { role: 'user', content: lines.join('\n') },
   ];
 }
+
+/**
+ * 发说说用的「感想」提示词。老大 2026-11-05 的要求：
+ *   - 不是摘要、不是汇报，是她自己的感想（心情、吐槽、看到的事带来的感受）
+ *   - 不透露隐私：不写群名/群号/人名/聊天原话/链接/数字细节
+ *   - 一两句、60 字内，可以用一个颜文字
+ */
+export function qzoneThoughtMessages({ day = '', mood = null, terms = [], hint = '' } = {}) {
+  const moodText = mood?.description || mood?.label || (typeof mood === 'number' ? `${mood} 分` : '')
+  const lines = [
+    day ? `今天是 ${day}。` : '',
+    hint ? `今天有点想说的是：${hint}` : '',
+    moodText ? `此刻心情：${moodText}` : '',
+    terms.length ? `最近大家常说的词：${terms.slice(0, 6).join('、')}` : '',
+    '写一条发在空间里的说说，是你自己的感想——不是总结今天做了什么，也不是汇报。',
+    '可以是一点心情、一句吐槽、忽然想到的事、或者被什么逗乐了。',
+    '隐私红线：不写任何群名、群号、人名、昵称、聊天原话、链接、具体数字；不要提 AI、模型、Token、程序、后台。',
+    '一到两句话，60 字以内，像随手发的；最多一个颜文字。',
+  ]
+  return [
+    { role: 'system', content: PERSONA_RULES + '\n' + '你现在在自己 QQ 空间发一条说说。' },
+    { role: 'user', content: lines.filter(Boolean).join('\n') },
+  ]
+}
