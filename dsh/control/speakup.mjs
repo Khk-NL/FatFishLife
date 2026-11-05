@@ -34,10 +34,19 @@ export function ownerChatId(ownerId) {
  * 在会话根目录里找 `<base>-*` 的实例，按目录里 session.v4.jsonl.zstd 的修改时间取最新。
  * 找不到返回 undefined（此时不动配置，避免把设置改坏）。
  */
-export function newestInstance(sessionsRoot, baseId) {
+export const QQ_WORKSPACE = 'D:/Code/Projects/FatFishLife/data/dsh/qq-work';
+
+/** DSH 的会话桶名由工作区路径生成，例如 `--D-Code-Projects-FatFishLife-data-dsh-qq-work--`。 */
+export function workspaceBucket(workspace = QQ_WORKSPACE) {
+  const flat = String(workspace).replace(/^([A-Za-z]):/, '$1').replace(/[\\/]+/g, '-');
+  return '--' + flat + '--';
+}
+
+export function newestInstance(sessionsRoot, baseId, { bucket } = {}) {
   let best;
-  for (const bucket of safeReaddir(sessionsRoot)) {
-    const bucketPath = join(sessionsRoot, bucket);
+  const buckets = bucket ? [bucket] : safeReaddir(sessionsRoot);
+  for (const name of buckets) {
+    const bucketPath = join(sessionsRoot, name);
     for (const name of safeReaddir(bucketPath)) {
       if (!name.startsWith(`${baseId}-`)) continue;
       const file = join(bucketPath, name, 'session.v4.jsonl.zstd');
@@ -84,8 +93,11 @@ export function ensureSpeakUpTarget({
     return { ok: false, changed: false, reason: 'no-identity' };
   }
   const base = sessionBaseId(ownerChatId(ownerId), identity);
-  const live = newestInstance(root, base);
+  const live = newestInstance(root, base, { bucket: workspaceBucket() });
+  // 只用 qq-work 这个工作区的会话，避免把她主界面/别的项目的会话也当成目标。
   if (!live) return { ok: false, changed: false, reason: 'no-instance' };
+  const label = '私聊 · 老大';
+
 
   let config;
   try {

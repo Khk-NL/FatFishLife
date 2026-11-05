@@ -78,10 +78,12 @@ def scan_groups() -> dict[str, dict]:
 def state() -> dict:
     policy = read_policy()
     modes = policy.get("groupModes") or {}
+    names = policy.get("groupNames") or {}
     default = policy.get("groupDefaultMode") or "talk"
     groups = []
     for gid, info in scan_groups().items():
         groups.append({
+            "name": names.get(gid, ""),
             "id": gid,
             "mode": modes.get(gid, "default"),
             "seen": info["seen"],
@@ -89,7 +91,7 @@ def state() -> dict:
         })
     for gid in modes:
         if not any(row["id"] == gid for row in groups):
-            groups.append({"id": gid, "mode": modes[gid], "seen": 0, "last": ""})
+            groups.append({"id": gid, "name": names.get(gid, ""), "mode": modes[gid], "seen": 0, "last": ""})
     groups.sort(key=lambda row: row["last"], reverse=True)
     return {
         "policy": str(POLICY),

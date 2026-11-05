@@ -16,6 +16,7 @@
   th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid #1f2a36; vertical-align: middle; }
   th { color: #8b98a5; font-weight: 500; font-size: 12px; letter-spacing: .04em; }
   .gid { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .gname { margin-left: 8px; color: #8b95a7; font-size: 12px; }
   .active { color: #7ee787; }
   .muted { color: #6b7785; font-size: 12px; }
   button { cursor: pointer; border-radius: 8px; border: 1px solid #2d3a48; background: #1b2532;
@@ -80,7 +81,7 @@ function render() {
       ).join('');
       const def = `<button class="${g.mode === 'default' ? 'on' : ''}" onclick="setMode('${g.id}','default')">跟随默认</button>`;
       return `<tr>
-        <td class="gid">${g.id}</td>
+        <td class="gid">${g.id}${g.name ? `<span class="gname">${g.name}</span>` : ''}</td>
         <td class="${g.mode === 'quiet' ? 'muted' : 'active'}">${labelOf(g.mode)}</td>
         <td>${buttons}${def}</td>
         <td class="muted">${g.last || '—'}${g.seen ? ` · ${g.seen} 条` : ''}</td>

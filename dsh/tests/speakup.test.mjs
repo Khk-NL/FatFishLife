@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ensureSpeakUpTarget, newestInstance, sessionBaseId, speakUpConfigPath } from '../control/speakup.mjs';
+import { ensureSpeakUpTarget, newestInstance, sessionBaseId, speakUpConfigPath, workspaceBucket } from '../control/speakup.mjs';
 
 const identity = { adapterId: 'napcat-main', botId: '1670515707' };
 const ownerId = '3124904460';
@@ -13,7 +13,8 @@ function sandbox() {
   const home = mkdtempSync(join(tmpdir(), 'speakup-'));
   mkdirSync(join(home, '.dsh'), { recursive: true });
   const base = sessionBaseId(`private:${ownerId}`, identity);
-  const bucket = join(home, '.dsh', 'sessions', '--D-Code-P');
+  // 只认 qq-work 工作区的会话桶，桶名由工作区路径生成。
+  const bucket = join(home, '.dsh', 'sessions', workspaceBucket());
   const older = join(bucket, `${base}-older01`);
   const newer = join(bucket, `${base}-newer02`);
   for (const dir of [older, newer]) {

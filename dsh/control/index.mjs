@@ -352,7 +352,8 @@ async function applyInner(ctx, config) {
       const identity = identityFromPolicyFile(policyFile)
       if (!identity) return
       const outcome = ensureSpeakUpTarget({ identity, ownerId: identity.ownerId })
-      status.speakUp = { at: new Date().toISOString(), ...outcome }
+      status.speakUp = { at: new Date().toISOString(), ...outcome,
+        label: outcome.target ? '私聊 · 老大（qq-work 工作区）' : undefined }
       if (outcome.changed) ctx.logger.info('[fatfish] speak-up 目标会话已校正为 ' + outcome.target)
     } catch (error) {
       ctx.logger.warn('[fatfish] speak-up 目标校正异常：' + (error?.message ?? String(error)))
