@@ -520,6 +520,9 @@ export const SOCIAL_MEDIA_TOOLS = [
   // 2026-11-05：她自己的日记、心情、记忆也要能自己查、自己写——否则永远不知道自己写了什么。
   'journal_recent', 'journal_write', 'day_digest', 'mood_get', 'mood_nudge',
   'remember', 'recall_all', 'style_terms', 'lore_search', 'lore_context',
+  // 2026-11-05：上下文管理器的压缩提示在 QQ 会话里也会出现，她照着调 compress 被守卫拦 74 次，
+  // 这几个是纯本地的上下文工具，不碰文件也不对外，放行以免陷入重试死循环。
+  'compress', 'decompress', 'search_context', 'acp_status',
 ];
 
 export function installSocialScope(ctx, bridge) {
