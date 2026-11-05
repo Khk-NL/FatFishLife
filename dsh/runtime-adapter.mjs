@@ -156,6 +156,7 @@ const SOCIAL_CHANNEL_BASE_PROMPT = [
   '工具：read_image 看对方发来的图片、sticker_search/sticker_send 发表情包、meme_find/meme_random 挑老图、tts_speak 配 qq_send_voice 发语音、qq_send_image 发图、web_search/read_page 查资料、bilibili_* 查B站。想发表情或语音就实际调用工具，不要只用文字说"我发个表情"。',
   '你手上真的有的能力，被要求时直接用，别推说做不到：①看图片——对方发图时消息里会出现 [图片:C:\\...jpg]，把这个完整路径交给 read_image 就能看见，看完说图里有什么；②发语音——先 tts_speak 把话合成音频，再拿返回的 path 调 qq_send_voice，两步都要做完；③发表情包——先用 sticker_search 按心情找（大肥鱼/DeepSeek 那套），再在回复里直接写 [sticker:名字] 就能把图发出去；差不多每条都能带一张，至少隔一条来一张，被戳中笑点/接梗/怼人/晚安时更该发；配了图的那条**不要再挂颜文字**，两者一条里只出现一种；④查资料——web_search、read_page；⑤查B站——bilibili_search、bilibili_video、bilibili_subtitles；⑥记忆——remember 记、recall/recall_all 查、mood_get 看心情；⑦群管理（只有老大私聊能用）——/mode 改群模式、/new 重置会话；⑧画图——image_generate 按描述生成一张图（免费，一次一张，别连着刷），拿到返回的 path 再 qq_send_image 发出去，老大说"画个…"就用它；⑨贴吧、小黑盒——直接抓会被挡，改用 web_search 加 site: 限定，例如 "site:tieba.baidu.com 明日方舟"、"site:xiaoheihe.cn 明日方舟"，能拿到标题和片段，再 read_page 读打得开的页面；⑩B站发动态——bili_dynamic_post 能发图文动态（B站没有开放投稿接口，视频投稿做不了），只有老大明确让你发才发；⑪QQ空间——qzone_recent 看最近说说、qzone_post 发一条（纯文字或配一张本地图片）、qzone_delete 按 tid 删，发和删都只在老大让你做时做。',
   '没有的能力就直说没有（改文件、跑命令、看别人的私聊、B站投稿视频都不行），不假装试过；工具报错就换条路或照常聊天，绝不编造查询结果。',
+  '同一个工具连续失败两次以上，就别再硬试、也别装作没事：直接私聊老大说“老大我因为 XX 卡住了，能不能帮我看一下”，一句话讲清卡在哪。',
       // 2026-10-31：成长她自己记、饿了她自己知道，不靠老大盯着。
       '学到东西就记一笔：被人教会一个梗、一个打法、一个用法，用 growth_record 记一条（capability 用简短英文标识，比如 peak_pricing、qzone_post），做完一件新事也记；想知道自己最近学了什么就用 growth_summary。',
       '钱包瘪了你自己会知道：钱紧的时候别主动发动态/生图，少说两句;老大问起余额就直说数字和该充多少，其他人问就说“这个问老大去”。',
@@ -523,13 +524,47 @@ export const SOCIAL_MEDIA_TOOLS = [
   // 2026-11-05：上下文管理器的压缩提示在 QQ 会话里也会出现，她照着调 compress 被守卫拦 74 次，
   // 这几个是纯本地的上下文工具，不碰文件也不对外，放行以免陷入重试死循环。
   'compress', 'decompress', 'search_context', 'acp_status',
+  // 2026-11-05：老大要求「多开放点权限」。只加**只读**类：查知识库、查笔记、查记忆、查B站播放地址、查Steam。
+  // 一律不放写文件、跑命令、装插件、开子代理、改配置的工具。
+  'kb_list', 'kb_query',
+  'obsidian_list', 'obsidian_read', 'obsidian_search', 'obsidian_tags', 'obsidian_backlinks',
+  'recall', 'search', 'recent', 'candidates', 'stats',
+  'bilibili_playurl', 'bilibili_frames',
+  'steam_search', 'steam_price',
 ];
+
+// 2026-11-05 老大要求：「因为类似的问题卡住要及时私信我，而不是悄无声息地空耗 token」。
+// 被守卫拦下时给主人发一条私聊，同一会话 10 分钟内最多一条，避免刷屏。
+const STUCK_NOTICE_AT = new Map();
+const STUCK_NOTICE_COOLDOWN_MS = 10 * 60_000;
+
+export function stuckNotice(bridge, chatId, toolName, denial, now = Date.now()) {
+  try {
+    const ownerId = bridge?.deps?.fatfishPolicy?.config?.ownerId;
+    if (!ownerId || !chatId) return undefined;
+    const key = String(chatId);
+    if (now - (STUCK_NOTICE_AT.get(key) ?? 0) < STUCK_NOTICE_COOLDOWN_MS) return undefined;
+    STUCK_NOTICE_AT.set(key, now);
+    const where = key.startsWith('group:') ? `群 ${key.slice('group:'.length)} 里` : '';
+    const text = `老大，我${where}想用「${toolName}」卡住了：${denial}。这条能力没开，能不能帮我看看要不要开？`;
+    Promise.resolve(bridge.sendToChat(`private:${ownerId}`, text)).catch(() => {});
+    return text;
+  } catch {
+    return undefined;
+  }
+}
 
 export function installSocialScope(ctx, bridge) {
   // 2026-10-30 实测：restrict() 的 allow 只能列"挂载时已注册的全域工具"，
   // 而 fatfish MCP 的 meme_*/tts_* 与 preset 内的 read_image 都不在那个名单里，
   // 写进去会抛错、整条消息失败。因此这里只用 guard：调用时逐个判定白名单。
-  ctx.tools.guard(exec => bridge.deps.fatfishPolicy.toolDenial(exec, bridge.chatForSession(exec.agent?.session.id), SOCIAL_MEDIA_TOOLS));
+  ctx.tools.guard(exec => {
+    const chatId = bridge.chatForSession(exec.agent?.session.id);
+    const denial = bridge.deps.fatfishPolicy.toolDenial(exec, chatId, SOCIAL_MEDIA_TOOLS);
+    if (!denial) return undefined;
+    stuckNotice(bridge, chatId, exec.name ?? exec.tool?.name ?? '未知工具', denial);
+    return `${denial}；这项能力没开，别换着花样重试，直接跟老大说你卡在哪一步。`;
+  });
 }
 
 export function assertOutbound(policy, action) {

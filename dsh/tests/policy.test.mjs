@@ -158,7 +158,11 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
     'web_search', 'read_page', 'web_fetch', 'bilibili_search', 'bilibili_video', 'bilibili_subtitles',
     // 2026-11-05：她得知道自己写了什么，日记/记忆/心情的工具必须能调。
     'journal_recent', 'journal_write', 'day_digest', 'mood_get', 'mood_nudge', 'remember', 'recall_all',
-    'style_terms', 'lore_search', 'lore_context'];
+    'style_terms', 'lore_search', 'lore_context',
+    // 2026-11-05：老大要求多开放权限，只放只读类（知识库/笔记/记忆/播放地址/Steam）。
+    'kb_list', 'kb_query', 'obsidian_list', 'obsidian_read', 'obsidian_search', 'obsidian_tags',
+    'obsidian_backlinks', 'recall', 'search', 'recent', 'candidates', 'stats',
+    'bilibili_playurl', 'bilibili_frames', 'steam_search', 'steam_price'];
   for (const name of allowed) {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }
@@ -167,10 +171,31 @@ test('scope relies on the guard alone so MCP tools stay reachable', () => {
     assert.equal(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }), undefined);
   }
   for (const name of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_segments', 'delegate_task',
-    'recall', 'kb_query', 'mcp__fatfish__fatfish_status', 'mcp__fatfish__tts_check']) {
+    'subagent', 'kb_import', 'obsidian_write', 'obsidian_delete', 'mcp__fatfish__fatfish_status', 'mcp__fatfish__tts_check']) {
     assert.ok(installed.guard({ name, arguments: {}, agent: { session: { id: 'mock' } } }));
   }
   assert.ok(f.policy.toolDenial({ name: 'qq_send_image', arguments: { chat_id: 'group:999' } }, 'group:4', allowed));
+});
+
+test('被守卫拦下时私信老大，同一会话 10 分钟内只发一次', async () => {
+  const f = fixture('20:00:00');
+  const sent = [];
+  const bridge = {
+    ...f.bridge,
+    chatForSession: () => 'group:778',
+    sendToChat: (chatId, text) => { sent.push({ chatId, text }); return Promise.resolve([]); },
+  };
+  const installed = {};
+  installSocialScope({ tools: { guard(value) { installed.guard = value; } } }, bridge);
+  const first = installed.guard({ name: 'bash', arguments: {}, agent: { session: { id: 'mock' } } });
+  assert.ok(first.includes('这项能力没开'));
+  await Promise.resolve();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].chatId, 'private:2');
+  assert.ok(sent[0].text.includes('bash'));
+  installed.guard({ name: 'bash', arguments: {}, agent: { session: { id: 'mock' } } });
+  await Promise.resolve();
+  assert.equal(sent.length, 1, '冷却期内不重复发');
 });
 
 test('invalid identity has no permissive default', () => {
