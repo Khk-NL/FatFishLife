@@ -86,7 +86,7 @@ test('nextRun 在当天全部结束后指向明天的第一个', () => {
 })
 
 test('任务表与 rules.md 的时间点一致', () => {
-  assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:05', '12:30', '18:05', '20:30', '21:00', '23:50'])
+  assert.deepEqual(TASKS.map((t) => t.at).sort(), ['12:05', '12:30', '18:05', '20:30', '21:00', '22:30', '23:50'])
 })
 test('状态读写往返，重启后不重复触发靠它', () => {
   const dir = mkdtempSync(join(tmpdir(), 'ff-sched-'))

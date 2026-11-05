@@ -149,3 +149,23 @@ export function proactiveMessages({ mood, hour, terms, lastJournal, quietHint })
     { role: 'user', content: facts },
   ]
 }
+
+
+/**
+ * 发动态用的提示词。动态是公开的，所以只写想说的话，不写技术细节、不提模型和后台。
+ * @param {{ day: string, digest?: object|null, mood?: object|null }} input
+ */
+export function dynamicMessages({ day = '', digest = null, mood = null } = {}) {
+  const lines = [];
+  if (day) lines.push(`今天是 ${day}。`);
+  const summary = String(digest?.summary ?? '').trim();
+  if (summary) lines.push('今天群里和B站大概是这样：' + summary.slice(0, 200));
+  const moodText = String(mood?.label ?? mood?.description ?? '').trim();
+  if (moodText) lines.push('现在的心情：' + moodText);
+  lines.push('写一条发在自己主页上的动态：一到两句，40 字以内，讲今天真在意的一件事或一句感慨。');
+  lines.push('不要提 AI、模型、Token、后台、脚本，也别写成汇报；可以直接用口语和颜文字，像自言自语。');
+  return [
+    { role: 'system', content: PERSONA_RULES },
+    { role: 'user', content: lines.join('\n') },
+  ];
+}

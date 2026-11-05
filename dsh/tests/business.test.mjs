@@ -1,3 +1,21 @@
+test('runBiliDynamic：默认发一条，写不出来就不发', async () => {
+  const posted = [];
+  const deps = {
+    bili: { dynamicPost: async (text) => { posted.push(text); return { ok: true } } },
+    hub: { dayDigest: async () => ({ summary: '群里在聊新卡池' }), moodGet: async () => ({ label: '还不错' }) },
+    llm: { chat: async () => '今天新卡池的立绘真好看 (´・ω・`)' },
+    config: { workflows: { daily: { publishEnabled: true } } },
+  };
+  const ok = await runBiliDynamic(deps);
+  assert.equal(ok.ok, true);
+  assert.equal(posted.length, 1);
+  const off = await runBiliDynamic({ ...deps, config: { workflows: { daily: { publishEnabled: false } } } });
+  assert.equal(off.skipped, 'publish-disabled');
+  const empty = await runBiliDynamic({ ...deps, llm: { chat: async () => '' } });
+  assert.equal(empty.ok, false);
+  assert.equal(empty.reason, 'empty-dynamic');
+});
+
 // 定时业务与主动开口的离线测试：全部用假依赖，不联网、不发 QQ、不花 token。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -8,7 +26,7 @@ import { join } from 'node:path'
 import {
   buildInboxMessage, buildRecommendMessage, formatDuration, formatViews, formatRecommendLine,
 } from '../control/compose.mjs'
-import { runBiliRecommend, runDiary, runTask } from '../control/business.mjs'
+import { runBiliDynamic, runBiliRecommend, runDiary, runTask } from '../control/business.mjs'
 import { inBusyWindow, inQuietHours, minutesOfDay, runProactive, shouldSpeak } from '../control/proactive.mjs'
 
 const video = (bvid, title, extra = {}) => ({

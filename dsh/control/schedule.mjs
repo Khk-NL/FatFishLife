@@ -16,6 +16,7 @@ export const TASKS = [
   { id: 'bili-recommend-noon', kind: 'bili-recommend', at: '12:30', label: 'B站刷首页+推荐' },
   { id: 'bili-recommend-evening', kind: 'bili-recommend', at: '20:30', label: 'B站刷首页+推荐' },
   { id: 'bili-study', kind: 'bili-study', at: '21:00', label: 'B站标签学习' },
+  { id: 'bili-dynamic', kind: 'bili-dynamic', at: '22:30', label: '发一条B站动态' },
   { id: 'diary', kind: 'diary', at: '23:50', label: '日记与成长总结' },
 ]
 

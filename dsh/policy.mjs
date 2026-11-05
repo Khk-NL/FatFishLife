@@ -101,16 +101,23 @@ export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { s
 }
 
 export class FatFishPolicy {
-  constructor(config, { now = Date.now, getConfig } = {}) {
+  constructor(config, { now = Date.now, getConfig, random = Math.random } = {}) {
     if (!id(config.ownerId) || !id(config.botId) || !config.adapterId?.trim()) {
       throw new Error('FatFish requires explicit ownerId, botId and adapterId');
     }
     this.config = { silent: true, groupCooldownMs: 10000, userCooldownMs: 60000,
-      dedupMs: 300000, normalKeywords: [], groupModes: {}, groupDefaultMode: 'talk', ...config };
+      dedupMs: 300000, normalKeywords: [], groupModes: {}, groupDefaultMode: 'talk',
+      // 插话默认关，值由 profile 的 fatfish-control 配置给（见 cordis.patch.yml）。
+      chimePercent: 0, chimeContinuePercent: 0, chimeMinGapMs: 120000, continueWindowMs: 150000,
+      chimeMaxPerHour: 4, chatterPercent: 0, ...config };
     this.now = now;
+    this.random = random;
     this.getConfig = getConfig;
     this.seen = new Map();
     this.cooldowns = new Map();
+    // 她说过的群与时间：用来判断「能不能接着聊」和每小时上限。
+    this.lastSpoke = new Map();
+    this.chimeLog = [];
   }
 
   scope(chatId) {
@@ -151,6 +158,19 @@ export class FatFishPolicy {
   }
 
   /** 当前所有单独设过模式的群。 */
+  /** 这一小时在这个群还能不能开口（按 chimeMaxPerHour 限流）。 */
+  chatterAllowed(groupId, now = this.now()) {
+    const cutoff = now - 60 * 60_000;
+    this.chimeLog = this.chimeLog.filter(entry => entry.at >= cutoff);
+    const used = this.chimeLog.filter(entry => entry.scope === String(groupId)).length;
+    return used < this.config.chimeMaxPerHour;
+  }
+
+  markSpoke(groupId, now = this.now()) {
+    this.lastSpoke.set(`chat:${groupId}`, now);
+    this.chimeLog.push({ scope: String(groupId), at: now });
+  }
+
   modeTable() {
     return Object.entries(this.config.groupModes ?? {})
       .filter(([, mode]) => GROUP_MODES.includes(mode))
@@ -194,9 +214,18 @@ export class FatFishPolicy {
     if (kind === 'group') {
       const mode = this.groupMode(target);
       if (mode === 'quiet') return { kind: 'ignore', reason: 'group-quiet' };
-      if (mode === 'listen') return { kind: 'ignore', reason: 'group-listen', observe: true };
-      if (mode === 'owner' && !this.owner(userId)) return { kind: 'ignore', reason: 'group-owner-only', observe: true };
-      if (mode === 'mention' && !(poke || mentioned)) return { kind: 'ignore', reason: 'group-mention-only', observe: true };
+      // 2026-11-05 老大：「模式好多是给我做决定，能不能在这些地方加入闲聊」。
+      // 只听不说 / 只回@ / 只回老大 这几种模式，挡住的那些消息里给一个小概率开口，
+      // 让她能偶尔接一句；完全不理（quiet）仍然一句话都不说。
+      const canChatter = (reason) => {
+        if (!(this.config.chatterPercent > 0)) return { kind: 'ignore', reason, observe: true };
+        if (!this.chatterAllowed(target, now)) return { kind: 'ignore', reason, observe: true };
+        this.markSpoke(target, now);
+        return { kind: 'social', chatId, userId, poke, chime: true, via: 'mode' };
+      };
+      if (mode === 'listen') return canChatter('group-listen');
+      if (mode === 'owner' && !this.owner(userId)) return canChatter('group-owner-only');
+      if (mode === 'mention' && !(poke || mentioned)) return canChatter('group-mention-only');
     }
     if (this.config.silent) return { kind: 'ignore', reason: 'silent' };
     // 非忙碌时仍然认「正文叫名字」；忙碌时的判定见下面 addressed。
@@ -228,8 +257,22 @@ export class FatFishPolicy {
         text: this.busyText(returnHour) };
     }
     if (kind === 'group' && !explicit && !this.config.normalKeywords.some(word => word && body.includes(word))) {
+      // 没人叫她的群消息：平时按 chimePercent 偶尔插一句；她刚在这个群说过话的
+      // continueWindowMs 内用更高的概率续话（「连续接话」），但仍受最小间隔与每小时上限约束。
+      if (this.config.chimePercent > 0) {
+        const last = this.lastSpoke.get(`chat:${scope}`) ?? -Infinity;
+        const gap = now - last;
+        const continuing = gap >= 0 && gap <= this.config.continueWindowMs;
+        const percent = continuing ? this.config.chimeContinuePercent : this.config.chimePercent;
+        const gapOk = continuing || gap >= this.config.chimeMinGapMs;
+        if (gapOk && this.chatterAllowed(target, now) && this.random() * 100 < percent) {
+          this.markSpoke(target, now);
+          return { kind: 'social', chatId, userId, poke, chime: true, continuing };
+        }
+      }
       return { kind: 'ignore', reason: 'unaddressed' };
     }
+    if (kind === 'group') this.lastSpoke.set(`chat:${scope}`, now);
     return { kind: 'social', chatId, userId, poke };
   }
 

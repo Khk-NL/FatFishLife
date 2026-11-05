@@ -8,7 +8,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { selectRecommendations } from './ops.mjs'
-import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, recommendReasonMessages } from './compose.mjs'
+import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, dynamicMessages, recommendReasonMessages } from './compose.mjs'
 import { cleanReply } from './llm.mjs'
 import { DEFAULT_MEMORY_DB, DEFAULT_PYTHON } from './hub.mjs'
 
@@ -231,6 +231,31 @@ export function runConsolidate(deps) {
   })
 }
 
+/**
+ * 每天发一条 B站图文动态。B站没有开放投稿接口，动态是唯一能自动发的形态。
+ * 开关是 workflows.daily.publishEnabled；正文由她自己的口气写，失败就不发，不硬凑。
+ */
+export async function runBiliDynamic(deps) {
+  const { bili, hub, llm, config, log = () => {} } = deps
+  if (config?.workflows?.daily?.publishEnabled === false) {
+    return { ok: true, skipped: 'publish-disabled' }
+  }
+  const day = localDay(new Date())
+  const [digest, mood] = await Promise.all([
+    hub.dayDigest(day).catch(() => null),
+    hub.moodGet().catch(() => null),
+  ])
+  const text = cleanReply(await llm.chat(dynamicMessages({ day, digest, mood }), { temperature: 1.05, maxTokens: 200 }), 120)
+  if (!text) return { ok: false, reason: 'empty-dynamic' }
+  try {
+    const result = await bili.dynamicPost(text)
+    log('[fatfish] 动态已发布：' + text.slice(0, 40))
+    return { ok: true, detail: text, result }
+  } catch (error) {
+    return { ok: false, reason: String(error?.message ?? error).slice(0, 160), detail: text }
+  }
+}
+
 export async function runTask(task, deps) {
   const kind = task?.kind
   if (kind === 'bili-recommend') return runBiliRecommend(deps)
@@ -238,5 +263,6 @@ export async function runTask(task, deps) {
   if (kind === 'bili-study') return runBiliStudy(deps)
   if (kind === 'diary') return runDiary(deps)
   if (kind === 'consolidate') return runConsolidate(deps)
+  if (kind === 'bili-dynamic') return runBiliDynamic(deps)
   return { ok: false, reason: 'unknown-kind:' + String(kind) }
 }

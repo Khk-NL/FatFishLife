@@ -198,6 +198,36 @@ test('被守卫拦下时私信老大，同一会话 10 分钟内只发一次', a
   assert.equal(sent.length, 1, '冷却期内不重复发');
 });
 
+test('群里没人叫她时按概率插话，连续说话概率更高但受每小时上限约束', () => {
+  const f = fixture('20:00:00', { chimePercent: 100, chimeContinuePercent: 100, chimeMinGapMs: 0,
+    continueWindowMs: 150000, chimeMaxPerHour: 2 });
+  const policy = new FatFishPolicy({ botId: '1', ownerId: '2', adapterId: 'test', silent: false,
+    chimePercent: 100, chimeContinuePercent: 100, chimeMinGapMs: 0, continueWindowMs: 150000, chimeMaxPerHour: 2 },
+  { now: f.policy.now, random: () => 0 });
+  const msg = (text) => event(text);
+  assert.equal(policy.decide(msg('今天真热'), access).chime, true);
+  assert.equal(policy.decide(msg('是啊热死了'), access).chime, true);
+  // 已经到每小时上限 2，第三次就该闭嘴
+  assert.equal(policy.decide(msg('开空调吧'), access).kind, 'ignore');
+});
+
+test('插话开关关掉时保持原来的忽略行为', () => {
+  const f = fixture('20:00:00');
+  assert.equal(f.policy.decide(event('今天真热'), access).kind, 'ignore');
+  assert.equal(f.policy.decide(event('今天真热'), access).reason, 'unaddressed');
+});
+
+test('只听不说的群也能偶尔闲聊，完全不理的群一句都不说', () => {
+  const base = { botId: '1', ownerId: '2', adapterId: 'test', silent: false, chatterPercent: 100,
+    groupModes: { '4': 'listen', '5': 'quiet' }, chimeMaxPerHour: 5 };
+  const policy = new FatFishPolicy(base, { random: () => 0, now: () => clock('20:00:00') });
+  assert.equal(policy.decide(event('随便聊聊'), access).chime, true);
+  const quiet = { post_type: 'message', message_type: 'group', self_id: 1, user_id: 3, group_id: 5,
+    message: [{ type: 'text', data: { text: '随便聊聊' } }] };
+  assert.equal(policy.decide(quiet, access).kind, 'ignore');
+  assert.equal(policy.decide(quiet, access).reason, 'group-quiet');
+});
+
 test('invalid identity has no permissive default', () => {
   assert.throws(() => new FatFishPolicy({}));
 });
