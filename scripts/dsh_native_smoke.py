@@ -18,12 +18,28 @@ CLI = Path("D:/dsh/resources/runtime/cli/bin/dsh.cmd")
 
 def run(community=False) -> int:
     # The test profile is deliberately separate from both desktop and earlier probes.
-    home = ROOT / "outputs/dsh-migration/native-smoke"
+    home = Path(os.environ.get('FATFISH_SMOKE_HOME') or ROOT / "outputs/dsh-migration/native-smoke")
     home.mkdir(parents=True, exist_ok=True)
     env = {key: value for key, value in os.environ.items() if key.upper() in {
         "PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "COMSPEC", "PATHEXT", "PROGRAMDATA",
     }}
     env.update(DSH_HOME=str(home), FATFISH_POLICY_FILE=str(ROOT / "dsh/policy.example.json"))
+    # Some installed extensions still resolve ~/.dsh through USERPROFILE instead
+    # of DSH_HOME. Keep those legacy paths inside the disposable test directory.
+    user_home = home / 'mock-user'
+    for key, path in {'USERPROFILE': user_home, 'APPDATA': user_home / 'AppData/Roaming',
+                      'LOCALAPPDATA': user_home / 'AppData/Local',
+                      'TEMP': home / 'mock-temp', 'TMP': home / 'mock-temp'}.items():
+        path.mkdir(parents=True, exist_ok=True)
+        env[key] = str(path)
+    # A mock-only marker path must never clear or inherit the frozen real account.
+    env['FATFISH_QQ_PAUSE_FILE'] = str(home / ('mock-qq-pause-' + secrets.token_hex(8)))
+    env.update(FATFISH_GROWTH_DIGEST=str(home / 'mock-growth.txt'),
+               FATFISH_PEAK_DIGEST=str(home / 'mock-peak.txt'),
+               FATFISH_PEAK_QUEUE=str(home / 'mock-peak-queue.jsonl'),
+               FATFISH_JOURNAL_DIR=str(home / 'mock-journal'),
+               FATFISH_SCHEDULE_STATE=str(home / 'mock-schedule.json'))
+    (home / 'mock-growth.txt').write_text('PRIVATE_RECAP_MARKER', encoding='utf-8')
     # 忙时那句默认会问本地小模型；验收要确定性，固定用文案
     env.update(FATFISH_BUSY_BRIEF='fixed')
     def artifact(name):
@@ -73,7 +89,7 @@ def run(community=False) -> int:
         {"id": "dsh-onebot", "config": {"port": 0, "host": "127.0.0.1", "accessToken": secrets.token_urlsafe(24), "botQQ": "10000001", "dmPolicy": "disabled", "groupPolicy": "disabled", "workspacePath": str(home)}},
         {"insert": [{"id": "fatfish-native-smoke", "name": str(profile / "native-smoke-plugin.mjs")} ]},
     ]
-    preset_rows = yaml.safe_load((ROOT / 'dsh/preset-apple-le.yml').read_text(encoding='utf-8'))
+    preset_rows = yaml.safe_load((ROOT / 'dsh/preset-whale.yml').read_text(encoding='utf-8'))
     patch.extend(preset_rows)
     persona = preset_rows[0]['insert'][0]['config']['plugins'][0]['config']['prefix']
     (home / 'expected-persona.txt').write_text(persona.strip(), encoding='utf-8', newline='\n')

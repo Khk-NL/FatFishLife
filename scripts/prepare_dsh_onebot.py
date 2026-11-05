@@ -89,6 +89,40 @@ async function normalizeImageExtension(filePath) {
     )
 
 
+def inbound_record(source: str) -> str:
+    """Keep implementation-specific record payloads for the existing media resolver."""
+    return replace(
+        source,
+        "                const data = await this.ctx.call('get_record', { file, out_format: 'mp3' });\n"
+        "                return { file: data.file };",
+        "                const data = await this.ctx.call('get_record', { file, out_format: 'mp3' });\n"
+        "                return { file: data.file, url: data.url, base64: data.base64, out_format: data.out_format };",
+    )
+
+
+def media_record(source: str) -> str:
+    """Accept SnowLuma's MP3 bytes without adding a download or file access path."""
+    anchor = """                if (resolved === undefined)
+                    return undefined;
+                if (resolved.url !== undefined && resolved.url !== '') {"""
+    return replace(source, anchor, """                if (resolved === undefined)
+                    return undefined;
+                // SnowLuma v2.4.0 keeps the source file/url and adds converted MP3
+                // bytes separately. Reuse the existing base64:// scratch/TTL path.
+                if (ref.kind === 'voice' && typeof resolved.base64 === 'string' && resolved.base64 !== '') {
+                    const payload = resolved.base64;
+                    const limit = this.downloadMaxBytes > 0 ? Math.min(VOICE_MAX_BYTES, this.downloadMaxBytes) : VOICE_MAX_BYTES;
+                    if (resolved.out_format !== 'mp3' || payload.length > 4 * Math.ceil(limit / 3)
+                        || payload.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(payload))
+                        return undefined;
+                    const bytes = payload.length / 4 * 3 - (payload.endsWith('==') ? 2 : payload.endsWith('=') ? 1 : 0);
+                    if (bytes > limit)
+                        return undefined;
+                    return this.resolveInner({ kind: 'voice', file: 'base64://' + payload }, resolveHash);
+                }
+                if (resolved.url !== undefined && resolved.url !== '') {""")
+
+
 def inbound_wire(source: str) -> str:
     """在入站派发前记录时刻，供出站延迟计算“思考花了多久”。"""
     source = replace(
@@ -213,7 +247,8 @@ def prepare() -> Path:
             source,
             "    tryHandleCommand(chatId, text, userId, nickname) {",
             """    tryHandleCommand(chatId, text, userId, nickname) {
-        if (!this.deps.fatfishPolicy.owner(userId)) return Promise.resolve(false);
+        if (!this.deps.fatfishPolicy.owner(userId)
+            || chatId !== 'private:' + String(this.deps.fatfishPolicy.config.ownerId)) return Promise.resolve(false);
         const targeted = parseNewTarget(text);
         if (targeted) {
             const scopes = targeted.scope === 'all'
@@ -240,7 +275,11 @@ def prepare() -> Path:
         }""",
         )
         source = replace(source, "    installChannelScope(agentCtx) {", "    installChannelScope(agentCtx) {\n        installSocialScope(agentCtx, this);")
-        source = replace(source, 'text: buildPlatformPrompt(this.deps.config.restrictedMemberPrefix),', 'text: socialChannelPrompt,')
+        source = replace(source, 'text: buildPlatformPrompt(this.deps.config.restrictedMemberPrefix),',
+            "text: ({ agent } = {}) => {\n"
+            "                const chatId = this.chatForSession(agent?.session?.id);\n"
+            "                return socialChannelPrompt({ ownerPrivate: chatId === `private:${this.deps.fatfishPolicy.config.ownerId}` });\n"
+            "            },")
         # 上游的 registerTools 原样保留（发语音/发图的实现、限额、审计都是现成的）；
         # 只注册哪几个工具由 tools.js 的白名单决定，见下面的 tools() 补丁。
         source = replace(source,
@@ -376,7 +415,8 @@ def prepare() -> Path:
     patch("interim.js", interim)
     patch("connection.js", connection)
     patch("tools.js", tools)
-    patch("inbound.js", lambda source: inbound_wire(inbound(source)))
+    patch("inbound.js", lambda source: inbound_wire(inbound_record(inbound(source))))
+    patch("media.js", media_record)
     patch("outbound.js", outbound)
     evidence = {"upstream": lock, "adapted_files": {
         str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()

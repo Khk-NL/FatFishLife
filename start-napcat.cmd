@@ -6,6 +6,13 @@ title FatFishLife - NapCat
 set "check_only=0"
 if /i "%~1"=="--check" set "check_only=1"
 if not "%~1"=="" if /i not "%~1"=="--check" goto :usage
+if not defined FATFISH_QQ_PAUSE_FILE set "FATFISH_QQ_PAUSE_FILE=D:\Code\Projects\FatFishLife\data\.qq-account-paused"
+if exist "%FATFISH_QQ_PAUSE_FILE%" (
+    echo [PAUSED] QQ account review pending. Automatic login is disabled.
+    echo Resume only after the account owner confirms official recovery.
+    if "%check_only%"=="0" pause
+    exit /b 3
+)
 if not defined NAPCAT_HOME set "NAPCAT_HOME=D:\Code\Apps\NapCat"
 
 for %%F in (launcher.bat launcher-elevate.ps1 NapCatWinBootMain.exe NapCatWinBootHook.dll loadNapCat.js napcat.mjs qqnt.json) do (

@@ -1,0 +1,43 @@
+{
+  "networks": {
+    "httpServers": [
+      {
+        "name": "http-disabled",
+        "enabled": false,
+        "host": "127.0.0.1",
+        "port": 3000,
+        "path": "/",
+        "accessToken": "",
+        "messageFormat": "array",
+        "reportSelfMessage": false
+      }
+    ],
+    "httpClients": [],
+    "wsServers": [
+      {
+        "name": "ws-disabled",
+        "enabled": false,
+        "host": "127.0.0.1",
+        "port": 3001,
+        "path": "/",
+        "role": "Universal",
+        "accessToken": "",
+        "messageFormat": "array",
+        "reportSelfMessage": false
+      }
+    ],
+    "wsClients": [
+      {
+        "name": "fatfish-dsh-disabled",
+        "enabled": false,
+        "url": "ws://127.0.0.1:8646/ws",
+        "role": "Universal",
+        "accessToken": "",
+        "reconnectIntervalMs": 5000,
+        "messageFormat": "array",
+        "reportSelfMessage": false
+      }
+    ]
+  },
+  "musicSignUrl": ""
+}

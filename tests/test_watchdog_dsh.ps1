@@ -4,7 +4,7 @@ $source = Join-Path (Split-Path -Parent $PSScriptRoot) 'scripts/watchdog_dsh.ps1
 $tokens = $null; $errors = $null
 $ast = [System.Management.Automation.Language.Parser]::ParseFile($source, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw ($errors | Out-String) }
-$names = @('Get-BridgeOnline', 'Test-PortListening', 'Get-HostVerdict', 'Confirm-HostFault', 'Test-NapCatNeedsStart', 'Get-QzoneStarterArguments', 'Invoke-QzoneBridge')
+$names = @('Test-QQAccountPaused', 'Test-QQRecoveryAllowed', 'Start-NapCat', 'Get-BridgeOnline', 'Test-PortListening', 'Get-HostVerdict', 'Confirm-HostFault', 'Test-NapCatNeedsStart', 'Get-QzoneStarterArguments', 'Invoke-QzoneBridge')
 foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
     if ($fn.Name -in $names) { . ([scriptblock]::Create($fn.Extent.Text)) }
 }
@@ -16,6 +16,8 @@ $AllowHostRestart = $false
 $DataDir = Join-Path ([IO.Path]::GetTempPath()) ('fatfish-watchdog-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $DataDir | Out-Null
 $heartbeat = Join-Path $DataDir 'scheduler-heartbeat.json'
+$QQPauseMarker = Join-Path $DataDir '.qq-account-paused'
+$AllowQQRecovery = $false
 $listener = $null
 try {
     Assert-Equal (Get-BridgeOnline) $null 'Missing heartbeat is unknown'
@@ -59,6 +61,13 @@ try {
     Assert-Equal (Confirm-HostFault $state 'model turn stuck 18.5 min') $true 'Changing duration still confirms same fault'
     Assert-Equal (Confirm-HostFault $state 'qq bridge not listening on 8646') $false 'Different fault starts new observation'
 
+    Assert-Equal (Test-QQRecoveryAllowed) $false 'Default watchdog never recovers QQ'
+    $AllowQQRecovery = $true
+    Assert-Equal (Test-QQRecoveryAllowed) $true 'QQ recovery requires explicit opt-in'
+    New-Item -ItemType File -Path $QQPauseMarker | Out-Null
+    Assert-Equal (Test-QQRecoveryAllowed) $false 'Pause overrides opt-in'
+    Remove-Item -LiteralPath $QQPauseMarker
+
     # A fake starter lets the recovery path run without reading private config.
     $LogDir = $DataDir
     $QzoneDir = $DataDir
@@ -77,10 +86,12 @@ try {
     $script:qzoneSaved = $null
     $script:qzoneStartFails = $false
     function powershell.exe {
+        $script:qzoneProbeCalls++
         $script:qzoneProbeArgs = $args
         $global:LASTEXITCODE = $script:qzoneProbeCode
     }
     $script:qzoneProbeCode = 1
+    $script:qzoneProbeCalls = 0
     function Test-PortListening { param($Port, $Address); $script:qzoneProbeAddress = $Address; return [pscustomobject]@{ listen = $script:qzoneListening; online = $null } }
     function Start-Process {
         param($FilePath, $ArgumentList, $WorkingDirectory, $WindowStyle, $ErrorAction)
@@ -90,6 +101,16 @@ try {
     function Write-Log { param($Message); $script:qzoneMessages += $Message }
     function Save-State { param($State); $script:qzoneSaved = $State }
     $qzoneState = [pscustomobject]@{ restarts = @() }
+    $AllowQQRecovery = $false
+    Invoke-QzoneBridge $qzoneState
+    Assert-Equal $script:qzoneProbeCalls 0 'Default mode does not probe Qzone'
+    Assert-Equal $script:qzoneStarts.Count 0 'Default mode does not start Qzone'
+    $AllowQQRecovery = $true
+    New-Item -ItemType File -Path $QQPauseMarker | Out-Null
+    Invoke-QzoneBridge $qzoneState
+    Assert-Equal $script:qzoneProbeCalls 0 'Paused mode does not probe Qzone'
+    Assert-Equal $script:qzoneStarts.Count 0 'Paused mode does not start Qzone'
+    Remove-Item -LiteralPath $QQPauseMarker
     Invoke-QzoneBridge $qzoneState
     Assert-Equal $script:qzoneStarts.Count 1 'Missing bridge starts once'
     Assert-Equal $script:qzoneStarts[0].window 'Hidden' 'Recovery is hidden'
@@ -135,10 +156,47 @@ try {
         if ($ancestor -is [System.Management.Automation.Language.FunctionDefinitionAst]) { throw 'Qzone recovery is still nested inside version checks' }
         $ancestor = $ancestor.Parent
     }
-    $checkLog = Join-Path $DataDir 'check-logs'
-    $out = & $source -Check -LogDir $checkLog -DataDir $DataDir -Trace (Join-Path $DataDir 'absent') -BridgePort $port
-    if (Test-Path -LiteralPath $checkLog) { throw '-Check wrote logs/state' }
-    if (($out | Out-String) -notmatch 'onebotOnline=') { throw 'Missing check result' }
+    # Only the real entry-point statements run; all process/probe dependencies are fake.
+    $entry = (Get-Content -LiteralPath $source -Raw -Encoding UTF8)
+    $entry = $entry.Substring($entry.IndexOf('$procs = Get-HostProcesses' + [Environment]::NewLine + '$alive ='))
+    function Get-HostProcesses { return @() }
+    function Get-NapCatProcesses { return @() }
+    function Read-State { return [pscustomobject]@{ restarts = @() } }
+    function Get-Process { throw 'QQ process inspection is forbidden in default/paused mode' }
+    function Restart-App { param($Why); $script:hostStarts++ }
+    function Count-RecentRestarts { param($State); return 0 }
+    $MaxRestartsPerHour = 3
+    $script:hostStarts = 0
+    $script:taskRequests = 0
+    $script:taskExit = 0
+    function schtasks.exe { $script:taskRequests++; $global:LASTEXITCODE = $script:taskExit }
+    $AllowQQRecovery = $false
+    Assert-Equal (Start-NapCat) $false 'Default mode blocks direct NapCat helper'
+    Assert-Equal $script:taskRequests 0 'Default helper does not request a task'
+    $Check = $false
+    . ([scriptblock]::Create($entry))
+    Assert-Equal $script:hostStarts 1 'Default watchdog still recovers missing DSH'
+    Assert-Equal $script:taskRequests 0 'Default watchdog does not request QQ task'
+    $AllowQQRecovery = $true
+    New-Item -ItemType File -Path $QQPauseMarker | Out-Null
+    Assert-Equal (Start-NapCat) $false 'Paused helper blocks explicit QQ opt-in'
+    . ([scriptblock]::Create($entry))
+    Assert-Equal $script:hostStarts 2 'Paused watchdog still recovers missing DSH'
+    Assert-Equal $script:taskRequests 0 'Paused watchdog does not request QQ task'
+    $Check = $true
+    $script:qzoneMessages = @()
+    $script:qzoneSaved = $null
+    $out = . ([scriptblock]::Create($entry))
+    if (($out | Out-String) -notmatch 'qqPaused=True') { throw 'Check does not report pause marker' }
+    Assert-Equal $script:qzoneMessages.Count 0 'Check does not write logs'
+    Assert-Equal $script:qzoneSaved $null 'Check does not write state'
+    Assert-Equal $script:taskRequests 0 'Check does not request QQ task'
+    Remove-Item -LiteralPath $QQPauseMarker
+    Assert-Equal (Start-NapCat) $true 'Explicit QQ opt-in requests existing task'
+    Assert-Equal $script:taskRequests 1 'One helper call requests task once'
+    $script:taskExit = 5
+    Assert-Equal (Start-NapCat) $false 'Rejected task request is not reported accepted'
+    Assert-Equal $script:taskRequests 2 'Task failure has no retry'
     'PASS: watchdog health/recovery and qzone port/state/health regressions; check mode wrote no files'
 } finally {
     if ($null -ne $listener) { $listener.Stop() }

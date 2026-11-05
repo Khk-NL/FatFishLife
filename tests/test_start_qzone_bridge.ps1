@@ -13,6 +13,7 @@ if (-not (Test-BridgeProcess 'node "D:/Code/custom bridge/src/main.ts"' 'D:/Code
 foreach ($cmd in @('', 'node D:/Code/other/node_modules/tsx/cli.mjs src/main.ts', 'node D:/Code/custom-bridge-other/src/main.ts', 'node "D:/Code/custom bridge/src/other.ts"')) {
     if (Test-BridgeProcess $cmd 'D:/Code/custom bridge') { throw 'Unrelated or unreadable process matched stop scope' }
 }
+$QQPauseMarker = Join-Path ([IO.Path]::GetTempPath()) ('absent-fatfish-pause-' + [guid]::NewGuid().ToString('N'))
 $baseUrl = 'http://127.0.0.1:5700'
 $accessToken = 'test-only-token'
 $script:case = 'online'
@@ -43,3 +44,34 @@ foreach ($case in @('bad-business', 'non-json', 'offline', 'bad-identity')) {
     if (Test-Port 5700) { throw ('Unexpected healthy result: ' + $case) }
 }
 'PASS: starter authenticated health/business response/invalid JSON/expired login regressions (fake credentials only)'
+
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) ('fatfish-qzone-pause-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tempDir | Out-Null
+try {
+    $QQPauseMarker = Join-Path $tempDir '.qq-account-paused'
+    New-Item -ItemType File -Path $QQPauseMarker | Out-Null
+    $script:actions = @()
+    if (Test-Port 5700) { throw 'Paused helper reported bridge ready' }
+    if ($script:actions.Count) { throw 'Paused helper sent HTTP request' }
+    function Get-Content { throw 'Paused startup/check/stop must not load secrets' }
+    function Invoke-WebRequest { throw 'Paused starter must not probe QQ' }
+    function Start-Process { throw 'Paused starter must not launch a process' }
+    $missingEnv = Join-Path $tempDir 'not-present.env'
+    $testLog = Join-Path $tempDir 'logs/bridge.log'
+    foreach ($checkMode in @($false, $true)) {
+        $opts = @{ QQPauseMarker = $QQPauseMarker; EnvFile = $missingEnv; LogFile = $testLog; Check = $checkMode }
+        $out = & $source @opts
+        if ($LASTEXITCODE -ne 3 -or ($out | Out-String) -notmatch 'qqPaused=True') { throw 'Paused starter/check did not return pause status' }
+    }
+    if (Test-Path -LiteralPath (Split-Path -Parent $testLog)) { throw 'Paused starter wrote logs' }
+    $testBridge = Join-Path $tempDir 'bridge'
+    function Get-Process { param($Name, $ErrorAction); return [pscustomobject]@{ Id = 42; Path = 'C:/fake/node.exe' } }
+    function Get-CimInstance { param($ClassName, $Filter, $ErrorAction); return [pscustomobject]@{ CommandLine = ('node "' + $testBridge + '/src/main.ts"') } }
+    function Stop-Process { param($Id, [switch]$Force, $ErrorAction); Write-Output "fake-stop-$Id" }
+    $out = & $source -Stop -QQPauseMarker $QQPauseMarker -EnvFile $missingEnv -BridgeDir $testBridge
+    if ($LASTEXITCODE -ne 0 -or ($out | Out-String) -notmatch 'fake-stop-42') { throw 'Explicit stop must remain available while paused' }
+    'PASS: paused startup/check skips secret reads, HTTP and launch; explicit stop remains available (fake process only)'
+} finally {
+    Remove-Item -LiteralPath $QQPauseMarker -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $tempDir
+}

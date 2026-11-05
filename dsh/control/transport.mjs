@@ -4,6 +4,8 @@
 // 断线排队、分段发送。这里再写一套只会分叉。桥没挂载/没连上时如实返回
 // 失败原因，不做静默兜底 —— 静默的成功最贵。
 
+import { qqAccountPaused } from './qzone.mjs'
+
 /** 取桥的发送面；桥还没挂载时返回 undefined，不抛异常。 */
 export function transportOf(ctx) {
   try {
@@ -28,6 +30,7 @@ export function transportOnline(ctx) {
  * @returns {Promise<{ok: boolean, ids?: string[], reason?: string}>}
  */
 export async function sendText(ctx, chatId, text, log = () => {}) {
+  if (qqAccountPaused()) return { ok: false, reason: 'qq-account-paused' }
   const body = String(text ?? '').trim()
   if (!body) return { ok: false, reason: 'empty' }
   if (!chatId) return { ok: false, reason: 'no-chat' }

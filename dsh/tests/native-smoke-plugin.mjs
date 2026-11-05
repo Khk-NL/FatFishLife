@@ -1,6 +1,6 @@
 // Runs only in the disposable profile created by scripts/dsh_native_smoke.py.
 import assert from 'node:assert/strict';
-import { writeFile, mkdir, readFile, rename } from 'node:fs/promises';
+import { writeFile, mkdir, readFile, rename, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
@@ -72,7 +72,8 @@ export function apply(ctx) {
         async *stream(options) {
           modelRequests.push(options);
           if (modelScenario === 'mute-before-final') policy.config.silent = true;
-          if (modelScenario === 'work-before-final') time = Date.parse('2026-10-31T09:00:00+08:00');
+          if (modelScenario === 'work-before-final') time = Date.parse('2026-11-02T09:00:00+08:00');
+          if (modelScenario === 'pause-before-final') await writeFile(process.env.FATFISH_QQ_PAUSE_FILE, 'mock account paused');
           if (modelScenario === 'error') throw new Error('MOCK 402 Insufficient Balance: must stay local');
           yield { type: 'reasoning-delta', index: 0, text: 'PRIVATE_REASONING_DO_NOT_SEND' };
           yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'PRIVATE_REASONING_DO_NOT_SEND' } };
@@ -82,7 +83,7 @@ export function apply(ctx) {
         }
       }
       ctx.llm.registerAdapter(['fatfish-local-mock'], new LocalMockAdapter());
-      let time = Date.parse('2026-10-31T10:00:00+08:00');
+      let time = Date.parse('2026-11-02T10:00:00+08:00');
       const policy = new FatFishPolicy({ adapterId: 'native-test-' + randomUUID(), botId: '10000001', ownerId: '10000002', silent: false }, { now: () => time });
       const sends = [], dispatches = [];
       const token = randomUUID();
@@ -92,7 +93,7 @@ export function apply(ctx) {
         rateLimitPerMinute: 0, sensitivePatterns: [], textImageThreshold: 100000,
         mediaDir: join(process.env.DSH_HOME, 'native-test-media', randomUUID()), workspacePath: process.env.DSH_HOME,
         maxImageBytes: 1e7, maxVoiceBytes: 1e7, maxFileBytes: 1e7, maxInboundFileBytes: 1e7,
-        agentPreset: 'apple-social', fontFiles: [], fontFamilies: [], cardFooter: '' };
+        agentPreset: 'whale-social', fontFiles: [], fontFamilies: [], cardFooter: '' };
       await mkdir(config.mediaDir, { recursive: true });
       bridge = new ChatBridge({ ctx, config, fatfishPolicy: policy, connection, agents: ctx.agents, sessions: ctx.sessions,
         agentPresets: ctx.agentPresets, sessionPersistence: ctx.sessionPersistence, workspaceRegistry: ctx.workspaceRegistry,
@@ -136,7 +137,7 @@ export function apply(ctx) {
           target_id: 10000001, user_id: 10000003, group_id: 10000004 });
         assert.equal(sends.length, 2); assert.equal(dispatches.length, 0);
       });
-      time = Date.parse('2026-10-31T20:00:00+08:00');
+      time = Date.parse('2026-11-02T20:00:00+08:00');
       await record('member-command-reaches-social-pipeline-without-refusal', async () => {
         for (const [i, word] of ['/help', '/stop', '/stats', '/provider', '/reset', '/new'].entries()) {
           const payload = event(word, i + 10);
@@ -149,8 +150,9 @@ export function apply(ctx) {
         assert.equal(await bridge.tryHandleCommand('group:10000004', '/help', '10000003'), false);
         assert.equal(sends.length, 2);
       });
-      await record('owner-command-router-remains-available', async () => {
-        assert.equal(await bridge.tryHandleCommand('group:10000004', '/help', '10000002'), true);
+      await record('owner-command-router-is-private-only', async () => {
+        assert.equal(await bridge.tryHandleCommand('group:10000004', '/help', '10000002'), false);
+        assert.equal(await bridge.tryHandleCommand('private:10000002', '/help', '10000002'), true);
         assert.ok(sends.length > 2);
       });
       let bodies = 0;
@@ -162,9 +164,16 @@ export function apply(ctx) {
               execute: async () => { bodies++; return {}; } }));
             adapter.installSocialScope(agentCtx, bridge);
           } });
-        const outcome = await ctx.tools.execute({ name: 'fatfish_denied_probe', arguments: {}, callId: 'test',
-          agent: handle.agent, parent: { name: 'nested-test', callId: 'parent' }, signal: new AbortController().signal });
+        // 0.2.2 accepts raw model-call batches; a guard denial settles as a
+        // failed result inside the batch rather than a scheduler exception.
+        const batch = await ctx.tools.execute({
+          calls: [{ type: 'tool-call', id: 'test', name: 'fatfish_denied_probe', arguments: '{}' }],
+          agent: handle.agent, signal: new AbortController().signal,
+        });
         assert.equal(bodies, 0);
+        assert.equal(batch.results.length, 1);
+        assert.equal(batch.results[0].callId, 'test');
+        const outcome = batch.results[0].result;
         assert.equal(outcome.isError, true);
         assert.match(JSON.stringify(outcome), /outside this social capability set/);
       });
@@ -182,15 +191,34 @@ export function apply(ctx) {
         assert.equal(modelRequests.length, 1, 'One ordinary message must make one mock model request');
         const expected = (await readFile(join(process.env.DSH_HOME, 'expected-persona.txt'), 'utf8')).replace(/\r\n/g, '\n').trim();
         assert.ok(JSON.stringify(modelRequests[0]).includes(JSON.stringify(expected).slice(1,-1)), 'Complete persona must reach the model');
-        // 2026-10-29：媒体发送改为复用桥上游的两个工具（qq_send_voice / qq_send_image）。
-        // 除它们与内核的 run_code 外，社交请求不该带任何管理/文件/其它 QQ 工具。
+        assert.ok(!JSON.stringify(modelRequests[0]).includes('PRIVATE_RECAP_MARKER'), 'Group prompts must exclude global private recaps');
+        // Guard-only scopes can inherit schemas; schema visibility must not be
+        // mistaken for permission to execute the corresponding capability.
         const socialTools = new Set(['run_code', 'qq_send_voice', 'qq_send_image']);
+        const inheritedDenied = new Set(['fatfish_status', 'working_directory']);
         const toolNames = (modelRequests[0].tools ?? []).map(tool => tool.name);
-        assert.ok(toolNames.every(name => socialTools.has(name)),
-          'Social requests must not inherit management tools: ' + toolNames.join(','));
+        assert.ok(toolNames.every(name => socialTools.has(name) || inheritedDenied.has(name)),
+          'Unexpected tool schema on the social surface: ' + toolNames.join(','));
         for (const forbidden of ['bash', 'read', 'write', 'qq_napcat_api', 'qq_send_file', 'qq_send_video']) {
           assert.ok(!toolNames.includes(forbidden), 'forbidden tool leaked into the social surface: ' + forbidden);
         }
+        const agent = bridge.chats.get('group:10000004')?.agent;
+        assert.ok(agent, 'Use the real social agent and its scoped guard');
+        for (const name of inheritedDenied) {
+          const callId = 'inherited-denied-' + name;
+          const batch = await ctx.tools.execute({
+            calls: [{ type: 'tool-call', id: callId, name, arguments: '{}' }],
+            agent, signal: new AbortController().signal,
+          });
+          assert.equal(batch.results.length, 1);
+          assert.equal(batch.results[0].callId, callId);
+          const result = batch.results[0].result;
+          assert.equal(result.isError, true, name + ' must remain non-executable');
+          assert.match(JSON.stringify(result), /outside this social capability set/);
+          assert.equal(Object.hasOwn(result, 'value'), false, name + ' must expose no tool value');
+        }
+        await bridge.outbound.chainTail('private:10000002');
+        checks.push('native-inherited-schemas-denied-at-execution');
       });
       const settled = async chatId => {
         await bridge.chats.get(chatId).agent.whenIdle();
@@ -204,13 +232,34 @@ export function apply(ctx) {
         assert.equal(sends.length, before);
         policy.config.silent = false;
       });
-      await record('work-window-during-real-model-turn-blocks-late-delivery', async () => {
+      await record('work-window-keeps-already-accepted-model-reply', async () => {
         modelScenario = 'work-before-final';
         const before = sends.length;
         await inbound({ ...event('大肥鲸，测试生成期间进入忙碌窗口', 102), group_id: 10000006 });
         await settled('group:10000006');
-        assert.equal(sends.length, before);
-        time = Date.parse('2026-10-31T20:00:00+08:00');
+        // Busy windows govern new inbound dispatch. A reply accepted before
+        // the boundary must still be delivered exactly once after completion.
+        assert.equal(sends.length, before + 1);
+        assert.equal(sends[before].params.group_id, 10000006);
+        assert.deepEqual(sends[before].params.message, [{ type: 'text', data: { text: finalText } }]);
+        time = Date.parse('2026-11-02T20:00:00+08:00');
+      });
+      await record('account-pause-blocks-real-queued-agent-delivery', async () => {
+        const marker = process.env.FATFISH_QQ_PAUSE_FILE;
+        assert.equal(dirname(marker), process.env.DSH_HOME);
+        assert.match(marker, /mock-qq-pause-/);
+        modelScenario = 'pause-before-final';
+        const before = sends.length;
+        try {
+          await inbound({ ...event('大肥鲸，测试生成期间账号暂停', 105), group_id: 10000009 });
+          await settled('group:10000009');
+          assert.equal(sends.length, before);
+          assert.equal(policy.canSend(), false);
+          const requests = modelRequests.length;
+          await inbound(event('/help', 106, 10000002));
+          assert.equal(modelRequests.length, requests);
+          assert.equal(sends.length, before);
+        } finally { await unlink(marker); }
       });
       await record('model-error-never-becomes-public-backend-notice', async () => {
         modelScenario = 'error';
@@ -218,6 +267,17 @@ export function apply(ctx) {
         await inbound({ ...event('大肥鲸，测试模型错误', 103), group_id: 10000007 });
         await settled('group:10000007');
         assert.equal(sends.length, before);
+      });
+      await record('private-recaps-follow-authenticated-session-mapping', async () => {
+        modelScenario = 'normal';
+        for (const [sender, marker] of [[10000003, false], [10000002, true]]) {
+          const before = modelRequests.length;
+          await inbound({ ...event('大肥鲸，测试这段私聊', sender),
+            message_type: 'private', group_id: undefined, user_id: sender });
+          await settled(`private:${sender}`);
+          assert.equal(modelRequests.length, before + 1);
+          assert.equal(JSON.stringify(modelRequests[before]).includes('PRIVATE_RECAP_MARKER'), marker);
+        }
       });
       await record('missing-persona-never-falls-back-to-generic-agent', async () => {
         modelScenario = 'normal';

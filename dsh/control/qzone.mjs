@@ -6,7 +6,11 @@
 //
 // 这里只管「发」和「探活」，文案在 compose 层，业务判断在 business 层。
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
+
+export function qqAccountPaused(file = process.env.FATFISH_QQ_PAUSE_FILE || 'D:/Code/Projects/FatFishLife/data/.qq-account-paused') {
+  return existsSync(file)
+}
 
 export const DEFAULT_QZONE_BASE = process.env.FATFISH_QZONE_BASE || process.env.QZONE_API_BASE || 'http://127.0.0.1:5700'
 const DEFAULT_SECRET_FILE = process.env.FATFISH_QZONE_SECRET_FILE
@@ -53,6 +57,7 @@ async function call(action, body, { base = DEFAULT_QZONE_BASE, timeoutMs = 20_00
 
 /** 桥是否在线、登录态是否还在；失败不抛，返回 {online:false, reason}。 */
 export async function qzoneStatus(options = {}) {
+  if (qqAccountPaused(options.pauseFile)) return { online: false, valid: false, reason: 'qq-account-paused' }
   try {
     const data = await call('check_cookie', {}, options)
     const ok = data?.status === 'ok' && Number(data?.retcode ?? 0) === 0
@@ -70,6 +75,7 @@ export async function qzoneStatus(options = {}) {
 
 /** 发一条说说。成功返回 {ok:true, tid, text}；失败返回 {ok:false, reason}。 */
 export async function postThought(text, options = {}) {
+  if (qqAccountPaused(options.pauseFile)) return { ok: false, reason: 'qq-account-paused' }
   const body = String(text ?? '').trim()
   if (!body) return { ok: false, reason: 'empty-text' }
   if (body.length > 1000) return { ok: false, reason: 'too-long' }

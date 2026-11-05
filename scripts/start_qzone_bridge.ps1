@@ -1,6 +1,7 @@
 ﻿param(
   [switch]$Check,
   [switch]$Stop,
+  [string]$QQPauseMarker = 'D:/Code/Projects/FatFishLife/data/.qq-account-paused',
   [uri]$Base = 'http://127.0.0.1:5700',
   [string]$BridgeDir = 'D:/Code/tmp-qzone',
   [string]$EnvFile = 'D:/Code/Projects/FatFishLife/outputs/secrets/qzone.env',
@@ -8,6 +9,11 @@
 )
 
 $ErrorActionPreference = 'Stop'
+# Stop remains available; paused starts/checks do not load secrets or probe QQ.
+if (-not $Stop -and (Test-Path -LiteralPath $QQPauseMarker)) {
+  Write-Output 'qqPaused=True; qzone start and probe skipped'
+  exit 3
+}
 if ($Base.Scheme -ne 'http' -or -not $Base.IsLoopback -or $Base.AbsolutePath -ne '/' -or $Base.Query -or $Base.Fragment -or $Base.UserInfo) {
   Write-Output 'expected a loopback HTTP base with no path or credentials'
   exit 1
@@ -15,14 +21,9 @@ if ($Base.Scheme -ne 'http' -or -not $Base.IsLoopback -or $Base.AbsolutePath -ne
 $port = $Base.Port
 $bindHost = if ($Base.DnsSafeHost -eq 'localhost') { '127.0.0.1' } else { $Base.DnsSafeHost.Trim('[', ']') }
 $baseUrl = $Base.GetLeftPart([UriPartial]::Authority)
-$accessToken = ''
-if (Test-Path -LiteralPath $envFile) {
-  $tokenLine = Get-Content -LiteralPath $envFile -Encoding UTF8 | Where-Object { $_ -like 'FATFISH_QZONE_ACCESS_TOKEN=*' } | Select-Object -First 1
-  if ($tokenLine) { $accessToken = $tokenLine.Substring('FATFISH_QZONE_ACCESS_TOKEN='.Length).Trim() }
-}
-
 function Test-Port {
   param([int]$Port)
+  if (Test-Path -LiteralPath $QQPauseMarker) { return $false }
   # 实测：这个桥监听后 Get-NetTCPConnection 不一定列出 Listen（只看到 Closed/TimeWait），
   # 所以用一次真实的 HTTP 请求判断它活着没有。
   $script:loginValid = $false
@@ -68,6 +69,12 @@ if ($Stop) {
     }
   }
   exit 0
+}
+
+$accessToken = ''
+if (Test-Path -LiteralPath $envFile) {
+  $tokenLine = Get-Content -LiteralPath $envFile -Encoding UTF8 | Where-Object { $_ -like 'FATFISH_QZONE_ACCESS_TOKEN=*' } | Select-Object -First 1
+  if ($tokenLine) { $accessToken = $tokenLine.Substring('FATFISH_QZONE_ACCESS_TOKEN='.Length).Trim() }
 }
 
 if (-not (Test-Path $envFile)) {

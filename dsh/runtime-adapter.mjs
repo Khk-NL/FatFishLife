@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, isAbsolute, relative, sep } from 'node:path';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { FatFishPolicy, GROUP_MODE_LABELS } from './policy.mjs';
 import { createLocalBriefClient } from './local-brief-client.mjs';
@@ -170,7 +170,10 @@ const SOCIAL_CHANNEL_BASE_PROMPT = [
 
 // DSH invokes function-valued section text on prompt assembly, including for
 // existing sessions. A module-level string would freeze these digests forever.
-export function socialChannelPrompt() {
+export function socialChannelPrompt({ ownerPrivate = false } = {}) {
+  // These files aggregate multiple conversations and private operational data.
+  // Unknown/group/member scopes receive the shared persona rules only.
+  if (!ownerPrivate) return SOCIAL_CHANNEL_BASE_PROMPT;
   const growth = growthDigest();
   const peak = peakDigest();
   const diary = diaryRecap();
@@ -188,7 +191,7 @@ export function socialChannelPrompt() {
   ].join('\n');
 }
 
-// Keep the former export for older prepared bridge copies.
+// Older bridge copies have no authenticated scope: fail closed to shared rules.
 export const SOCIAL_CHANNEL_PROMPT = socialChannelPrompt();
 
 export async function ownerCommand(policy, run) {
@@ -554,13 +557,39 @@ export function stuckNotice(bridge, chatId, toolName, denial, now = Date.now()) 
   }
 }
 
+export function imageReadDenial(bridge, exec, chatId) {
+  const short = String(exec.name ?? '').split('__').pop();
+  if (short !== 'read_image') return undefined;
+  const target = exec.arguments?.file_path;
+  if (!chatId || typeof target !== 'string' || !isAbsolute(target)) return 'Image must use an allowed local media path';
+  const roots = [bridge.deps.config?.mediaDir, ...(bridge.deps.config?.extraMediaRoots ?? [])];
+  const policy = bridge.deps.fatfishPolicy;
+  if (String(chatId).startsWith('private:') && policy.owner(String(chatId).slice(8))) {
+    roots.push(bridge.effectiveCwd?.(chatId));
+  }
+  // Native guards are synchronous; mirror the bridge's realpath media fence
+  // without reading image contents. Its original format/size checks still run.
+  try {
+    const file = realpathSync(target);
+    for (const root of roots) {
+      if (typeof root !== 'string') continue;
+      let resolved;
+      try { resolved = realpathSync(root); } catch { continue; }
+      const path = relative(resolved, file);
+      if (path !== '' && path !== '..' && !path.startsWith('..' + sep) && !isAbsolute(path)) return undefined;
+    }
+  } catch { /* Missing files and broken links cannot establish provenance. */ }
+  return 'Image is outside the allowed media roots';
+}
+
 export function installSocialScope(ctx, bridge) {
   // 2026-10-30 实测：restrict() 的 allow 只能列"挂载时已注册的全域工具"，
   // 而 fatfish MCP 的 meme_*/tts_* 与 preset 内的 read_image 都不在那个名单里，
   // 写进去会抛错、整条消息失败。因此这里只用 guard：调用时逐个判定白名单。
   ctx.tools.guard(exec => {
     const chatId = bridge.chatForSession(exec.agent?.session.id);
-    const denial = bridge.deps.fatfishPolicy.toolDenial(exec, chatId, SOCIAL_MEDIA_TOOLS);
+    const denial = bridge.deps.fatfishPolicy.toolDenial(exec, chatId, SOCIAL_MEDIA_TOOLS)
+      ?? imageReadDenial(bridge, exec, chatId);
     if (!denial) return undefined;
     stuckNotice(bridge, chatId, exec.name ?? exec.tool?.name ?? '未知工具', denial);
     return `${denial}；这项能力没开，别换着花样重试，直接跟老大说你卡在哪一步。`;
@@ -568,8 +597,12 @@ export function installSocialScope(ctx, bridge) {
 }
 
 export function assertOutbound(policy, action) {
+  const write = !/^(get_|can_)/.test(action);
+  // Account review is stronger than the ordinary silent/owner command channel.
+  // Recheck even for a command that began before the pause marker appeared.
+  if (write && policy.accountPaused()) throw new Error('FatFish outbound paused: QQ account review');
   const control = controlContext.getStore();
   if (control?.policy === policy && control.active) return;
   // Read operations may continue while silent; every transport write is gated.
-  if (!/^(get_|can_)/.test(action) && !policy.canSend()) throw new Error('FatFish outbound paused');
+  if (write && !policy.canSend()) throw new Error('FatFish outbound paused');
 }

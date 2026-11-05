@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { execFile } from 'node:child_process'
 import { selectRecommendations } from './ops.mjs'
 import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, dynamicMessages, qzoneThoughtMessages, recommendReasonMessages } from './compose.mjs'
-import { postThought as qzonePostThought } from './qzone.mjs'
+import { postThought as qzonePostThought, qqAccountPaused } from './qzone.mjs'
 import { cleanReply } from './llm.mjs'
 import { DEFAULT_MEMORY_DB, DEFAULT_PYTHON } from './hub.mjs'
 
@@ -48,6 +48,7 @@ async function deliver(deps, text) {
 
 /** B 站推荐：筛片 → 让模型各写一句理由 → 发一条。 */
 export async function runBiliRecommend(deps) {
+  if (qqAccountPaused()) return { ok: true, sent: 0, skipped: 'qq-account-paused' }
   const { bili, llm, mood, log, state } = deps
   const items = await bili.recommend({ count: 14 })
   const seen = Array.isArray(state?.seenBvid) ? state.seenBvid : []
@@ -75,6 +76,7 @@ export async function runBiliRecommend(deps) {
 
 /** 收件箱摘要：有未读就发，没有就静默。 */
 export async function runBiliInbox(deps) {
+  if (qqAccountPaused()) return { ok: true, sent: 0, skipped: 'qq-account-paused' }
   const items = await deps.bili.inbox({ limit: 5 })
   const text = buildInboxMessage(items)
   if (!text) return { ok: true, sent: 0, reason: 'empty-inbox' }
@@ -271,6 +273,7 @@ function publicationSkipReason(deps) {
 }
 
 export async function runQzoneThought(deps) {
+  if (qqAccountPaused()) return { ok: true, sent: 0, skipped: 'qq-account-paused' }
   const skipped = publicationSkipReason(deps)
   if (skipped) return { ok: true, skipped }
   if (deps.qzoneStatus) {

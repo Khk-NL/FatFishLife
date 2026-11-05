@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
+import { existsSync } from 'node:fs';
+
+export function qqAccountPaused(file = process.env.FATFISH_QQ_PAUSE_FILE || 'D:/Code/Projects/FatFishLife/data/.qq-account-paused') {
+  return existsSync(file);
+}
 
 // 2026-10-31 老大要求用现成库判节假日：chinese-days 覆盖法定节假日、调休上班与周末，
 // 每年国务院公布次年安排后作者会更新；没装这个包时退回「周末＝闲时」的简化判断。
@@ -39,8 +44,15 @@ export const BUSY_LINES = [
   '峰时贵得要死，我这是替老大省钱呢，{hour}来找我',
   '一到峰时算力就舍不得拨给我了，{hour}来，省下的钱归我买零食',
 ];
-// 只有老大私聊能调的工具（账单/钱包类）。群友调用直接拒绝。
-export const OWNER_ONLY_TOOLS = ['deepseek_balance', 'qzone_post', 'qzone_delete', 'bili_dynamic_post'];
+// 共享存储没有认证会话参数，不能把模型传入的 scope/group_id 当成授权。
+// 老大私聊保留已开放的只读能力；普通会话仍使用按会话注入和公开 lore 查询。
+export const OWNER_ONLY_TOOLS = [
+  'deepseek_balance', 'qzone_post', 'qzone_recent', 'qzone_delete', 'bili_dynamic_post',
+  'recall', 'search', 'recent', 'candidates', 'stats', 'recall_all', 'remember',
+  'kb_list', 'kb_query', 'obsidian_list', 'obsidian_read', 'obsidian_search',
+  'obsidian_tags', 'obsidian_backlinks',
+  'journal_recent', 'journal_write', 'day_digest', 'style_terms',
+];
 
 const text = event => Array.isArray(event.message)
   ? event.message.filter(segment => segment.type === 'text').map(segment => String(segment.data?.text ?? '')).join('')
@@ -101,7 +113,7 @@ export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { s
 }
 
 export class FatFishPolicy {
-  constructor(config, { now = Date.now, getConfig, random = Math.random } = {}) {
+  constructor(config, { now = Date.now, getConfig, random = Math.random, accountPaused = qqAccountPaused } = {}) {
     if (!id(config.ownerId) || !id(config.botId) || !config.adapterId?.trim()) {
       throw new Error('FatFish requires explicit ownerId, botId and adapterId');
     }
@@ -116,6 +128,7 @@ export class FatFishPolicy {
     this.now = now;
     this.random = random;
     this.getConfig = getConfig;
+    this.accountPaused = accountPaused;
     this.seen = new Map();
     this.cooldowns = new Map();
     // 她说过的群与时间：用来判断「能不能接着聊」和每小时上限。
@@ -188,6 +201,7 @@ export class FatFishPolicy {
 
   decide(event, access) {
     if (this.getConfig) Object.assign(this.config, this.getConfig());
+    if (this.accountPaused()) return { kind: 'ignore', reason: 'qq-account-paused' };
     if (id(event.self_id) !== String(this.config.botId)) return { kind: 'ignore', reason: 'account' };
     const userId = id(event.user_id);
     if (!userId || userId === String(this.config.botId)) return { kind: 'ignore', reason: 'sender' };
@@ -215,7 +229,7 @@ export class FatFishPolicy {
     const command = commandText(body);
     // Only a trusted, current sender may enter the backend router. This is
     // independent of group roles, nicknames, message text and the model.
-    if (this.owner(userId) && command) return { kind: 'control', chatId, userId, command };
+    if (kind === 'private' && this.owner(userId) && command) return { kind: 'control', chatId, userId, command };
     const mentioned = Array.isArray(event.message) && event.message.some(segment =>
       segment.type === 'at' && id(segment.data?.qq) === String(this.config.botId));
     // 群级开关：老大可以在私聊里给每个群单独定「既听又说 / 只听不说 / 只回@ / 只回老大 / 完全不理」。
@@ -325,6 +339,7 @@ export class FatFishPolicy {
    * busy=true 仅表示"这是忙时那句模板回复"，要落在对应整点窗口里才发。
    */
   canSend({ busy = false, returnHour } = {}) {
+    if (this.accountPaused()) return false;
     if (this.getConfig) Object.assign(this.config, this.getConfig());
     if (this.config.silent) return false;
     if (!busy) return true;
@@ -339,7 +354,7 @@ export class FatFishPolicy {
     const name = String(exec.name ?? '');
     const short = name.includes('__') ? name.split('__').pop() : name;
     if (!allowed.includes(name) && !allowed.includes(short)) return 'Tool is outside this social capability set';
-    // 账单与公开发布/删除只接受认证的老大私聊；定时运营走独立管理开关。
+    // 私密存储、账单与公开发布/删除只接受认证老大私聊；定时运营走独立管理开关。
     if (OWNER_ONLY_TOOLS.includes(short)) {
       const ownerPrivate = String(chatId ?? '').startsWith('private:') && this.owner(String(chatId).slice('private:'.length));
       if (!ownerPrivate) return 'Only the owner in private chat can use this';

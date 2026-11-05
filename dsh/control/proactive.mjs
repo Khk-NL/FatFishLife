@@ -8,6 +8,7 @@
 import { moodNudge } from './hub.mjs'
 import { cleanReply } from './llm.mjs'
 import { proactiveMessages } from './compose.mjs'
+import { qqAccountPaused } from './qzone.mjs'
 
 const MINUTE = 60_000
 
@@ -88,6 +89,7 @@ export function shouldSpeak({ now, config, busyWindows, state, wallet = null, ra
  *          hub: object, llm: object, send: Function, log: Function, now: Date, random?: Function}} deps
  */
 export async function runProactive(deps) {
+  if (qqAccountPaused()) return { ok: true, spoke: false, reason: 'qq-account-paused' }
   const { config, busyWindows, state, saveState, hub, llm, send, log, now } = deps
   const decision = shouldSpeak({ now, config: config?.proactive, busyWindows, state,
     random: deps.random, hunger: deps.hunger })

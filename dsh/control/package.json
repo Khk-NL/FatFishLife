@@ -1,6 +1,6 @@
 {
   "name": "dsh-fatfish-life",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "FatFishLife 白盒管理：回复门禁、媒体概率、运营计划与生效状态。QQ与运营执行器逐项接入中。",
@@ -23,15 +23,22 @@
     "llm.mjs",
     "hub.mjs",
     "bili.mjs",
-    "transport.mjs"
+    "transport.mjs",
+    "schedule.mjs",
+    "ops.mjs",
+    "qzone.mjs",
+    "moodsync.mjs",
+    "petmood.mjs",
+    "speakup.mjs",
+    "wallet.mjs"
   ],
   "engines": {
-    "dsh": ">=0.2.1-rc.3 <0.3.0-0"
+    "dsh": ">=0.2.2-rc.1 <0.2.3-0"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/schemastery": "~3.18.5",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.3"
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/schemastery": "~3.19.0",
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
   },
   "dsh": {
     "bundle": {

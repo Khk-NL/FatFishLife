@@ -9,7 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def pack() -> Path:
     source = ROOT / 'dsh/control'
-    target = ROOT / '.tools/dsh-vendor/adapted/dsh-fatfish-life-0.1.0.tgz'
+    package = json.loads((source / 'package.json').read_text(encoding='utf-8'))
+    target = ROOT / '.tools/dsh-vendor/adapted' / f"dsh-fatfish-life-{package['version']}.tgz"
     target.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(target, 'w:gz') as archive:
         for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'ops.mjs', 'settings.mjs',

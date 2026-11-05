@@ -1,4 +1,4 @@
-﻿# DSH watchdog v2: keep the app (and its QQ bridge) alive.
+﻿# DSH watchdog: host health by default; QQ recovery requires explicit opt-in.
 # Checks, cheapest first:
 #   1. process missing            -> start it
 #   2. scheduler/bridge unhealthy -> warn (restart only with explicit opt-in)
@@ -8,6 +8,8 @@
 param(
     [switch]$Check,
     [switch]$AllowHostRestart,
+    [switch]$AllowQQRecovery,
+    [string]$QQPauseMarker = 'D:/Code/Projects/FatFishLife/data/.qq-account-paused',
     [string]$Exe = 'D:/dsh/DeepSeek Harness.exe',
     [string]$LogDir = 'D:/Code/Projects/FatFishLife/outputs/agent',
     [string]$DataDir = 'D:/Code/Projects/FatFishLife/data/dsh',
@@ -76,26 +78,29 @@ function Get-NapCatProcesses {
     @(Get-Process -Name 'NapCatWinBootMain' -ErrorAction SilentlyContinue)
 }
 
-# NapCat needs admin rights for the QQ injection. We cannot create an elevated task
-# from a limited shell, but FatFishLife-Start already runs with RunLevel=Highest and
-# start_all.ps1 launches NapCat (AstrBot is retired via data\.astrbot-retired).
+function Test-QQAccountPaused {
+    return (Test-Path -LiteralPath $QQPauseMarker)
+}
+
+function Test-QQRecoveryAllowed {
+    return ($AllowQQRecovery -and -not (Test-QQAccountPaused))
+}
+
+# Request the existing elevated task once. Task acceptance is not login readiness.
 function Start-NapCat {
-    $attempts = 2
-    for ($i = 1; $i -le $attempts; $i++) {
-        try {
-            schtasks /Run /TN 'FatFishLife-Start' | Out-Null
-            if ($LASTEXITCODE -ne 0) { throw "scheduled task failed with exit code $LASTEXITCODE" }
-            Start-Sleep -Seconds 10
-            $after = Get-NapCatProcesses
-            $qq = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue)
-            Write-Log ("napcat start requested (attempt {0}/{1}): bootstrap={2} qq={3}; login/OneBot readiness is checked separately" -f $i, $attempts, $after.Count, $qq.Count)
-            if ($after.Count -gt 0 -and $qq.Count -ge 5) { return $true }
-            if ($i -lt $attempts) { Start-Sleep -Seconds 30 }
-        } catch {
-            Write-Log ("error: napcat start failed (attempt {0}/{1}) - {2}" -f $i, $attempts, $_.Exception.Message)
-        }
+    if (-not (Test-QQRecoveryAllowed)) {
+        Write-Log 'napcat recovery skipped: QQ recovery not enabled or account paused' | Out-Null
+        return $false
     }
-    return $false
+    try {
+        schtasks.exe /Run /TN 'FatFishLife-Start' | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "scheduled task failed with exit code $LASTEXITCODE" }
+        Write-Log 'napcat start task requested once; login/OneBot readiness remains unverified' | Out-Null
+        return $true
+    } catch {
+        Write-Log ('error: napcat start task request failed - ' + $_.Exception.Message) | Out-Null
+        return $false
+    }
 }
 
 function Test-PortListening([int]$Port, [string]$Address = '127.0.0.1') {
@@ -219,12 +224,14 @@ function Invoke-VersionGuard {
 function Get-QzoneStarterArguments([uri]$BaseUri, [switch]$ProbeOnly) {
     $args = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $QzoneStarter + '"'),
         '-Base', ('"' + $BaseUri.AbsoluteUri + '"'), '-BridgeDir', ('"' + $QzoneDir + '"'),
-        '-LogFile', ('"' + (Join-Path $LogDir 'qzone-bridge.log') + '"'))
+        '-LogFile', ('"' + (Join-Path $LogDir 'qzone-bridge.log') + '"'),
+        '-QQPauseMarker', ('"' + $QQPauseMarker + '"'))
     if ($ProbeOnly) { $args += '-Check' }
     return $args
 }
 
 function Invoke-QzoneBridge($State) {
+    if (-not (Test-QQRecoveryAllowed)) { return }
     # QQ Zone bridge (onebot-qzone, D:/Code/tmp-qzone) posts her thoughts to Qzone.
     # Reuse the starter's private Token/Cookie loader for both probe and recovery.
     $baseUri = $null
@@ -310,42 +317,45 @@ $port = if ($alive) { Test-PortListening $BridgePort } else { [pscustomobject]@{
 if ($alive -and -not $Check) { Invoke-VersionGuard }
 $stuck = if ($alive) { Get-StuckTurnMinutes } else { 0 }
 $napcat = Get-NapCatProcesses
+$qqPaused = Test-QQAccountPaused
 
 $decision = Get-HostVerdict $alive $hostAge $heartbeatAge $port.listen $stuck $port.online
 $verdict = $decision.verdict
 $why = $decision.why
 if ($Check) {
     $online = if ($null -eq $port.online) { 'unknown' } else { [string]$port.online }
-    Write-Output ("check: processes={0} heartbeatAge={1}m listen={2} onebotOnline={3} stuck={4}m napcat={5} => {6} {7}" -f `
-        $procs.Count, $heartbeatAge, $port.listen, $online, $stuck, $napcat.Count, $verdict, $why)
+    Write-Output ("check: processes={0} heartbeatAge={1}m listen={2} onebotOnline={3} stuck={4}m napcat={5} qqPaused={6} => {7} {8}" -f `
+        $procs.Count, $heartbeatAge, $port.listen, $online, $stuck, $napcat.Count, $qqPaused, $verdict, $why)
     return
 }
 
 $state = Read-State
 Invoke-QzoneBridge $state
 
-# NapCat is a separate program; if it died we only restart DSH when the bridge is dead.
-$qqCount = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue).Count
-$napcatAge = Get-HostAgeMinutes $napcat
-$webListening = if ($port.online -eq $false) { (Test-PortListening $NapCatWebPort).listen } else { 0 }
-$needsNapCat = Test-NapCatNeedsStart $port.online $napcat.Count $qqCount $napcatAge $webListening
-if ($verdict -ne 'wait' -and $needsNapCat) {
-    $lastNapCat = $null
-    if ($state.napcatAt) { try { $lastNapCat = [datetime]$state.napcatAt } catch { } }
-    $cooled = ($null -eq $lastNapCat) -or (((Get-Date) - $lastNapCat).TotalMinutes -gt 10)
-    $napcatRecent = Count-RecentRestarts ([pscustomobject]@{ restarts = @($state.napcatRestarts) })
-    if ($napcatRecent -ge $MaxRestartsPerHour) {
-        Write-Log ("blocked: NapCat recovery already requested {0} times this hour; inspect native startup logs" -f $napcatRecent)
-    } elseif ($cooled) {
-        Start-NapCat | Out-Null
-        $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue (Get-Date).ToString('o') -Force
-        $state | Add-Member -NotePropertyName napcatRestarts -NotePropertyValue (@(@($state.napcatRestarts) + (Get-Date).ToString('o') | Select-Object -Last 20)) -Force
-        Save-State $state
+# QQ probes and recovery are opt-in and remain disabled while the marker exists.
+if (Test-QQRecoveryAllowed) {
+    $qqCount = @(Get-Process -Name 'QQ' -ErrorAction SilentlyContinue).Count
+    $napcatAge = Get-HostAgeMinutes $napcat
+    $webListening = if ($port.online -eq $false) { (Test-PortListening $NapCatWebPort).listen } else { 0 }
+    $needsNapCat = Test-NapCatNeedsStart $port.online $napcat.Count $qqCount $napcatAge $webListening
+    if ($verdict -ne 'wait' -and $needsNapCat) {
+        $lastNapCat = $null
+        if ($state.napcatAt) { try { $lastNapCat = [datetime]$state.napcatAt } catch { } }
+        $cooled = ($null -eq $lastNapCat) -or (((Get-Date) - $lastNapCat).TotalMinutes -gt 10)
+        $napcatRecent = Count-RecentRestarts ([pscustomobject]@{ restarts = @($state.napcatRestarts) })
+        if ($napcatRecent -ge $MaxRestartsPerHour) {
+            Write-Log ("blocked: NapCat recovery already requested {0} times this hour; inspect native startup logs" -f $napcatRecent)
+        } elseif ($cooled) {
+            Start-NapCat | Out-Null
+            $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue (Get-Date).ToString('o') -Force
+            $state | Add-Member -NotePropertyName napcatRestarts -NotePropertyValue (@(@($state.napcatRestarts) + (Get-Date).ToString('o') | Select-Object -Last 20)) -Force
+            Save-State $state
+        } else {
+            Write-Log 'napcat is not running but restarted less than 10 min ago - waiting'
+        }
     } else {
-        Write-Log 'napcat is not running but restarted less than 10 min ago - waiting'
+        $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue $null -Force
     }
-} else {
-    $state | Add-Member -NotePropertyName napcatAt -NotePropertyValue $null -Force
 }
 
 if ($verdict -ne 'restart') {

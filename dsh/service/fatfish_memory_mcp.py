@@ -533,7 +533,14 @@ QZONE_API_BASE = os.environ.get("QZONE_API_BASE") or "http://127.0.0.1:5700"
 QZONE_API_TOKEN = os.environ.get("QZONE_API_TOKEN") or ""
 
 
+def _qq_account_paused() -> bool:
+    return Path(os.environ.get("FATFISH_QQ_PAUSE_FILE") or
+                Path(__file__).resolve().parents[2] / "data/.qq-account-paused").exists()
+
+
 def _qzone_call(action: str, params: dict | None = None, timeout: int = 25) -> dict:
+    if _qq_account_paused():
+        raise RuntimeError("qq-account-paused: manual review required")
     body = json.dumps(params or {}, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if QZONE_API_TOKEN:
@@ -569,6 +576,8 @@ def qzone_recent(count: int = 3) -> str:
 
 @server.tool(description="发一条 QQ 空间说说（纯文字或配一张本地图片）；需 FATFISH_QZONE_WRITE=1")
 def qzone_post(text: str, image: str = "") -> str:
+    if _qq_account_paused():
+        return _dump({"ok": False, "error": "qq-account-paused"})
     body = str(text or "").strip()
     if not body:
         return _dump({"ok": False, "error": "说说内容为空"})
@@ -593,6 +602,8 @@ def qzone_post(text: str, image: str = "") -> str:
 
 @server.tool(description="删掉自己发的一条说说（按 tid）；需 FATFISH_QZONE_WRITE=1")
 def qzone_delete(tid: str) -> str:
+    if _qq_account_paused():
+        return _dump({"ok": False, "error": "qq-account-paused"})
     target = str(tid or "").strip()
     if not target:
         return _dump({"ok": False, "error": "缺少 tid"})
