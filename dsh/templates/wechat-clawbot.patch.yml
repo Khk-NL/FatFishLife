@@ -1,0 +1,15 @@
+- id: dsh-wechat
+  config:
+    enabled: true
+    stateDir: D:/DSHData/private/fatfish-wechat
+    workspace: D:/DSHData/private/fatfish-wechat/workspace
+    accessPolicy: allowlist
+    allowedUserIds: []
+    autoLogin: false
+    agentPreset: whale-social
+    typing: false
+    progress: 'off'
+    showToolProgress: false
+    notifyLifecycle: false
+    media:
+      enabled: false
