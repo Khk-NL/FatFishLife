@@ -62,11 +62,13 @@ def main():
                 data = adapt_bridge(data.decode()).encode()
                 member.size = len(data)
             result.addfile(member, io.BytesIO(data) if data is not None else None)
-        module = (ROOT / 'dsh/wechat-shared-context.mjs').read_bytes()
-        info = tarfile.TarInfo(CONTEXT)
-        info.size = len(module)
-        info.mode = 0o644
-        result.addfile(info, io.BytesIO(module))
+        for filename, target in [('wechat-shared-context.mjs', CONTEXT),
+                                 ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:
+            module = (ROOT / 'dsh' / filename).read_bytes()
+            info = tarfile.TarInfo(target)
+            info.size = len(module)
+            info.mode = 0o644
+            result.addfile(info, io.BytesIO(module))
     data = output.getvalue()
     sha = hashlib.sha256(data).hexdigest()
     archive = OUTPUT / f'dsh-wechat-0.3.7-fatfish-{sha[:12]}.tgz'

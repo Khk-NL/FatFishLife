@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { biliLearning, biliLearningPrompt } from './fatfish-bili-learning.mjs'
 
 const growthPath = process.env.FATFISH_GROWTH_DIGEST
   || 'D:/Code/Projects/FatFishLife/data/dsh/growth-digest.txt'
@@ -60,12 +61,14 @@ export function createWechatPrompt({ owner, root = diaryRoot, growthFile = growt
     const activity = biliActivity(diary, log, localDay.format(new Date()))
     const growth = readLocal(growthFile)?.trim().slice(0, 400)
     const recent = recentDiary(diary)
+    const learning = biliLearningPrompt(biliLearning(diary))
     return [
       base,
       '老大问今天看过什么时，以 B 站「看过」条目为准。没有当天条目时说今天没有看视频的记录。只有确有跳过记录，才说跳过了夜间流程。来源读不到就说明无法核实。',
       'B 站今日活动 ' + JSON.stringify(activity),
       ...(growth ? ['自己的成长摘要 ' + JSON.stringify(growth)] : []),
       ...(recent ? ['自己最新的 B 站日记片段 ' + JSON.stringify(recent)] : []),
+      ...(learning ? [learning] : []),
     ].join('\n')
   }
 }
