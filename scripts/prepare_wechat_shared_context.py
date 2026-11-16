@@ -15,6 +15,7 @@ BRIDGE = 'package/lib/bridge.js'
 CONTEXT = 'package/lib/fatfish-shared-context.mjs'
 ENTRY = 'package/lib/index.js'
 API = 'package/lib/ilink/api.js'
+HARNESS = 'package/lib/harness.js'
 
 
 def replace_once(source, old, new):
@@ -84,6 +85,34 @@ def adapt_bridge(source):
 }
 
 export class WechatBridge {''')
+    source = replace_once(source, "import { realpath, stat } from 'node:fs/promises'", "import { realpath, stat } from 'node:fs/promises'\nimport { loadWechatImage } from './fatfish-wechat-media.mjs'")
+    start = source.index('    if (this.config.media.enabled) {', source.index('  async #normalizeInbound('))
+    end = source.index('    const parts = []', start)
+    source = source[:start] + '''    const imageItem = items.find(item => itemType(item) === ITEM_TYPE.IMAGE)
+    let image
+    if (imageItem) {
+      image = await loadWechatImage({ item: imageItem, download: downloadInboundItem,
+        client: this.#clientFor(botId), directory: this.store.paths.media,
+        attachments: service(this.ctx, 'attachments'), logger: this.logger })
+      texts.push(image ? '（老大发来一张图片）' : '（图片未能读取，请告诉老大）')
+    }
+    if (items.some(item => itemType(item) === ITEM_TYPE.VOICE && !String(itemPayload(item).text ?? '').trim())) {
+      texts.push('（收到语音，但微信未附转写。请告诉老大可以发文字。）')
+    }
+    if (items.some(item => [ITEM_TYPE.FILE, ITEM_TYPE.VIDEO].includes(itemType(item)))) {
+      texts.push('（这个微信入口暂时不能读取文件或视频附件。）')
+    }
+
+''' + source[end:]
+    source = replace_once(source, 'await this.#normalizeInbound(message)', 'await this.#normalizeInbound(message, botId)')
+    source = replace_once(source, 'async #normalizeInbound(message) {', 'async #normalizeInbound(message, botId) {')
+    source = replace_once(source, '    const files = []\n    let quote', '    let quote')
+    start = source.index('    const fileNote = describeFilesForPrompt(')
+    end = source.index('\n  }', start)
+    source = source[:start] + "    return { text: parts.join('\\n\\n').trim(), image }" + source[end:]
+    source = replace_once(source, 'import { describeFilesForPrompt, downloadInboundItem,', 'import { downloadInboundItem,')
+    source = replace_once(source, 'agent.followup(createTextUserMessage(content.text))',
+                          'agent.followup(createTextUserMessage(content.text, content.image))')
     source = replace_once(source, "import { checkAccess } from './config.js'\n", '')
     source = replace_once(source, '    if (!userId) throw new Error(`dsh-wechat: cannot address conversation ${conversationKey}`)\n    return this.#enqueueSend',
                           '    if (!userId || !this.#isBoundOwner(conversationKey)) return 0\n    return this.#enqueueSend')
@@ -124,6 +153,11 @@ def adapt_entry(source):
     return source[:start] + source[end:]
 
 
+def adapt_harness(source):
+    source = replace_once(source, 'createTextUserMessage(text) {', 'createTextUserMessage(text, image) {')
+    return replace_once(source, "content: [{ type: 'text', text }],", "content: [{ type: 'text', text }, ...(image ? [{ type: 'image', attachment: image }] : [])],")
+
+
 def adapt_api(source):
     source = replace_once(source, 'this.baseUrl = assertUsableBaseUrl(options.baseUrl || DEFAULT_BASE_URL)',
                           'this.baseUrl = assertOfficialBotBaseUrl(options.baseUrl || DEFAULT_BASE_URL)')
@@ -145,7 +179,7 @@ def main():
     if hashlib.sha256(UPSTREAM.read_bytes()).hexdigest() != EXPECTED:
         raise ValueError('Unexpected upstream archive SHA256')
     output = io.BytesIO()
-    transforms = {BRIDGE: adapt_bridge, ENTRY: adapt_entry, API: adapt_api}
+    transforms = {BRIDGE: adapt_bridge, ENTRY: adapt_entry, API: adapt_api, HARNESS: adapt_harness}
     with (tarfile.open(UPSTREAM, 'r:gz') as source,
           gzip.GzipFile(fileobj=output, mode='wb', mtime=0) as compressed,
           tarfile.open(fileobj=compressed, mode='w') as result):
@@ -159,6 +193,7 @@ def main():
         if transforms:
             raise ValueError(f'Missing upstream WeChat files: {list(transforms)}')
         for filename, target in [('wechat-shared-context.mjs', CONTEXT),
+                                 ('fatfish-wechat-media.mjs', 'package/lib/fatfish-wechat-media.mjs'),
                                  ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:
             module = (ROOT / 'dsh' / filename).read_bytes()
             info = tarfile.TarInfo(target)
