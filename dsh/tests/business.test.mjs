@@ -61,7 +61,7 @@ test('空间桥离线或登录过期时不花模型费用生成待发正文', as
 })
 
 const video = (bvid, title, extra = {}) => ({
-  bvid, title, duration: 754, stat: { view: 23456 }, author: { name: '某UP' }, ...extra,
+  bvid, title, duration: 754, stat: { view: 123456 }, author: { name: '某UP' }, ...extra,
 })
 
 const silentLog = () => {}
@@ -101,26 +101,50 @@ test('收件箱只取前 5 条且跳过没有内容的项', () => {
   assert.match(text, /u0：t0/)
 })
 
-test('推荐：命中关键词才发，发完记住 bvid', async () => {
-  const { sent, send } = fakeSend()
+const videoEvidence = async bvid => ({ title: '示例 ' + bvid, description: '画面来源测试',
+  manifest: 'cell 1 (r1c1, image 1) = 00:00–00:05', imageUrl: 'data:image/png;base64,AA==' })
+const visualReasons = async (messages, options) => {
+  assert.equal(options.model, 'deepseek-flash')
+  assert.equal(options.thinking, false)
+  const blocks = messages[1].content
+  assert.equal(blocks.length % 2, 0)
+  const recommendations = blocks.filter(block => block.type === 'text').map((block, i) => {
+    assert.match(blocks[i * 2 + 1].image_url.url, /^data:image\/png;base64,/)
+    return { bvid: JSON.parse(block.text).bvid, cell: 1, observation: '角色在两条路口布防',
+      comment: '看见两边都守住，本鱼尾巴都翘起来了',
+      reason: '两路同时布防那格挺有意思，本鱼想看看怎么省部署位' }
+  })
+  return JSON.stringify({ recommendations })
+}
+
+test('推荐：拿到分镜才发，发完记住 bvid', async () => {
+  const sent = []
+  const comments = []
   const state = { seenBvid: [] }
   const deps = {
     now: new Date('2026-10-30T12:30:00+08:00'),
-    config: { runner: { ownerChat: 'private:1' }, dataDirectory: tmpdir() },
+    config: { workflows: { recommend: { commentEnabled: true } } },
     state,
-    saveState: async (next) => { state.seenBvid = next.seenBvid },
+    saveState: async () => {},
     log: silentLog,
-    send,
-    bili: { recommend: async () => [video('BVaaa', '明日方舟 界园新干员'), video('BVbbb', '完全无关的标题')] },
-    llm: { chat: async () => '这个我盯着看了三遍' },
+    send: async () => assert.fail('Bilibili recommendations must not go through QQ'),
+    bili: { recommend: async () => [video('BVaaa', '明日方舟 界园新干员'), video('BVbbb', '完全无关的标题')],
+      recommendationEvidence: videoEvidence,
+      recommendDm: async text => { sent.push(text); return { status: 'sent', uid: '123', messageId: '456' } },
+      recommendComment: async (...args) => { comments.push(args); return { status: 'sent', rpid: '789' } },
+    },
+    llm: { chat: visualReasons },
     hub: {},
   }
   const outcome = await runBiliRecommend(deps)
   assert.equal(outcome.ok, true)
   assert.equal(outcome.sent, 1)
   assert.equal(sent.length, 1)
-  assert.ok(sent[0].text.includes('BVaaa'))
-  assert.ok(!sent[0].text.includes('BVbbb'))
+  assert.match(sent[0], /BVaaa/)
+  assert.doesNotMatch(sent[0], /BVbbb/)
+  assert.match(sent[0], /本鱼/)
+  assert.deepEqual(comments[0].slice(0, 2), ['BVaaa', '123'])
+  assert.match(comments[0][2], /本鱼/)
   assert.deepEqual(state.seenBvid, ['BVaaa'])
 
   // 第二次：命中的已经推过，退一步推剩下那条（关键词都没命中时的兜底）
@@ -134,16 +158,61 @@ test('推荐：命中关键词才发，发完记住 bvid', async () => {
   assert.equal(third.reason, 'no-pick')
 })
 
-test('推荐：没有配置发送目标时只记录、不外发', async () => {
-  const { sent, send } = fakeSend()
+test('推荐：私信未确认时不评论，同一个视频也不重发', async () => {
+  let dmCalls = 0
+  let snapshot
   const deps = {
-    now: new Date(), config: { runner: {}, dataDirectory: tmpdir() }, state: {}, saveState: async () => {},
-    log: silentLog, send, bili: { recommend: async () => [video('BVccc', '游戏杂谈')] },
-    llm: { chat: async () => '还行吧' }, hub: {},
+    config: { workflows: { recommend: { commentEnabled: true } } },
+    state: {}, saveState: async (state) => { snapshot = structuredClone(state) }, log: silentLog, llm: { chat: visualReasons },
+    bili: { recommend: async () => [video('BVccc', '游戏杂谈')],
+      recommendationEvidence: videoEvidence,
+      recommendDm: async () => {
+        dmCalls++
+        assert.equal(snapshot.lastRecommendation.dm.status, 'sending')
+        throw new Error('timeout')
+      },
+      recommendComment: async () => assert.fail('comment without a confirmed DM'),
+    },
   }
   const outcome = await runBiliRecommend(deps)
   assert.equal(outcome.sent, 0)
-  assert.equal(sent.length, 0)
+  assert.equal(outcome.dm, 'uncertain')
+  assert.equal((await runBiliRecommend({ ...deps, state: snapshot })).reason, 'no-pick')
+  assert.equal(dmCalls, 1)
+})
+
+test('推荐：去重后仅合批分析一次，按管理界面上限选片', async () => {
+  const sent = []
+  let modelCalls = 0
+  const outcome = await runBiliRecommend({
+    config: { workflows: { recommend: { maxVideos: 2, commentEnabled: false } } },
+    log: silentLog, state: {}, saveState: async () => {},
+    llm: { chat: (...args) => { modelCalls++; return visualReasons(...args) } },
+    bili: { recommend: async () => [video('BVa', '明日方舟攻略'), video('BVa', '明日方舟攻略'),
+      video('BVb', '游戏音乐'), video('BVc', '科技教程')],
+      recommendationEvidence: videoEvidence,
+      recommendDm: async text => { sent.push(text); return { status: 'sent', uid: '123', messageId: '456' } },
+      recommendComment: async () => assert.fail('comments disabled'),
+    },
+  })
+  assert.deepEqual(outcome.picked, ['BVa', 'BVb'])
+  assert.equal(sent.length, 1)
+  assert.match(sent[0], /两路同时布防/)
+  assert.equal(modelCalls, 1)
+})
+
+test('推荐：拿不到画面时不生成，视觉请求失败时不重试或发送', async () => {
+  let calls = 0
+  const deps = { state: {}, saveState: async () => assert.fail('no write claim'), log: silentLog,
+    bili: { recommend: async () => [video('BVccc', '游戏杂谈')], recommendationEvidence: async () => null,
+      recommendDm: async () => assert.fail('no recommendation') },
+    llm: { chat: async () => { calls++; throw new Error('402') } },
+  }
+  assert.equal((await runBiliRecommend(deps)).skipped, 'no-storyboard-or-paused')
+  assert.equal(calls, 0)
+  deps.bili.recommendationEvidence = videoEvidence
+  assert.equal((await runBiliRecommend(deps)).reason, 'recommendation-analysis-failed')
+  assert.equal(calls, 1)
 })
 
 test('日记：写文件、写记忆库、给主人发摘要', async () => {

@@ -15,6 +15,7 @@ export const RECOMMEND_KEYWORDS = ['明日方舟', '游戏', '音乐', '能天�
 
 /** 每天最多推荐几条。 */
 export const MAX_RECOMMENDATIONS = 3
+export const MIN_BILI_VIEWS = 100_000
 
 /** 推荐理由的最小长度，与分享闸门的 --reason ≥8 字对齐。 */
 export const MIN_REASON_LENGTH = 8
@@ -29,6 +30,7 @@ export function selectRecommendations(items, options = {}) {
   const seen = new Set((options.seen ?? []).map(String))
   const keywords = options.keywords ?? RECOMMEND_KEYWORDS
   const limit = options.limit ?? MAX_RECOMMENDATIONS
+  const minimumViews = options.minimumViews ?? 0
   const picked = []
   const skipped = []
   const candidates = []
@@ -38,11 +40,17 @@ export function selectRecommendations(items, options = {}) {
     const title = String(item?.title ?? '')
     if (!bvid) { skipped.push({ bvid: '', reason: '没有 bvid，无法去重' }); continue }
     if (seen.has(bvid)) { skipped.push({ bvid, reason: '已经推过' }); continue }
+    const views = Number(item?.stat?.view ?? item?.play ?? item?.view ?? 0)
+    if (!Number.isSafeInteger(views) || views < minimumViews) {
+      skipped.push({ bvid, reason: '未达到播放量门槛' })
+      continue
+    }
+    seen.add(bvid)
     candidates.push({
       bvid,
       title,
       keyword: keywords.find((word) => title.includes(word)) ?? null,
-      views: Number(item?.stat?.view ?? 0),
+      views,
       seen: item.seen !== false,
     })
   }

@@ -5,7 +5,7 @@ window.__ModuleLoader__.load({ id: 'dsh-fatfish-life', factory: require => {
   const labels = {
     reply: '回复规则', silent: '全局静默', groupCooldownSeconds: '群聊冷却（秒）',
     userCooldownSeconds: '用户冷却（秒）', dedupSeconds: '消息去重（秒）', normalKeywords: '正常时段触发词',
-    busyWindows: '忙碌时间段（上海时间）', start: '开始时间', end: '结束时间', weekdays: '生效星期',
+    peakEnabled: '启用峰闲时策略', busyWindows: '忙碌时间段（上海时间）', start: '开始时间', end: '结束时间', weekdays: '生效星期',
     voice: '语音', meme: '表情包', enabled: '启用', basePercent: '基础概率（%）',
     stepPercent: '每次未发增加（百分点）', maxPercent: '概率上限（%）', allowSynthesis: '允许可能收费的语音合成',
     provider: '配音服务', providers: '各配音服务参数', siliconflow: '硅基流动', elevenlabs: 'ElevenLabs', minimax: 'MiniMax',

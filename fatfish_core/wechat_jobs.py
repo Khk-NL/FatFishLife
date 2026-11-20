@@ -87,9 +87,9 @@ def _bili_report_inputs(timestamp: int) -> tuple[list[dict], str]:
     items = (result.get("data") or {}).get("items")
     if result.get("ok") is not True or not isinstance(items, list):
         return [], "video-search-unavailable"
-    matches = report_items(items, day)
+    matches = [item for item in report_items(items, day) if item["views"] >= 100_000]
     if not matches:
-        return [], "no-confirmed-today-results"
+        return [], "no-today-results-with-100000-views"
     with ThreadPoolExecutor(max_workers=4) as tasks:
         subtitles = list(tasks.map(_subtitle_points, (item["bvid"] for item in matches)))
     for item, points in zip(matches, subtitles):

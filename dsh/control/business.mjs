@@ -7,10 +7,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { execFile } from 'node:child_process'
-import { selectRecommendations } from './ops.mjs'
+import { MIN_BILI_VIEWS, reasonIsAcceptable, selectRecommendations } from './ops.mjs'
 import { buildInboxMessage, buildRecommendMessage, consolidateGreetingMessages, diaryMessages, dynamicMessages, qzoneThoughtMessages, recommendReasonMessages } from './compose.mjs'
 import { postThought as qzonePostThought, qqAccountPaused } from './qzone.mjs'
 import { cleanReply } from './llm.mjs'
+import { whaleComment } from './whale-voice.mjs'
 import { DEFAULT_MEMORY_DB, DEFAULT_PYTHON } from './hub.mjs'
 
 const SEEN_LIMIT = 300
@@ -46,32 +47,98 @@ async function deliver(deps, text) {
   return { sent, results }
 }
 
-/** B 站推荐：筛片 → 让模型各写一句理由 → 发一条。 */
+/** B 站推荐：一条给主人私信，每个视频一条带真实 @ 的评论。 */
 export async function runBiliRecommend(deps) {
-  if (qqAccountPaused()) return { ok: true, sent: 0, skipped: 'qq-account-paused' }
-  const { bili, llm, mood, log, state } = deps
+  const { bili, config, log, state, saveState } = deps
+  const settings = () => (deps.currentConfig?.() ?? config)
+  const allowed = () => {
+    const live = settings()
+    return deps.canPublish?.() !== false && live?.reply?.silent !== true
+      && live?.runner?.enabled !== false && live?.workflows?.recommend?.enabled !== false
+  }
+  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
+  if (!state || !saveState) return { ok: false, sent: 0, reason: 'recommendation-state-unavailable' }
   const items = await bili.recommend({ count: 14 })
-  const seen = Array.isArray(state?.seenBvid) ? state.seenBvid : []
-  const { picked, skipped } = selectRecommendations(items, { seen, limit: 2 })
+  const seen = Array.isArray(state.seenBvid) ? state.seenBvid : []
+  const { picked, skipped } = selectRecommendations(items, { seen,
+    minimumViews: MIN_BILI_VIEWS,
+    limit: Math.min(settings()?.workflows?.recommend?.maxVideos ?? 3, 3) })
   log(`[fatfish] B站推荐：候选 ${items.length} 条，选中 ${picked.length} 条，跳过 ${skipped.length} 条`)
   if (!picked.length) return { ok: true, sent: 0, reason: 'no-pick' }
-  const reasons = {}
+  const videos = []
   for (const item of picked) {
+    if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
     try {
-      reasons[item.bvid] = cleanReply(await llm.chat(recommendReasonMessages(item, mood?.description ?? '')), 60)
-    } catch (error) {
-      log('[fatfish] 推荐理由生成失败：' + (error?.message ?? error))
+      const evidence = await bili.recommendationEvidence(item.bvid)
+      if (evidence) videos.push({ item: { ...item, title: evidence.title || item.title }, evidence })
+    } catch {
+      log('[fatfish] B站推荐读取分镜失败，本次跳过该候选')
     }
   }
-  const text = buildRecommendMessage(picked, reasons)
-  if (!text) return { ok: true, sent: 0, reason: 'empty-text' }
-  const outcome = await deliver(deps, text)
-  if (outcome.sent > 0 && state) {
-    const next = [...picked.map((item) => item.bvid), ...seen].slice(0, SEEN_LIMIT)
-    state.seenBvid = next
-    await deps.saveState?.(state)
+  if (!videos.length || !allowed()) return { ok: true, sent: 0, skipped: 'no-storyboard-or-paused' }
+  let response
+  try {
+    const raw = await deps.llm.chat(recommendReasonMessages(videos), {
+      model: 'deepseek-flash', thinking: false, maxTokens: 480, temperature: 0.4,
+    })
+    response = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
+  } catch {
+    return { ok: false, sent: 0, reason: 'recommendation-analysis-failed' }
   }
-  return { ok: outcome.sent > 0, sent: outcome.sent, picked: picked.map((item) => item.bvid), ...outcome }
+  if (!Array.isArray(response?.recommendations)) return { ok: false, sent: 0, reason: 'recommendation-analysis-invalid' }
+  const reasons = Object.create(null)
+  const comments = Object.create(null)
+  for (const row of response.recommendations) {
+    const video = videos.find(({ item }) => item.bvid === row?.bvid)
+    if (!video || !Number.isInteger(row.cell) || row.cell < 1 || row.cell > 6
+      || !new RegExp(`\\bcell ${row.cell}\\b`, 'i').test(video.evidence.manifest)
+      || typeof row.observation !== 'string' || !row.observation.trim() || typeof row.reason !== 'string') continue
+    const reason = cleanReply(row.reason, 0).replace(/\s+/g, ' ')
+    if (reasonIsAcceptable(reason) && Array.from(reason).length <= 45) reasons[row.bvid] = reason
+    const comment = whaleComment(row.comment)
+    if (comment) comments[row.bvid] = comment
+  }
+  const batch = []
+  let text = ''
+  for (const { item } of videos) {
+    if (!reasons[item.bvid]) continue
+    const candidate = { ...item, title: Array.from(item.title).slice(0, 90).join('') }
+    const formatted = '老大，本鱼挑了这几条：\n' + buildRecommendMessage([...batch, candidate], reasons)
+    if (Array.from(formatted).length > 500) break
+    batch.push(candidate)
+    text = formatted
+  }
+  if (!batch.length || !allowed()) return { ok: true, sent: 0, skipped: 'no-grounded-recommendation-or-paused' }
+  const ids = batch.map(item => item.bvid)
+  const receipt = { at: (deps.now ?? new Date()).toISOString(), dm: { status: 'sending' }, comments: {}, picked: ids }
+  state.lastRecommendation = receipt
+  // The write may reach Bilibili even if the subprocess or host stops before returning a receipt.
+  state.seenBvid = [...ids, ...seen].slice(0, SEEN_LIMIT)
+  await saveState(state)
+  try {
+    receipt.dm = allowed() ? await bili.recommendDm(text) : { status: 'paused' }
+  } catch {
+    receipt.dm = { status: 'uncertain' }
+  }
+  await saveState(state)
+  if (receipt.dm.status !== 'sent') return { ok: false, sent: 0, picked: ids, dm: receipt.dm.status }
+  for (const bvid of ids) {
+    if (!allowed() || settings()?.workflows?.recommend?.commentEnabled !== true) break
+    if (!comments[bvid]) continue
+    receipt.comments[bvid] = { status: 'sending' }
+    await saveState(state)
+    try {
+      receipt.comments[bvid] = allowed() && settings()?.workflows?.recommend?.commentEnabled === true
+        ? await bili.recommendComment(bvid, receipt.dm.uid, comments[bvid]) : { status: 'paused' }
+    } catch {
+      receipt.comments[bvid] = { status: 'uncertain' }
+    }
+    await saveState(state)
+    if (receipt.comments[bvid].status !== 'sent') {
+      return { ok: false, sent: 1, picked: ids, comment: receipt.comments[bvid].status }
+    }
+  }
+  return { ok: true, sent: 1, picked: ids, commentsSent: Object.values(receipt.comments).filter(row => row.status === 'sent').length }
 }
 
 /** 收件箱摘要：有未读就发，没有就静默。 */

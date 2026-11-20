@@ -14,7 +14,7 @@ export function compileSettings(config) {
   for (const window of config.busyWindows) if (window.start === window.end) throw new Error('忙碌窗口开始和结束不能相同');
   const policy = { ...config.identity, silent: config.reply.silent, busyText: config.reply.busyText || 'DeepSeek这会儿峰时，{hour}再来找我', normalKeywords: config.reply.normalKeywords,
     groupCooldownMs: config.reply.groupCooldownSeconds * 1000, userCooldownMs: config.reply.userCooldownSeconds * 1000,
-    dedupMs: config.reply.dedupSeconds * 1000, busyWindows: config.busyWindows };
+    dedupMs: config.reply.dedupSeconds * 1000, busyWindows: config.peakEnabled === false ? [] : config.busyWindows };
   const channel = item => ({ enabled: item.enabled, base: item.basePercent / 100, step: item.stepPercent / 100, max: item.maxPercent / 100 });
   const behavior = { version: 1,
     voice: { ...channel(config.voice), text_alongside_voice: config.voice.textAlongsideVoice,

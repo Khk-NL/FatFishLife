@@ -17,11 +17,16 @@ export function runBili(args, options = {}) {
   const bin = options.bin ?? DEFAULT_BILI_BIN
   const timeout = options.timeoutMs ?? 30_000
   return new Promise((resolve, reject) => {
-    execFile(bin, args, { timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' },
-      (error, stdout, stderr) => {
+    const child = execFile(bin, args, { timeout, windowsHide: true, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' },
+      (error, stdout) => {
         if (error) {
-          const detail = String(stderr ?? '').trim().split(/\r?\n/).pop() || error.message
-          reject(new Error('bili ' + args[0] + ' 失败：' + detail))
+          // Node's error.message includes argv, which may contain an unpublished post.
+          const operation = /^[a-z-]+$/.test(args[0]) ? args[0] : 'command'
+          const codes = /"(?:code|retcode)"\s*:\s*"?(-?\d{1,8})"?/.exec(String(stdout ?? ''))
+          const detail = codes ? `platform-code=${codes[1]}`
+            : typeof error.code === 'number' ? `exit=${error.code}`
+              : /^[A-Z_0-9]{1,32}$/.test(error.code ?? '') ? error.code : error.killed ? 'timeout' : 'unconfirmed'
+          reject(new Error(`bili ${operation} 失败：${detail}`))
           return
         }
         const text = String(stdout ?? '').trim()
@@ -30,11 +35,18 @@ export function runBili(args, options = {}) {
           return
         }
         try {
-          resolve(JSON.parse(text))
+          resolve(options.receiptIds ? JSON.parse(text, (key, value, source) =>
+            ['uid', 'mid', 'msg_key', 'rpid'].includes(key) && typeof value === 'number'
+              ? source?.source ?? value : value) : JSON.parse(text))
         } catch {
           reject(new Error('bili ' + args[0] + ' 输出不是 JSON'))
         }
       })
+    if (options.stdin !== undefined && child.stdin) {
+      // If the command exits before reading, the callback above reports its exit.
+      child.stdin.on('error', error => { if (error.code !== 'EPIPE') reject(new Error('bili stdin unavailable')) })
+      child.stdin.end(options.stdin, 'utf8')
+    }
   })
 }
 
@@ -56,6 +68,33 @@ export async function feedInbox(options = {}) {
   if (payload?.ok === false) throw new Error('bili feed inbox 返回 ok=false')
   const items = payload?.data?.items ?? payload?.data?.messages ?? []
   return Array.isArray(items) ? items : []
+}
+
+function receiptId(value) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return ''
+  const id = String(value ?? '')
+  return /^[1-9][0-9]*$/.test(id) ? id : ''
+}
+
+/** CLI 自行校验主人和私信往来，保留其首次私信限制。 */
+export async function recommendDm(text, options = {}) {
+  const payload = await (options.run ?? runBili)(['dm', 'send', 'owner', '--file', '-'],
+    { ...options, stdin: text, timeoutMs: 90_000, receiptIds: true })
+  const uid = receiptId(payload?.data?.uid)
+  const messageId = receiptId(payload?.data?.msg_key)
+  return payload?.ok === true && payload.data.sent === true && uid && messageId
+    ? { status: 'sent', uid, messageId } : { status: 'uncertain' }
+}
+
+/** 评论使用本批已确认的私信 UID，并核验平台实际解析的 @。 */
+export async function recommendComment(bvid, uid, text, options = {}) {
+  const payload = await (options.run ?? runBili)(['comment', 'post', bvid, '--file', '-', '--at', uid, '--wait'],
+    { ...options, stdin: text, timeoutMs: 90_000, receiptIds: true })
+  const rpid = receiptId(payload?.data?.rpid)
+  if (payload?.ok !== true || !rpid) return { status: 'uncertain' }
+  const mentions = payload.data.mentions
+  const resolved = Array.isArray(mentions) && mentions.some(item => receiptId(item?.mid) === uid && item?.resolved === true)
+  return { status: resolved ? 'sent' : 'mention-unconfirmed', rpid }
 }
 
 /** 复用现有 bili dynamic post；调用方须传入管理界面的实时发布许可。 */

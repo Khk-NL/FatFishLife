@@ -26,7 +26,7 @@ class WechatJobsTest(unittest.TestCase):
             store = MemoryStore(folder / "memory.db")
             stamp = int(time.time())
             sample = {"ok": True, "data": {"items": [{"bvid": "BV1abcdefgh1", "title": "工作流样例",
-                "desc": "来自公开视频简介", "play": 10, "pubdate": stamp}]}}
+                "desc": "来自公开视频简介", "play": 100_000, "pubdate": stamp}]}}
             subtitle = {"ok": True, "data": {"bvid": "BV1abcdefgh1", "text": "合成字幕记录了插件的三个安装步骤。"}}
             with patch.object(wechat_jobs, "_desktop", return_value=folder), patch.object(
                 wechat_jobs.bili, "run", side_effect=[sample, subtitle],

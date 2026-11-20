@@ -15,7 +15,7 @@ def pack() -> Path:
     with tarfile.open(target, 'w:gz') as archive:
         for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'ops.mjs', 'settings.mjs',
                      'business.mjs', 'proactive.mjs', 'compose.mjs', 'llm.mjs', 'hub.mjs', 'qzone.mjs', 'bili.mjs', 'transport.mjs',
-                     'availability.mjs', 'video-evidence.mjs',
+                     'availability.mjs', 'video-evidence.mjs', 'whale-voice.mjs',
                      'moodsync.mjs',
                      'petmood.mjs',
                      'speakup.mjs',

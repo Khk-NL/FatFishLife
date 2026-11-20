@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  MAX_RECOMMENDATIONS, MIN_REASON_LENGTH, RECOMMEND_KEYWORDS,
+  MAX_RECOMMENDATIONS, MIN_REASON_LENGTH, MIN_BILI_VIEWS, RECOMMEND_KEYWORDS,
   buildRecommendationDrafts, reasonIsAcceptable, selectRecommendations,
 } from '../control/ops.mjs'
 
@@ -51,6 +51,14 @@ test('空输入不抛错', () => {
   assert.deepEqual(selectRecommendations(undefined).picked, [])
   assert.deepEqual(selectRecommendations([]).skipped, [])
 })
+
+test('选片只接受可核实的十万播放并且去重', () => {
+  const high = { bvid: 'BVtop', title: '明日方舟', stat: { view: 100_000 } };
+  const result = selectRecommendations([...feed, high, high,
+    { bvid: 'BVunder', title: '明日方舟', stat: { view: 99_999 } }], { minimumViews: MIN_BILI_VIEWS });
+  assert.deepEqual(result.picked.map(item => item.bvid), ['BVtop']);
+  assert.equal(result.skipped.length, 6);
+});
 
 test('理由太短的一律剔除，不生成占位文案', () => {
   assert.equal(reasonIsAcceptable('好看'), false)

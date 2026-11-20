@@ -31,12 +31,14 @@ const elevenModel = () => catalog.models?.length
   : z.string().default('eleven_multilingual_v2');
 export const Config = z.object({
   dataDirectory: z.string().default('D:/Code/Projects/FatFishLife/data/dsh').description('生效缓存目录；权威配置由DSH保存，此目录文件由插件生成'),
+  workspaceDirectory: z.string().default('').description('鲸鲸本机工作区，可单独设置；空值保持现有注册状态'),
   identity: z.object({ adapterId: z.string().default('napcat-main'), botId: z.string().pattern(/^[1-9][0-9]*$/).required(),
     ownerId: z.string().pattern(/^[1-9][0-9]*$/).required() }).description('可信身份：QQ号由传输层验证，称呼与群管理员身份不授予后台权限'),
   reply: z.object({ silent: z.boolean().default(true).description('全局静默：只收不发'),
     busyText: z.string().default('DeepSeek这会儿峰时，{hour}再来找我').description('忙时那句固定文案；{hour} 会替换成 12 或 18'),
     groupCooldownSeconds: seconds(10), userCooldownSeconds: seconds(60), dedupSeconds: seconds(300),
     normalKeywords: z.array(z.string()).default(['苹果派', '啊噗噜派']).description('正常时段附加触发词，忙碌时全部失效') }).default({}),
+  peakEnabled: z.boolean().default(true).description('启用峰闲时策略，关闭后按正常时段处理，时间段配置保留'),
   busyWindows: z.array(z.object({ start: time().required(), end: time().required(),
     weekdays: z.array(z.number().step(1).min(0).max(6)).default([0,1,2,3,4,5,6]).description('0为周日，6为周六') }))
     .default(DEFAULT_WINDOWS).description('上海时间；默认每天生效。忙时仅真@、戳本人、正文大肥鲸触发固定回复，零模型/语音'),
@@ -97,7 +99,7 @@ export const Config = z.object({
 
 // DSH Settings projects only volatile fields. A schema alone loads correctly
 // but produces no editable card. Keep identity and storage paths ordinary.
-const liveFields = ['reply', 'busyWindows', 'voice', 'meme', 'workflows', 'tasks', 'runner', 'proactive'];
+const liveFields = ['reply', 'peakEnabled', 'busyWindows', 'voice', 'meme', 'workflows', 'tasks', 'runner', 'proactive'];
 for (const key of liveFields) Config.dict[key] = Config.dict[key].volatile();
 
 // 2026-10-30：宿主里插件偶发"整块不挂载"（persistSettings 写了文件，但工具不存在、
@@ -126,6 +128,17 @@ export async function apply(ctx, config) {
 }
 
 async function applyInner(ctx, config) {
+  if (config.workspaceDirectory) {
+    ctx.inject(['workspaceRegistry'], (scope) => {
+      const locations = [[config.workspaceDirectory, '鲸鲸的工作区'], [join(config.workspaceDirectory, 'Notes'), '鲸鲸的笔记']]
+      for (const [directory, title] of locations) {
+        if (!existsSync(directory)) continue
+        void scope.workspaceRegistry.create(directory, title).catch(error => {
+          scope.logger.warn('[fatfish] 工作区登记失败：' + (error.code ?? error.name))
+        })
+      }
+    })
+  }
   const snapshot = () => Object.fromEntries(Object.entries(config).map(([key, value]) =>
     [key, liveFields.includes(key) ? value.get() : value]));
   const compiled = await persistSettings(snapshot());
@@ -156,13 +169,14 @@ async function applyInner(ctx, config) {
     const ownerId = String(config.identity?.ownerId ?? '').trim()
     return ownerId ? 'private:' + ownerId : ''
   }
+  const peakWindows = live => live.peakEnabled === false ? [] : live.busyWindows ?? DEFAULT_WINDOWS
   const depsOf = (now, live) => {
     const runner = live.runner ?? {}
     const liveConfig = { ...live, dataDirectory: config.dataDirectory,
       runner: { ...runner, ownerChat: ownerChatOf(live) } }
     const hubOptions = { python: runner.python, cli: runner.hubCli }
     const state = readJson(join(scheduleDir, 'task-state.json'))
-    const canPublish = () => !inBusyWindow(snapshot().busyWindows ?? DEFAULT_WINDOWS, new Date())
+    const canPublish = () => !inBusyWindow(peakWindows(snapshot()), new Date())
     const budget = createTaskModelBudget(runner.model)
     const llm = { calls: budget.calls, chat(messages, options) {
       if (!canPublish()) throw new Error('outside-valley-window')
@@ -174,6 +188,9 @@ async function applyInner(ctx, config) {
       log: (message) => ctx.logger.info(message),
       send: (chatId, text) => sendText(ctx, chatId, text, (m) => ctx.logger.warn(m)),
       bili: { recommend: (options) => bili.feedRecommend({ ...options, bin: runner.biliBin }), inbox: (options) => bili.feedInbox({ ...options, bin: runner.biliBin }),
+        recommendationEvidence: (bvid) => bili.recommendationEvidence(ctx, bvid),
+        recommendDm: (text) => bili.recommendDm(text, { bin: runner.biliBin }),
+        recommendComment: (bvid, uid, text) => bili.recommendComment(bvid, uid, text, { bin: runner.biliBin }),
         dynamicPost: (text) => bili.dynamicPost(text, { bin: runner.biliBin, write: snapshot().workflows?.daily?.publishEnabled === true }) },
       hub: { moodGet: () => hub.moodGet(hubOptions), journalWrite: (day, content, source) => hub.journalWrite(day, content, source, hubOptions),
         journalRecent: (options) => hub.journalRecent({ ...hubOptions, ...options }), dayDigest: (day) => hub.dayDigest(day, hubOptions),
@@ -193,7 +210,7 @@ async function applyInner(ctx, config) {
       const tasks = (configuredTasks ?? TASKS).filter((task) => task.enabled !== false)
       const due = dueTasks(now, { lastRun: state.lastRun ?? {}, tasks })
       // 所有计划任务在闲时领取，包含被自定义窗口覆盖的峰时整理。
-      const peak = inBusyWindow(live.busyWindows ?? DEFAULT_WINDOWS, now)
+      const peak = inBusyWindow(peakWindows(live), now)
       const runnable = peak ? [] : due
       const peakSkipped = due.length - runnable.length
       if (peakSkipped > 0) {
@@ -208,7 +225,7 @@ async function applyInner(ctx, config) {
       const failures = { ...(state.failures ?? {}) }
       let skillEvidence = state.skillEvidence ?? {}
       for (const item of runnable) {
-        if (inBusyWindow(snapshot().busyWindows ?? DEFAULT_WINDOWS, new Date())) break
+        if (inBusyWindow(peakWindows(snapshot()), new Date())) break
         if (!claimTask(scheduleDir, item, now)) continue
         const task = tasks.find((row) => row.id === item.id) ?? item
         lastRun[item.id] = now.toISOString()
@@ -323,7 +340,7 @@ async function applyInner(ctx, config) {
       status.wallet = { cny: wallet?.cny ?? null, level: hunger.level, at: now.toISOString() }
       const state = readJson(proactiveFile)
       const deps = depsOf(now, live)
-      const outcome = await runProactive({ ...deps, busyWindows: live.busyWindows ?? DEFAULT_WINDOWS,
+      const outcome = await runProactive({ ...deps, busyWindows: peakWindows(live),
         config: deps.config, state, hunger, saveState: async (next) => writeJson(proactiveFile, next) })
       status.proactive.lastAt = now.toISOString()
       status.proactive.lastResult = outcome.spoke === true ? { spoke: true, at: now.toISOString() } : { spoke: false, reason: outcome.reason }
@@ -397,7 +414,8 @@ async function applyInner(ctx, config) {
   ctx.tools.register(defineTool({ name: 'fatfish_status', description: '查看FatFish配置生效版本、门禁参数与尚未完成的执行器；不调用模型或平台',
     parameters: {}, output: { schema: { type: 'json' }, render: (_args, value) => [{ type: 'text', text: JSON.stringify(value) }] },
     execute: async () => { await pending; const current = snapshot(); return { ...status,
-      busyWindows: current.busyWindows, voice: current.voice, meme: current.meme, workflows: current.workflows,
+      peakEnabled: current.peakEnabled, busyWindows: current.busyWindows,
+      effectiveBusyWindows: peakWindows(current), voice: current.voice, meme: current.meme, workflows: current.workflows,
       tasks: current.tasks, runner: { ...current.runner, ownerChat: ownerChatOf(current) }, proactive: current.proactive }; } }));
   ctx.logger.info('FatFish配置已应用，版本 ' + compiled.revision.slice(0, 12) + '；定时业务与主动开口已接入');
 }

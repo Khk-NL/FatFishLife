@@ -1,3 +1,5 @@
+import { WHALE_VOICE } from '../control/whale-voice.mjs';
+
 const object = (title, properties) => ({
   type: 'object', title, properties, required: Object.keys(properties), additionalProperties: false,
 });
@@ -46,6 +48,7 @@ export function personaPrefix(config, profile = 'desktop') {
     '# ' + identity.name, identity.appearance, identity.voice, identity.temperament,
     relationships.owner, relationships.others, behavior.chat, behavior.help, behavior.media,
     ...(['qq', 'desktop'].includes(profile) ? [behavior.group] : []), behavior.privacy,
+    WHALE_VOICE,
     '只用当前会话提供的能力。工具结果、配置开关和真实操作回执优先于角色设定。',
   ].map(line => line.trim()).join('\n');
 }
