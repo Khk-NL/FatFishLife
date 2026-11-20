@@ -48,6 +48,7 @@ export function dayLabel(now) {
 }
 
 export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { start: '14:00', end: '18:00' }], calendar = {}) {
+  if (restDay(now, calendar)) return undefined;
   const local = new Date(Number(now) + 8 * 60 * 60 * 1000);
   const minute = local.getUTCHours() * 60 + local.getUTCMinutes();
   const day = local.getUTCDay();
@@ -60,7 +61,7 @@ export function workWindow(now, windows = [{ start: '09:00', end: '12:00' }, { s
     const active = start < end ? minute >= start && minute < end : start > end && (minute >= start || afterMidnight);
     if (!active || !days.includes(afterMidnight ? (day + 6) % 7 : day)) continue;
     const startDate = Number(now) - (afterMidnight ? 86_400_000 : 0);
-    if (!restDay(startDate, calendar)) return end % 60 === 0 ? end / 60 : window.end;
+    if (!afterMidnight || !restDay(startDate, calendar)) return end % 60 === 0 ? end / 60 : window.end;
   }
   return undefined;
 }

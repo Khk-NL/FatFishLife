@@ -40,8 +40,9 @@ test('节假日名字可用于自检日志', () => {
 });
 
 test('运营使用北京时间和同一工作日规则，午夜延续前一天的窗口', () => {
-  const windows = [{ start: '23:55', end: '00:20', weekdays: [5] }];
-  assert.equal(inBusyWindow(windows, new Date(at('11-07T00:19:00'))), true);
-  assert.equal(inBusyWindow(windows, new Date(at('11-07T00:20:00'))), false);
+  const windows = [{ start: '23:55', end: '00:20', weekdays: [4, 5] }];
+  assert.equal(inBusyWindow(windows, new Date(at('11-06T00:19:00'))), true);
+  assert.equal(inBusyWindow(windows, new Date(at('11-06T00:20:00'))), false);
+  assert.equal(inBusyWindow(windows, new Date(at('11-07T00:19:00'))), false);
   assert.equal(scheduledFor(new Date('2026-11-06T17:00:00Z'), '12:05').toISOString(), '2026-11-07T04:05:00.000Z');
 });
