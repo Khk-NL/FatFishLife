@@ -5,7 +5,7 @@ import { personaPrefix, validateCard } from './model.mjs';
 export const name = 'fatfish-persona';
 export const inject = ['systemPrompt', 'tools'];
 
-const houseTools = new Set(['compress', 'decompress', 'search_context', 'acp_status']);
+const houseTools = new Set(['compress', 'decompress', 'search_context', 'acp_status', 'wechat_capability_internal']);
 const isHouseTool = tool => houseTools.has(tool?.split('__').at(-1));
 
 export function apply(ctx, config = {}) {

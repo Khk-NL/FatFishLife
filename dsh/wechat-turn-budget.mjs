@@ -1,16 +1,22 @@
 // Use the host's native executor and guard; only the WeChat scope's schema view changes.
-export function installWechatTextOnly(agentCtx, onStop = () => {}) {
+export function installWechatTextOnly(agentCtx, onStop = () => {}, { available = () => false } = {}) {
   const tools = agentCtx.get('tools');
   if (!tools?.guard || !tools.setExecutor || !tools.selectExecutor) {
     throw new Error('微信会话所需的 DSH 工具限制不可用。');
   }
   const executor = tools.selectExecutor();
-  tools.guard(() => '微信只回复文字，桌面工具请在 DSH 使用。');
-  tools.setExecutor({
-    describe: () => ({ schemas: [] }),
-    execute: input => executor.execute(input),
-  });
   let steps = 0;
+  tools.guard(exec => steps === 1 && available(exec.name) ? undefined : '当前微信回合没有开放这项工具。');
+  tools.setExecutor({
+    describe: definitions => {
+      if (steps !== 0) return { schemas: [] };
+      const allowed = definitions.filter(definition => available(definition.name));
+      if (!allowed.length) return { schemas: [] };
+      const descriptions = executor.describe(allowed);
+      return { schemas: descriptions.schemas.filter(schema => allowed.some(tool => tool.name === schema.name)) };
+    },
+    execute: input => executor.execute({ ...input, maxParallelToolCalls: 1 }),
+  });
   agentCtx.on('session/event', (_session, event) => {
     if (event.type === 'turn/start') steps = 0;
   });

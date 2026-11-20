@@ -49,8 +49,22 @@ def adapt_bridge(source):
           owner: this.#isBoundOwner(conversationKey),
           currentText: () => this.#pending.get(this.store.sessionFor(conversationKey))?.[0]?.fatfishQuery ?? '',
         }),''')
-    source = replace_once(source, '      queue.push(pending)',
-                          "      pending.fatfishQuery = String(content.text ?? '').slice(0, 600)\n      queue.push(pending)")
+    source = replace_once(source, '      queue.push(pending)', '''      pending.fatfishQuery = String(content.text ?? '').slice(0, 600)
+      pending.fatfishPrivate = Boolean(botId && !message.group_id)
+      const parts = Array.isArray(message.item_list) ? message.item_list : []
+      if (pending.fatfishPrivate && parts.length === 1 && itemType(parts[0]) === ITEM_TYPE.TEXT && !parts[0].ref_msg) {
+        pending.fatfishDirect = itemPayload(parts[0]).text
+        pending.fatfishMemory = ownerMemory(pending.fatfishDirect)
+        pending.fatfishApp = ownerDesktopApp(pending.fatfishDirect)
+        pending.fatfishWorkflow = ownerWorkflow(pending.fatfishDirect)
+      }
+      const sourceId = message.message_id ?? message.messageId
+      if (typeof sourceId === 'string' || Number.isSafeInteger(sourceId)) pending.fatfishSource = String(sourceId).slice(0, 250)
+      queue.push(pending)
+      if (this.#isBoundOwner(conversationKey)) {
+        void Promise.resolve(stageWechatNote(this.ctx, conversationKey, pending))
+          .catch(() => this.logger.warn?.('WeChat note staging failed'))
+      }''')
     source = replace_once(source, '  /** Mark one bot', '''  #isBoundOwner(conversationKey) {
     const sender = userIdOf(conversationKey)
     const credential = this.store.credentialsFor(this.#botOf(conversationKey))
@@ -82,15 +96,20 @@ def adapt_bridge(source):
         return { agent: live, sessionId: boundSessionId, created: false }
       }''', '''      if (live) throw new Error('微信绑定的会话正在由 DSH 使用，请在 DSH 中继续。')''')
     source = replace_once(source, '    this.#registerChannelPrompt(agentCtx, conversationKey)\n',
-                          '''    installWechatTextOnly(agentCtx, stop => {
-      const pending = this.#pending.get(this.store.sessionFor(conversationKey))?.[0]
+                          '''    const current = () => this.#pending.get(this.store.sessionFor(conversationKey))?.[0]
+    const capabilities = installWechatCapabilities(agentCtx, this.ctx, {
+      conversation: conversationKey, owner: () => this.#isBoundOwner(conversationKey), current,
+    })
+    installWechatTextOnly(agentCtx, stop => {
+      const pending = current()
       if (pending) pending.fatfishStop = stop.reason
       this.logger.warn?.(JSON.stringify({ event: 'wechat-turn-stop', at: new Date().toISOString(), ...stop }))
-    })
+    }, capabilities)
     this.#registerChannelPrompt(agentCtx, conversationKey)
 ''')
     source = replace_once(source, 'export class WechatBridge {',
                           "import { installWechatTextOnly } from './fatfish-wechat-turn-budget.mjs'\n"
+                          "import { chooseWechatSticker, installWechatCapabilities, ownerDesktopApp, ownerMemory, ownerWorkflow, stageWechatNote } from './fatfish-wechat-capabilities.mjs'\n"
                           "export { installWechatTextOnly }\n\nexport class WechatBridge {")
     source = replace_once(source, '    if (kind === \'completed\') {\n      if (text.length === 0)',
                           '''    if (pending.fatfishStop) {
@@ -133,6 +152,9 @@ def adapt_bridge(source):
     source = replace_once(source, "import { checkAccess } from './config.js'\n", '')
     source = replace_once(source, '    if (!userId) throw new Error(`dsh-wechat: cannot address conversation ${conversationKey}`)\n    return this.#enqueueSend',
                           '    if (!userId || !this.#isBoundOwner(conversationKey)) return 0\n    return this.#enqueueSend')
+    source = replace_once(source, "    await this.deliver(pending.conversationKey, parts.join('\\n\\n'), { pending })",
+                          "    await this.deliver(pending.conversationKey, parts.join('\\n\\n'), { pending,\n"
+                          "      fatfishSticker: kind === 'completed' && !pending.fatfishStop ? text : '' })")
     start = source.index('    if (!contextToken) {', source.index('  async #deliverNow('))
     end = source.index('\n  /**', source.index('  async #sendWithRetry(', start))
     return source[:start] + '''    if (!contextToken) return 0
@@ -154,19 +176,38 @@ def adapt_bridge(source):
     }
     if (options.pending) this.#stopTyping(options.pending)
     await this.store.saveState()
+    if (sent > 0 && sent === chunks.length && options.pending && options.fatfishSticker) {
+      try {
+        const sticker = await chooseWechatSticker(this.ctx, conversationKey, options.pending, options.fatfishSticker)
+        if (sticker && this.#isBoundOwner(conversationKey) && this.store.contextTokenFor(userId, botId) === contextToken
+            && mediaTypeFor(sticker) === 1) {
+          const client = this.#clientFor(botId)
+          const result = await uploadLocalFile({ client, filePath: sticker, toUserId: userId,
+            maxBytes: 4 * 1024 * 1024, mediaType: 1 })
+          if (!this.#isBoundOwner(conversationKey) || this.store.contextTokenFor(userId, botId) !== contextToken) return sent
+          await client.sendMessage({ toUserId: userId, contextToken, clientId: newClientId(), item: result.item })
+          this.logger.info?.(JSON.stringify({ event: 'wechat-sticker-sent' }))
+        }
+      } catch {
+        this.logger.warn?.(JSON.stringify({ event: 'wechat-sticker-unconfirmed' }))
+      }
+    }
     return sent
   }
 ''' + source[end:]
 
 
 def adapt_entry(source):
+    source = replace_once(source, "import { createWechatTools, registerTools } from './tools.js'\n",
+                          "import { startWechatMemoryClock } from './fatfish-wechat-capabilities.mjs'\n")
+    source = replace_once(source, "    const bound = store.botIds",
+                          "    cleanups.push(startWechatMemoryClock(ctx, logger))\n    const bound = store.botIds")
     source = replace_once(source, 'ownsInteraction: (sessionId) => bridge?.isDrivingTurn(sessionId) ?? false,',
                           'ownsInteraction: () => false,')
     source = replace_once(source, 'watchesInteraction: (sessionId) => bridge?.watchesInteraction(sessionId) ?? false,',
                           'watchesInteraction: () => false,')
-    source = replace_once(source, "import { createWechatTools, registerTools } from './tools.js'\n", '')
     start = source.index('    // Tools arrive only if this profile')
-    end = source.index('    const bound = store.botIds', start)
+    end = source.index('    cleanups.push(startWechatMemoryClock', start)
     return source[:start] + source[end:]
 
 
@@ -212,6 +253,7 @@ def main():
         for filename, target in [('wechat-shared-context.mjs', CONTEXT),
                                  ('persona/model.mjs', 'package/lib/persona/model.mjs'),
                                  ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
+                                 ('wechat-capabilities.mjs', 'package/lib/fatfish-wechat-capabilities.mjs'),
                                  ('fatfish-wechat-media.mjs', 'package/lib/fatfish-wechat-media.mjs'),
                                  ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:
             module = (ROOT / 'dsh' / filename).read_bytes()

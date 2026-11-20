@@ -779,6 +779,58 @@ def operations_overview(view: Literal["health", "receipts", "skills"] = "health"
     return operational.skill_candidates(folder)
 
 
+@server.tool(description="宿主内部微信能力。仅接受认证桥接生成的短期签名。")
+def wechat_capability_internal(body: str, mac: str) -> dict[str, Any]:
+    from fatfish_core import wechat_memory
+
+    root = Path(os.environ.get("FATFISH_DSH_DATA") or Path(__file__).resolve().parents[2] / "data/dsh")
+    try:
+        request = wechat_memory.verified_request(root / "wechat-capability.key", body, mac)
+    except (OSError, ValueError, TypeError):
+        raise ToolError("微信能力授权已失效。") from None
+    op, value = request["op"], request["value"]
+    if op in ("save", "stage"):
+        # The bridge consent authorizes only this append-only path.
+        deadline = wechat_memory.due_at(request["time"]) if op == "stage" else None
+        return wechat_memory.save(store(), request["scope"], request["turn"], value, pending_until=deadline)
+    if op == "flush":
+        if request["scope"] != "0" * 64 or value:
+            raise ToolError("该操作仅供宿主调度。")
+        return wechat_memory.flush(store(), request["time"])
+    if op == "status":
+        if value not in ("outlook", "automas", "xuexitong", "all"):
+            raise ToolError("应用不在微信工具清单。")
+        return desktop_status(value)
+    if op == "open":
+        from dsh.service.desktop_apps import open_desktop_app
+        if value not in ("outlook", "outlook-classic", "automas", "xuexitong"):
+            raise ToolError("应用不在微信工具清单。")
+        if not wechat_memory.claim_open(store(), request["scope"], request["turn"], request["time"]):
+            return {"ok": False, "reason": "desktop-launch-already-requested"}
+        return open_desktop_app(value)
+    if op == "sticker":
+        tag, _, mode = value.partition("|")
+        if len(tag) > 12 or mode not in ("", "explicit"):
+            raise ToolError("无效的图片筛选条件。")
+        try:
+            return {"ok": True, "paths": gallery.wechat_images(tag, explicit=mode == "explicit")}
+        except (OSError, RuntimeError):
+            return {"ok": False, "paths": []}
+    if op in ("job", "jobs"):
+        from fatfish_core import wechat_jobs
+        if op == "jobs":
+            return wechat_jobs.recent(store(), request["scope"])
+        return wechat_jobs.submit(store(), request["scope"], request["turn"], value, request["time"])
+    if len(value) > 72:
+        raise ToolError("查询词太长。")
+    if op == "find":
+        return wechat_memory.find(store(), request["scope"], value)
+    if not value.strip():
+        raise ToolError("查询词为空。")
+    result = hub_api.lore_context(value, 600)
+    return {"ok": not bool(result.get("error")), "reference": str(result.get("context", ""))[:600]}
+
+
 def main() -> None:
     server.run()
 

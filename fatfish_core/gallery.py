@@ -117,3 +117,29 @@ def stats(root_dir: Path | None = None) -> dict:
         "described": sum(1 for i in items if i["caption"]),
         "broken": sum(1 for i in items if i["bytes"] == 0),
     }
+
+
+def wechat_images(tag: str, *, explicit: bool) -> list[str]:
+    """Select only bounded, verified image files physically inside the gallery."""
+    base = root().resolve()
+    candidates = find(tag, limit=12, root_dir=base)
+    if not candidates and explicit:
+        candidates = images(base)
+        random.shuffle(candidates)
+    paths = []
+    for entry in candidates:
+        path = Path(entry["path"]).resolve()
+        if (not path.is_relative_to(base) or not 12 <= entry["bytes"] <= 4 * 1024 * 1024
+                or path.suffix.lower() not in IMAGE_SUFFIX):
+            continue
+        try:
+            with path.open("rb") as handle:
+                head = handle.read(12)
+        except OSError:
+            continue
+        if (head.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a"))
+                or (head.startswith(b"RIFF") and head[8:12] == b"WEBP")):
+            paths.append(str(path))
+            if len(paths) == 5:
+                break
+    return paths
