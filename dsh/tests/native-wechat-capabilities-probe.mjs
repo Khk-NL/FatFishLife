@@ -23,14 +23,14 @@ export function apply(ctx) {
     assert.equal(ownerWorkflow('总结今天邮箱里的邮件'), 'mail-today');
     assert.equal(ownerWorkflow('在 b 站发个视频记录你的所思所想'), 'bili-video');
     const requests = [];
+    let nextTool = { type: 'tool-call', id: 'memory-call', name: 'wechat_memory_save', arguments: '{}' };
     class Local extends LlmAdapter {
       async *stream(options) {
         requests.push(options);
-        const block = requests.length === 1
-          ? { type: 'tool-call', id: 'memory-call', name: 'wechat_memory_save', arguments: '{}' }
-          : { type: 'text', text: '记好啦' };
+        const toolStep = requests.length % 2 === 1;
+        const block = toolStep ? nextTool : { type: 'text', text: '收到啦' };
         yield { type: 'block-end', index: 0, block };
-        yield { type: 'finish', reason: { kind: requests.length === 1 ? 'tool-calls' : 'stop' } };
+        yield { type: 'finish', reason: { kind: toolStep ? 'tool-calls' : 'stop' } };
       }
     }
     ctx.llm.registerAdapter(['wechat-local-approval-mock'], new Local());
@@ -57,6 +57,19 @@ export function apply(ctx) {
       const denied = await ctx.tools.execute({ agent: handle.agent, signal: AbortSignal.timeout(3000),
         calls: [{ type: 'tool-call', id: 'mcp-bypass', name: 'mcp__fatfish__wechat_capability_internal', arguments: '{}' }] });
       assert.equal(denied.results[0].result.isError, true);
+
+      Object.assign(pending, { id: 'preview-fixture', turn: 2, fatfishMemory: null, fatfishWritten: false, fatfishWorkflow: 'bili-video' });
+      nextTool = { type: 'tool-call', id: 'preview-call', name: 'wechat_job_submit', arguments: JSON.stringify({
+        title: '鲸鲸想种海草', reflection: '今天想给窗台留一点绿色。',
+        shots: ['把一只花盆抱到窗边。', '鲸鲸将海草栽进花盆。', '鲸鲸站在窗边看风吹过。'],
+      }) };
+      handle.agent.followup(createUserMessage({ source: { kind: 'plugin:dsh-wechat' },
+        content: [{ type: 'text', text: '在 B 站发个随想视频' }] }));
+      await handle.agent.whenIdle();
+      assert.equal(requests.length, 4);
+      assert.ok(requests[2].tools.some(tool => tool.name === 'wechat_job_submit'));
+      assert.match(JSON.stringify(requests[3].messages), /pending-review/);
+      assert.equal(requests[3].tools?.length ?? 0, 0);
     } finally { await handle.dispose(); }
 
     const events = [];
@@ -98,7 +111,7 @@ export function apply(ctx) {
     });
     assert.deepEqual(events.slice(4), ['text', 'get-upload-url', 'cdn-failed']);
     await writeFile(process.env.FATFISH_WECHAT_RECEIPT, JSON.stringify({
-      twoModelSteps: true, mcpWriteConfirmed: true, forgedToolDenied: true,
+      twoModelSteps: true, mcpWriteConfirmed: true, forgedToolDenied: true, videoDraftConfirmed: true,
       imageTransport: events.slice(0, 4), mediaFailureNoRetry: true, zeroPaidRequests: true, zeroPlatformWrites: true,
     }));
     process.exit(0);

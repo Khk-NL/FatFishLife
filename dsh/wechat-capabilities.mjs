@@ -13,7 +13,7 @@ const spec = {
   wechat_lore: ['lore', '查本地公开知识库的证据与出处。'],
   wechat_desktop_status: ['status', '查本机 Outlook、AUTO-MAS 或学习通是否运行。不读取邮件、课程或账号。'],
   wechat_desktop_open: ['open', '按主人本轮的明确请求打开已注册的桌面应用。应用由入口确定。'],
-  wechat_job_submit: ['job', '执行或登记主人本轮明确要求的固定流程。只按回执说明文档、邮件授权、视频预览或 QQ 发送状态。'],
+  wechat_job_submit: ['job', '执行主人本轮明确要求的流程。文档、邮箱无需参数。视频只拟定可公开的随想分镜，按回执说明状态。'],
   wechat_jobs: ['jobs', '查这条微信私聊最近五个工作流的实际处理结果。'],
 }
 
@@ -131,7 +131,11 @@ export function installWechatCapabilities(agentCtx, hostCtx, {
     const write = ['save', 'open', 'job'].includes(op)
     tools.register(defineTool({
       name, description,
-      parameters: write || op === 'jobs' ? {} : op === 'status' ? {
+      parameters: op === 'job' ? {
+        title: { type: 'string', description: '视频分镜专用。拟一个最多 42 字的标题。' },
+        reflection: { type: 'string', description: '视频分镜专用。用鲸鲸的视角写最多 150 字可公开的随想，避免写入私聊、邮件或未经核实的经历。' },
+        shots: { type: 'array', items: { type: 'string' }, description: '视频分镜专用。按顺序写三个动作，每个最多 100 字。' },
+      } : write || op === 'jobs' ? {} : op === 'status' ? {
         app: { type: 'string', required: true, description: 'outlook、automas、xuexitong 或 all。' },
       } : {
         query: { type: 'string', required: true, description: '一个简短关键词，最多 72 字。' },
@@ -142,19 +146,28 @@ export function installWechatCapabilities(agentCtx, hostCtx, {
         if (!eligible(name, pending) || pending.turn == null || exec.agent?.session?.id !== pending.sessionId) {
           return { ok: false, reason: '当前微信回合没有授权此操作' }
         }
-        const value = op === 'save' ? pending.fatfishMemory.text
+        let value = op === 'save' ? pending.fatfishMemory.text
           : op === 'open' ? pending.fatfishApp : op === 'status' ? args.app
           : op === 'job' ? pending.fatfishWorkflow : op === 'jobs' ? '' : args.query
         if (typeof value !== 'string' || value.length > (op === 'save' ? 160 : 72)) {
           return { ok: false, reason: '参数太长' }
+        }
+        if (op === 'job' && value === 'bili-video') {
+          const { title, reflection, shots } = args
+          if (typeof title !== 'string' || title.length > 42 || typeof reflection !== 'string' || reflection.length > 150
+              || !Array.isArray(shots) || shots.length !== 3 || shots.some(shot => typeof shot !== 'string' || shot.length > 100)) {
+            return { ok: false, reason: '视频分镜需要标题、随想和三个镜头动作' }
+          }
+          value += '|' + JSON.stringify({ title, reflection, actions: shots })
         }
         if (write ? pending.fatfishWritten : (pending.fatfishReads ?? 0) >= 2) {
           return { ok: false, reason: '本条微信消息的工具额度已用完' }
         }
         if (write) pending.fatfishWritten = true
         else pending.fatfishReads = (pending.fatfishReads ?? 0) + 1
+        const report = op === 'job' && ['bili-report', 'bili-report-qq'].includes(value)
         return await callHost(hostCtx, folder, { conversation, pending, op, value },
-          AbortSignal.any([exec.signal, AbortSignal.timeout(12_000)]))
+          AbortSignal.any([exec.signal, AbortSignal.timeout(report ? 24_000 : 12_000)]))
           ?? { ok: false, reason: '能力结果未确认，请勿重试或声称成功' }
       },
     }))

@@ -1,5 +1,6 @@
 """Structured WeChat desktop requests and bounded Bilibili document workflow."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import html
 import os
@@ -7,6 +8,7 @@ from pathlib import Path
 import re
 
 from . import bili
+from .wechat_memory import SENSITIVE
 
 CHINA = timezone(timedelta(hours=8))
 WORKFLOWS = {"bili-report", "bili-report-qq", "mail-today", "bili-video"}
@@ -61,6 +63,24 @@ def report_items(items: list, today) -> list[dict]:
     return sorted(selected.values(), key=lambda item: (item["views"], item["at"]), reverse=True)[:10]
 
 
+def _subtitle_points(bvid: str) -> list[str]:
+    try:
+        result = bili.run("video", "subtitle", bvid, "--text", timeout=4)
+    except bili.BiliError:
+        return []
+    if not isinstance(result, dict) or result.get("ok") is not True:
+        return []
+    data = result.get("data")
+    if (not isinstance(data, dict) or data.get("bvid") != bvid
+            or not isinstance(data.get("text"), str)):
+        return []
+    sentences = [_clean(part, 100) for part in re.split(r"[。！？\n]+", data["text"])]
+    sentences = list(dict.fromkeys(part for part in sentences if len(part) >= 8))
+    if len(sentences) <= 3:
+        return sentences
+    return [sentences[index] for index in (0, len(sentences) // 2, len(sentences) - 1)]
+
+
 def _write_bili_report(job_id: str, timestamp: int) -> tuple[str, str, str]:
     day = datetime.fromtimestamp(timestamp, CHINA).date()
     result = bili.run("search", "video", "DSH 插件", "--order", "new", "--size", "50", timeout=8)
@@ -72,14 +92,19 @@ def _write_bili_report(job_id: str, timestamp: int) -> tuple[str, str, str]:
         return ("blocked", "", "no-confirmed-today-results")
     filename = f"DSH 插件视频-{day}-{job_id}.md"
     path = _desktop() / filename
+    with ThreadPoolExecutor(max_workers=4) as tasks:
+        subtitles = list(tasks.map(_subtitle_points, (item["bvid"] for item in matches)))
     lines = [f"# {day} DSH 插件视频", "",
              f"本次搜索结果中有 {len(matches)} 条可确认是北京时间当天发布的内容，按已知播放量排列。",
-             "摘要依据视频公开简介。", ""]
-    for item in matches:
+             "每条附公开简介及可用的首集字幕摘录。", ""]
+    for item, points in zip(matches, subtitles):
         lines += [f"## {item['title']}", "",
                   f"[观看原视频](https://www.bilibili.com/video/{item['bvid']})",
                   f"发布时间 {item['at']}，播放量 {item['views']}",
                   item["desc"] or "公开简介未返回。", ""]
+        lines += ["首集字幕摘录", "", *[f"- {point}" for point in points], ""] if points else [
+            "首集字幕未取得，本条仅列公开简介。", "",
+        ]
     with path.open("x", encoding="utf-8", newline="\n") as handle:
         handle.write("\n".join(lines))
     return ("completed", filename, "")
@@ -92,30 +117,36 @@ def _schema(conn) -> None:
         PRIMARY KEY (scope, source))""")
 
 
-def _draft_video(store, scope: str, timestamp: int) -> tuple[str, str, str]:
+def _draft_video(store, scope: str, timestamp: int, draft: dict) -> tuple[str, str, str]:
     from fatfish_story.updream import save_brief
 
     day = datetime.fromtimestamp(timestamp, CHINA).date().isoformat()
     base = store.path.parent / "wechat-updream-briefs"
+    title, reflection, actions = draft.get("title"), draft.get("reflection"), draft.get("actions")
+    if not isinstance(actions, list) or len(actions) != 3:
+        raise ValueError("Expected three narrative shots")
+    for value, limit in zip([title, reflection, *actions], [42, 150, 100, 100, 100]):
+        if not isinstance(value, str) or not 4 <= len(value.strip()) <= limit or SENSITIVE.search(value):
+            raise ValueError("Incomplete or private video draft")
     row = save_brief(base, f"{day} 鲸鲸随想", {
-        "title": "小鲸鱼的随想：想明白再开口",
-        "logline": "鲸鲸正想飞快发出一句感想，却在最后一刻发现没有核对来源。",
+        "title": title,
+        "logline": reflection,
         "characters": ["鲸鲸，蓝发小个子鲸鱼娘，有一条鲸尾"],
         "visual_style": "手绘动画，蓝绿色桌面灯光，三个镜头保留相同人物与桌面陈设。",
         "sound_plan": "桌面环境声、纸页和杯碟声，最后一句鲸鲸自述。配乐由审阅者确认授权。",
         "shots": [
-            {"duration": 6, "action": "鲸鲸写下几行想法，手悬在发送键前。",
-             "dialogue": "本鱼差点又要抢答。", "visual_prompt": "近景跟随手和草稿移动，尾巴轻拍椅背。"},
-            {"duration": 7, "action": "她把可查来源的纸条和自己的猜想摊成两摞。",
-             "dialogue": "", "visual_prompt": "俯拍纸条被推开，画面只保留抽象记号，无真实聊天或账号内容。"},
-            {"duration": 7, "action": "她删掉一句太肯定的评论，把留下的想法读了一遍。",
-             "dialogue": "查得到的认真讲，猜的就留给明天。", "visual_prompt": "从桌面慢慢拉远，停在鲸鲸和手边的杯子。"},
+            {"duration": 6, "action": actions[0], "dialogue": "",
+             "visual_prompt": "中景建立场景，动作清楚，不露私聊、账号或设备内容。"},
+            {"duration": 7, "action": actions[1], "dialogue": "",
+             "visual_prompt": "转到动作近景，用可见变化推进故事，服装和道具连续。"},
+            {"duration": 7, "action": actions[2], "dialogue": reflection,
+             "visual_prompt": "镜头放缓，停在鲸鲸的反应，保留同一个场景和灯光。"},
         ],
     }, owner=scope, session="wechat:" + scope)
     return ("pending-review", row["id"], "updream-preview-required")
 
 
-def submit(store, scope: str, source: str, category: str, timestamp: int) -> dict:
+def submit(store, scope: str, source: str, category: str, timestamp: int, *, draft: dict | None = None) -> dict:
     if category not in WORKFLOWS:
         return {"ok": False, "reason": "unknown-workflow"}
     job_id = source[:12]
@@ -139,7 +170,7 @@ def submit(store, scope: str, source: str, category: str, timestamp: int) -> dic
         output, reason = "", inbox.get("reason", "")
     elif category == "bili-video":
         try:
-            status, output, reason = _draft_video(store, scope, timestamp)
+            status, output, reason = _draft_video(store, scope, timestamp, draft or {})
         except (OSError, ValueError):
             status, output, reason = ("blocked", "", "video-brief-unconfirmed")
     else:

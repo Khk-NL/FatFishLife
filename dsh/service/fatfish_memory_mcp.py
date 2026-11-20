@@ -820,7 +820,16 @@ def wechat_capability_internal(body: str, mac: str) -> dict[str, Any]:
         from fatfish_core import wechat_jobs
         if op == "jobs":
             return wechat_jobs.recent(store(), request["scope"])
-        return wechat_jobs.submit(store(), request["scope"], request["turn"], value, request["time"])
+        category, separator, payload = value.partition("|")
+        draft = None
+        if separator:
+            try:
+                draft = json.loads(payload)
+            except ValueError:
+                raise ToolError("无效的视频分镜。") from None
+            if category != "bili-video" or not isinstance(draft, dict):
+                raise ToolError("无效的视频分镜。")
+        return wechat_jobs.submit(store(), request["scope"], request["turn"], category, request["time"], draft=draft)
     if len(value) > 72:
         raise ToolError("查询词太长。")
     if op == "find":
