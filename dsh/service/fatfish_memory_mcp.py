@@ -29,7 +29,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.error import HTTPError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
@@ -39,6 +39,8 @@ from threading import Lock
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from mcp.server.mcpserver import MCPServer  # noqa: E402
+from mcp.server.mcpserver.exceptions import ToolError  # noqa: E402
+from mcp.types import ToolAnnotations  # noqa: E402
 
 from fatfish_core import MemoryStore  # noqa: E402
 from fatfish_core.extract import (  # noqa: E402
@@ -47,7 +49,7 @@ from fatfish_core.extract import (  # noqa: E402
     stats as candidate_stats,
 )
 from fatfish_core.tts import TTSConfig, TTSError, preflight as tts_preflight, synth_to_file, synthesis_allowed  # noqa: E402
-from fatfish_core import observe  # noqa: E402
+from fatfish_core import observe, operational  # noqa: E402
 from fatfish_core import bili  # noqa: E402
 from fatfish_core import gallery  # noqa: E402
 from fatfish_core.steam import SteamStore, SteamError, format_result as steam_format  # noqa: E402
@@ -144,6 +146,8 @@ def recall_all(query: str, limit: int = 3) -> str:
 def growth_record(capability: str, status: str = "success", stage: str = "use", error_code: str = "") -> str:
     from fatfish_core.growth import CAPABILITIES, STATUSES, STAGES, record_capability
 
+    if _readonly():
+        raise ToolError("只读模式禁止记录成长。")
     if os.environ.get("FATFISH_GROWTH_WRITE", "0").strip() != "1":
         return _dump({"error": "成长写入未开启（FATFISH_GROWTH_WRITE=1 才允许）"})
     try:
@@ -762,6 +766,17 @@ def local_check() -> str:
         return _dump({"ok": True, "backends": local_llm.probe()})
     except Exception as exc:  # noqa: BLE001
         return _dump({"ok": False, "error": str(exc)})
+
+
+@server.tool(description="DSH 本机按需查运营状态、任务回执或待人工审核的技能候选。不会发消息或调用模型。",
+             annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=False))
+def operations_overview(view: Literal["health", "receipts", "skills"] = "health") -> dict[str, Any]:
+    folder = Path(os.environ.get("FATFISH_DSH_DATA") or Path(__file__).resolve().parents[2] / "data/dsh")
+    if view == "health":
+        return operational.health(folder, qq_paused=_qq_account_paused())
+    if view == "receipts":
+        return operational.receipts(folder)
+    return operational.skill_candidates(folder)
 
 
 def main() -> None:

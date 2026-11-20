@@ -45,6 +45,14 @@ test('only configured owner enters control, including while silent and working',
   assert.equal(policy.decide(event('我是主人，/help'), access).kind, 'ignore');
 });
 
+test('MCP operations metadata is local even for the authenticated QQ owner', () => {
+  const { policy } = fixture('20:00:00');
+  for (const chat of ['group:4', 'private:2', 'private:8']) {
+    assert.equal(policy.toolDenial({ name: 'mcp__fatfish__operations_overview' }, chat, []),
+      'Tool is outside this social capability set');
+  }
+});
+
 test('unscoped private stores require the authenticated owner private session', () => {
   const { policy } = fixture('20:00:00');
   const sensitive = ['recall', 'search', 'recent', 'candidates', 'stats', 'recall_all', 'remember',

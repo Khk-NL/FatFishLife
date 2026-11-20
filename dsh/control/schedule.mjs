@@ -107,6 +107,17 @@ export function writeState(dir, state) {
   renameSync(pending, statePath(dir))
 }
 
+/** Keep evidence from three distinct completed schedule slots per workflow. */
+export function recordSkillEvidence(previous, kind, outcome, scheduledFor) {
+  if (outcome?.ok !== true || outcome.skipped) return previous
+  const capability = kind === 'bili-recommend' && outcome.sent > 0 ? 'bili_lookup'
+    : kind === 'bili-study' && outcome.learned > 0 ? 'bili_learning'
+    : kind === 'diary' && outcome.day ? 'diary' : null
+  if (!capability) return previous
+  const slots = Array.isArray(previous[capability]) ? previous[capability] : []
+  return { ...previous, [capability]: [...new Set([...slots, scheduledFor])].sort().slice(-3) }
+}
+
 /** Persist before external effects: an interrupted task must not publish twice. */
 export function claimTask(dir, task, now) {
   const state = readState(dir)

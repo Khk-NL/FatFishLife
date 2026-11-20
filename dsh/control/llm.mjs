@@ -48,6 +48,19 @@ export function cleanReply(text, maxChars = 120) {
   return body
 }
 
+/** One provider attempt per control task, including failures. */
+export function createTaskModelBudget(model, request = chat) {
+  let calls = 0
+  return {
+    calls: () => calls,
+    async chat(messages, options = {}) {
+      if (calls >= 1) throw new Error('background-model-budget-exhausted')
+      calls++
+      return request(messages, { model, ...options, thinking: false })
+    },
+  }
+}
+
 /**
  * 发一次对话补全，返回纯文本。
  * @param {Array<{role: string, content: string}>} messages
@@ -70,6 +83,7 @@ export async function chat(messages, options = {}) {
         messages,
         temperature: options.temperature ?? 0.9,
         max_tokens: options.maxTokens ?? 400,
+        ...(options.thinking === false ? { thinking: { type: 'disabled' } } : {}),
         stream: false,
       }),
       signal: controller.signal,

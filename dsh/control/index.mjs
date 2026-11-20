@@ -1,7 +1,7 @@
 import z from '@deepseek-ai/schemastery';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { DEFAULT_WINDOWS, persistSettings } from './settings.mjs';
-import { TASKS, dueTasks, nextRun, readState, writeState, claimTask } from './schedule.mjs';
+import { TASKS, dueTasks, nextRun, readState, writeState, claimTask, recordSkillEvidence } from './schedule.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { runTask } from './business.mjs';
@@ -11,7 +11,7 @@ import { readWallet, transitionDelta, walletEffect, walletStatePath } from './wa
 import { syncPetMood } from './petmood.mjs';
 import { ensureSpeakUpTarget, identityFromPolicyFile } from './speakup.mjs';
 import { sendText, transportOf, transportOnline } from './transport.mjs';
-import { chat as llmChat } from './llm.mjs';
+import { createTaskModelBudget } from './llm.mjs';
 import * as bili from './bili.mjs';
 import * as hub from './hub.mjs';
 import { qzoneStatus } from './qzone.mjs';
@@ -162,14 +162,14 @@ async function applyInner(ctx, config) {
       runner: { ...runner, ownerChat: ownerChatOf(live) } }
     const hubOptions = { python: runner.python, cli: runner.hubCli }
     const state = readJson(join(scheduleDir, 'task-state.json'))
-    return { ctx, config: liveConfig, now, state, currentConfig: snapshot, qzoneStatus,
+    const llm = createTaskModelBudget(runner.model)
+    return { ctx, config: liveConfig, now, state, currentConfig: snapshot, qzoneStatus, llm,
       canPublish: () => !inBusyWindow(snapshot().busyWindows ?? DEFAULT_WINDOWS, new Date()),
       saveState: (next) => writeJson(join(scheduleDir, 'task-state.json'), next),
       log: (message) => ctx.logger.info(message),
       send: (chatId, text) => sendText(ctx, chatId, text, (m) => ctx.logger.warn(m)),
       bili: { recommend: (options) => bili.feedRecommend({ ...options, bin: runner.biliBin }), inbox: (options) => bili.feedInbox({ ...options, bin: runner.biliBin }),
         dynamicPost: (text) => bili.dynamicPost(text, { bin: runner.biliBin, write: snapshot().workflows?.daily?.publishEnabled === true }) },
-      llm: { chat: (messages, options) => llmChat(messages, { ...options, model: runner.model }) },
       hub: { moodGet: () => hub.moodGet(hubOptions), journalWrite: (day, content, source) => hub.journalWrite(day, content, source, hubOptions),
         journalRecent: (options) => hub.journalRecent({ ...hubOptions, ...options }), dayDigest: (day) => hub.dayDigest(day, hubOptions),
         styleTerms: (options) => hub.styleTerms({ ...hubOptions, ...options }) } }
@@ -202,13 +202,14 @@ async function applyInner(ctx, config) {
       const lastRun = { ...(state.lastRun ?? {}) }
       const results = { ...(state.results ?? {}) }
       const failures = { ...(state.failures ?? {}) }
+      let skillEvidence = state.skillEvidence ?? {}
       for (const item of runnable) {
         if (!claimTask(scheduleDir, item, now)) continue
         const task = tasks.find((row) => row.id === item.id) ?? item
         lastRun[item.id] = now.toISOString()
         status.schedule.lastDue = { id: item.id, scheduledFor: item.scheduledFor, lateMinutes: item.lateMinutes, at: now.toISOString() }
         if (live.runner?.enabled === false) {
-          results[item.id] = { at: now.toISOString(), ok: false, reason: 'runner-disabled' }
+          results[item.id] = { at: now.toISOString(), ok: false, reason: 'runner-disabled', modelCalls: 0 }
           ctx.logger.info(`[fatfish] ${item.id} 到点但执行器关闭，仅记录`)
           continue
         }
@@ -230,7 +231,9 @@ async function applyInner(ctx, config) {
               { timeout: 30_000, windowsHide: true }, () => {});
           } catch { /* 记不上不影响任务本身 */ }
         }
+        skillEvidence = recordSkillEvidence(skillEvidence, item.kind, outcome, item.scheduledFor)
         results[item.id] = { at: now.toISOString(), ok: outcome?.ok === true, sent: outcome?.sent ?? 0,
+          modelCalls: deps.llm.calls(), skipped: Boolean(outcome?.skipped),
           reason: outcome?.reason ?? outcome?.skipped
             ?? (Array.isArray(outcome?.results) ? JSON.stringify(outcome.results).slice(0, 300) : undefined),
           detail: outcome?.picked ?? outcome?.learned ?? outcome?.day ?? outcome?.count,
@@ -241,7 +244,7 @@ async function applyInner(ctx, config) {
         ctx.logger.info(`[fatfish] ${item.id} 结束：${outcome?.ok === true ? '成功' : '失败'}${outcome?.sent ? '，发出 ' + outcome.sent + ' 条' : ''}`)
       }
       // 学习到的标签单独存一份，供后续注入层读取（当前只是记录，不注入）
-      writeState(scheduleDir, { ...readState(scheduleDir), lastRun, results, failures })
+      writeState(scheduleDir, { ...readState(scheduleDir), lastRun, results, failures, skillEvidence })
       status.schedule.results = results
       status.schedule.failures = failures
       const next = nextRun(now, tasks)

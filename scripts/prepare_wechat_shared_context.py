@@ -77,14 +77,26 @@ def adapt_bridge(source):
         return { agent: live, sessionId: boundSessionId, created: false }
       }''', '''      if (live) throw new Error('微信绑定的会话正在由 DSH 使用，请在 DSH 中继续。')''')
     source = replace_once(source, '    this.#registerChannelPrompt(agentCtx, conversationKey)\n',
-                          '    installWechatTextOnly(agentCtx)\n    this.#registerChannelPrompt(agentCtx, conversationKey)\n')
-    source = replace_once(source, 'export class WechatBridge {', '''export function installWechatTextOnly(agentCtx) {
-  const tools = service(agentCtx, 'tools')
-  if (!tools?.guard) throw new Error('微信会话所需的 DSH 工具限制不可用。')
-  tools.guard(() => '微信会话只回复文字，工具请在 DSH 独立会话使用。')
-}
-
-export class WechatBridge {''')
+                          '''    installWechatTextOnly(agentCtx, stop => {
+      const pending = this.#pending.get(this.store.sessionFor(conversationKey))?.[0]
+      if (pending) pending.fatfishStop = stop.reason
+      this.logger.warn?.(JSON.stringify({ event: 'wechat-turn-stop', at: new Date().toISOString(), ...stop }))
+    })
+    this.#registerChannelPrompt(agentCtx, conversationKey)
+''')
+    source = replace_once(source, 'export class WechatBridge {',
+                          "import { installWechatTextOnly } from './fatfish-wechat-turn-budget.mjs'\n"
+                          "export { installWechatTextOnly }\n\nexport class WechatBridge {")
+    source = replace_once(source, '    if (kind === \'completed\') {\n      if (text.length === 0)',
+                          '''    if (pending.fatfishStop) {
+      const notices = {
+        step_limit: '老大，本鱼这轮卡住啦，先停，别再花额度了。',
+        quota: '老大，额度不够了，本鱼先停啦。',
+        provider_error: '老大，模型这次没通，本鱼先停啦。',
+      }
+      parts.splice(0, parts.length, notices[pending.fatfishStop])
+    } else if (kind === 'completed') {
+      if (text.length === 0)''')
     source = replace_once(source, "import { realpath, stat } from 'node:fs/promises'", "import { realpath, stat } from 'node:fs/promises'\nimport { loadWechatImage } from './fatfish-wechat-media.mjs'")
     start = source.index('    if (this.config.media.enabled) {', source.index('  async #normalizeInbound('))
     end = source.index('    const parts = []', start)
@@ -193,6 +205,7 @@ def main():
         if transforms:
             raise ValueError(f'Missing upstream WeChat files: {list(transforms)}')
         for filename, target in [('wechat-shared-context.mjs', CONTEXT),
+                                 ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
                                  ('fatfish-wechat-media.mjs', 'package/lib/fatfish-wechat-media.mjs'),
                                  ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:
             module = (ROOT / 'dsh' / filename).read_bytes()
