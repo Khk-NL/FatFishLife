@@ -162,9 +162,14 @@ async function applyInner(ctx, config) {
       runner: { ...runner, ownerChat: ownerChatOf(live) } }
     const hubOptions = { python: runner.python, cli: runner.hubCli }
     const state = readJson(join(scheduleDir, 'task-state.json'))
-    const llm = createTaskModelBudget(runner.model)
+    const canPublish = () => !inBusyWindow(snapshot().busyWindows ?? DEFAULT_WINDOWS, new Date())
+    const budget = createTaskModelBudget(runner.model)
+    const llm = { calls: budget.calls, chat(messages, options) {
+      if (!canPublish()) throw new Error('outside-valley-window')
+      return budget.chat(messages, options)
+    } }
     return { ctx, config: liveConfig, now, state, currentConfig: snapshot, qzoneStatus, llm,
-      canPublish: () => !inBusyWindow(snapshot().busyWindows ?? DEFAULT_WINDOWS, new Date()),
+      canPublish,
       saveState: (next) => writeJson(join(scheduleDir, 'task-state.json'), next),
       log: (message) => ctx.logger.info(message),
       send: (chatId, text) => sendText(ctx, chatId, text, (m) => ctx.logger.warn(m)),
@@ -187,10 +192,9 @@ async function applyInner(ctx, config) {
       const configuredTasks = Array.isArray(live.tasks) ? live.tasks : null
       const tasks = (configuredTasks ?? TASKS).filter((task) => task.enabled !== false)
       const due = dueTasks(now, { lastRun: state.lastRun ?? {}, tasks })
-      // 峰时不跑任何业务任务（B站推荐、动态、日记都不发）：省钱优先，消息已经在桥那边攒着了。
-      // 只有 consolidate（峰时消息总结）本身要跑——它就安排在峰时刚结束的点。
+      // 所有计划任务在闲时领取，包含被自定义窗口覆盖的峰时整理。
       const peak = inBusyWindow(live.busyWindows ?? DEFAULT_WINDOWS, now)
-      const runnable = peak ? due.filter((item) => item.kind === 'consolidate') : due
+      const runnable = peak ? [] : due
       const peakSkipped = due.length - runnable.length
       if (peakSkipped > 0) {
         ctx.logger.info(`[fatfish] 峰时跳过 ${peakSkipped} 个业务任务：${due.map((d) => d.id).join(',')}`)
@@ -204,6 +208,7 @@ async function applyInner(ctx, config) {
       const failures = { ...(state.failures ?? {}) }
       let skillEvidence = state.skillEvidence ?? {}
       for (const item of runnable) {
+        if (inBusyWindow(snapshot().busyWindows ?? DEFAULT_WINDOWS, new Date())) break
         if (!claimTask(scheduleDir, item, now)) continue
         const task = tasks.find((row) => row.id === item.id) ?? item
         lastRun[item.id] = now.toISOString()

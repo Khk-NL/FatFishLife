@@ -33,14 +33,23 @@ class WechatJobsTest(unittest.TestCase):
             ) as cli:
                 job = wechat_jobs.submit(store, "a" * 64, "b" * 64, "bili-report-qq", stamp)
                 again = wechat_jobs.submit(store, "a" * 64, "b" * 64, "bili-report-qq", stamp)
-                self.assertEqual(job, again)
+                self.assertEqual(again["status"], "awaiting-visuals")
                 self.assertEqual(cli.call_count, 2)
                 self.assertEqual(cli.call_args.args, ("video", "subtitle", "BV1abcdefgh1", "--text"))
-                self.assertEqual(job["status"], "document-ready")
-                self.assertEqual(job["reason"], "qq-send-unavailable")
-                document = (folder / job["output"]).read_text(encoding="utf-8")
+                self.assertEqual(job["status"], "awaiting-visuals")
+                document_data = {"videos": job["videos"], "visuals": {
+                    "BV1abcdefgh1": [{"second": 19, "detail": "终端出现插件安装完成的提示。"}]}}
+                self.assertFalse(wechat_jobs.finish_report(store, "c" * 64, "b" * 64, document_data)["ok"])
+                result = wechat_jobs.finish_report(store, "a" * 64, "b" * 64, document_data)
+                self.assertEqual(result["status"], "document-ready")
+                self.assertEqual(result["reason"], "qq-send-unavailable")
+                self.assertEqual(result["watched"], 1)
+                self.assertFalse(wechat_jobs.finish_report(store, "a" * 64, "b" * 64, document_data)["ok"])
+                document = (folder / result["output"]).read_text(encoding="utf-8")
                 self.assertIn("来自公开视频简介", document)
                 self.assertIn("合成字幕记录了插件的三个安装步骤", document)
+                self.assertIn("[00:19](https://www.bilibili.com/video/BV1abcdefgh1/?t=19)", document)
+                self.assertIn("终端出现插件安装完成的提示", document)
                 self.assertFalse(wechat_jobs.recent(store, "c" * 64)["jobs"])
             with patch("dsh.service.desktop_apps.outlook_today", return_value={"ok": True, "messages": [
                     {"subject": "内部邮件样例", "received": "08:00", "preview": "会议改期"}], "limited": False}):

@@ -209,6 +209,8 @@ def prepare() -> Path:
     for file in ("policy.mjs", "runtime-adapter.mjs", "local-brief-client.mjs"):
         shutil.copy2(ROOT / "dsh" / file, target / "lib" / file)
     vendor = ROOT / "dsh" / "vendor" / "chinese-days"
+    (target / "lib" / "control").mkdir(exist_ok=True)
+    shutil.copy2(ROOT / "dsh" / "control" / "availability.mjs", target / "lib" / "control" / "availability.mjs")
     if vendor.is_dir():
         shutil.copytree(vendor, target / "lib" / "vendor" / "chinese-days", dirs_exist_ok=True)
 

@@ -9,6 +9,7 @@ import { moodNudge } from './hub.mjs'
 import { cleanReply } from './llm.mjs'
 import { proactiveMessages } from './compose.mjs'
 import { qqAccountPaused } from './qzone.mjs'
+import { workWindow } from './availability.mjs'
 
 const MINUTE = 60_000
 
@@ -24,23 +25,7 @@ export function minutesOfDay(at) {
 
 /** 判断某个时刻是否落在忙碌窗口内（跨零点也能算对）。 */
 export function inBusyWindow(windows, now) {
-  if (!Array.isArray(windows) || !windows.length) return false
-  const day = now.getDay()
-  const current = now.getHours() * 60 + now.getMinutes()
-  for (const window of windows) {
-    const start = minutesOfDay(window?.start)
-    const end = minutesOfDay(window?.end)
-    if (start == null || end == null) continue
-    const days = Array.isArray(window?.weekdays) && window.weekdays.length ? window.weekdays.map(Number) : null
-    if (days && !days.includes(day)) continue
-    if (start === end) continue
-    if (start < end) {
-      if (current >= start && current < end) return true
-    } else if (current >= start || current < end) {
-      return true // 跨零点
-    }
-  }
-  return false
+  return Array.isArray(windows) && workWindow(now, windows) !== undefined
 }
 
 /** 安静时段（夜里不打扰）。 */

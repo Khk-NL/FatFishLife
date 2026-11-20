@@ -34,12 +34,13 @@ export function minutesOfDay(at) {
   return hour * 60 + minute
 }
 
-/** 把 `now` 那天的某个 HH:MM 变成本地 Date。 */
+/** Interpret configured HH:MM in Asia/Shanghai regardless of the host timezone. */
 export function scheduledFor(now, at) {
-  const base = new Date(now)
+  const chinaOffset = 8 * 60 * 60 * 1000
+  const base = new Date(Number(now) + chinaOffset)
   const total = minutesOfDay(at)
-  base.setHours(Math.floor(total / 60), total % 60, 0, 0)
-  return base
+  base.setUTCHours(Math.floor(total / 60), total % 60, 0, 0)
+  return new Date(base.getTime() - chinaOffset)
 }
 
 /**

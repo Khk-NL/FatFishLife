@@ -2,6 +2,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
+import { reportVisuals } from './fatfish-wechat-bili-report.mjs'
 
 const internal = 'mcp__fatfish__wechat_capability_internal'
 const digest = text => createHash('sha256').update(text).digest('hex')
@@ -13,7 +14,7 @@ const spec = {
   wechat_lore: ['lore', '查本地公开知识库的证据与出处。'],
   wechat_desktop_status: ['status', '查本机 Outlook、AUTO-MAS 或学习通是否运行。不读取邮件、课程或账号。'],
   wechat_desktop_open: ['open', '按主人本轮的明确请求打开已注册的桌面应用。应用由入口确定。'],
-  wechat_job_submit: ['job', '执行主人本轮明确要求的流程。文档、邮箱无需参数。视频只拟定可公开的随想分镜，按回执说明状态。'],
+  wechat_job_submit: ['job', '执行主人本轮明确要求的流程。B站报告和邮箱无需参数。报告回执的 watched 表示已分析画面的数量。视频投稿请求先拟公开随想分镜。按实际回执汇报。'],
   wechat_jobs: ['jobs', '查这条微信私聊最近五个工作流的实际处理结果。'],
 }
 
@@ -166,9 +167,16 @@ export function installWechatCapabilities(agentCtx, hostCtx, {
         if (write) pending.fatfishWritten = true
         else pending.fatfishReads = (pending.fatfishReads ?? 0) + 1
         const report = op === 'job' && ['bili-report', 'bili-report-qq'].includes(value)
-        return await callHost(hostCtx, folder, { conversation, pending, op, value },
+        const outcome = await callHost(hostCtx, folder, { conversation, pending, op, value },
           AbortSignal.any([exec.signal, AbortSignal.timeout(report ? 24_000 : 12_000)]))
-          ?? { ok: false, reason: '能力结果未确认，请勿重试或声称成功' }
+        if (report && outcome?.status === 'awaiting-visuals' && Array.isArray(outcome.videos)) {
+          const visuals = await reportVisuals(hostCtx, outcome.videos, exec.signal)
+          const final = await callHost(hostCtx, folder, { conversation, pending, op: 'report-finish',
+            value: JSON.stringify({ videos: outcome.videos, visuals }) },
+          AbortSignal.any([exec.signal, AbortSignal.timeout(12_000)]))
+          return final ?? { ok: false, reason: '报告保存结果未确认，请勿重试或声称成功' }
+        }
+        return outcome ?? { ok: false, reason: '能力结果未确认，请勿重试或声称成功' }
       },
     }))
   }

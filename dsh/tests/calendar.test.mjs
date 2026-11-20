@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { dayLabel, restDay, workWindow } from '../policy.mjs';
+import { inBusyWindow } from '../control/proactive.mjs';
+import { scheduledFor } from '../control/schedule.mjs';
 
 // 2026-10-31 老大要求：节假日直接查现成库（dsh/vendor/chinese-days），周末和法定节假日全天算闲时。
 const at = value => Date.parse(`2026-${value}+08:00`);
@@ -35,4 +37,11 @@ test('手写名单可以覆盖库里没有的年份', () => {
 test('节假日名字可用于自检日志', () => {
   assert.match(dayLabel(at('10-01T09:30:00')), /国庆/);
   assert.match(dayLabel(at('10-31T09:30:00')), /Saturday/);
+});
+
+test('运营使用北京时间和同一工作日规则，午夜延续前一天的窗口', () => {
+  const windows = [{ start: '23:55', end: '00:20', weekdays: [5] }];
+  assert.equal(inBusyWindow(windows, new Date(at('11-07T00:19:00'))), true);
+  assert.equal(inBusyWindow(windows, new Date(at('11-07T00:20:00'))), false);
+  assert.equal(scheduledFor(new Date('2026-11-06T17:00:00Z'), '12:05').toISOString(), '2026-11-07T04:05:00.000Z');
 });

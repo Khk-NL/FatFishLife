@@ -86,7 +86,7 @@ export async function chat(messages, options = {}) {
         ...(options.thinking === false ? { thinking: { type: 'disabled' } } : {}),
         stream: false,
       }),
-      signal: controller.signal,
+      signal: options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal,
     })
     if (!response.ok) throw new Error('DeepSeek HTTP ' + response.status)
     const payload = await response.json()

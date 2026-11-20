@@ -4,6 +4,7 @@
 // 这样可以用假 CLI 结果跑测试，不必联网。
 
 import { execFile } from 'node:child_process'
+export { recommendationEvidence } from './video-evidence.mjs'
 
 export const DEFAULT_BILI_BIN = process.env.FATFISH_BILI_BIN
   || 'D:/Code/Apps/bili-venv/Scripts/bili.exe'

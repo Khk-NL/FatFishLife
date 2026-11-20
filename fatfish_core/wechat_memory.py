@@ -23,7 +23,7 @@ SENSITIVE = re.compile(
 
 def verified_request(key_path: Path, body: str, mac: str) -> dict:
     """Verify the trusted bridge request. The model never receives the key or envelope."""
-    if len(body) > 1500 or not REQUEST_SCOPE.fullmatch(mac):
+    if len(body) > 16000 or not REQUEST_SCOPE.fullmatch(mac):
         raise ValueError("invalid request")
     with key_path.open("rb") as file:
         key = file.read(33)
@@ -36,7 +36,8 @@ def verified_request(key_path: Path, body: str, mac: str) -> dict:
     if (not isinstance(scope, str) or not REQUEST_SCOPE.fullmatch(scope)
             or not isinstance(turn, str) or not REQUEST_SCOPE.fullmatch(turn)
             or type(at) is not int or abs(time.time() - at) > 15
-            or request["op"] not in ("save", "stage", "flush", "find", "lore", "status", "open", "sticker", "job", "jobs")
+            or request["op"] not in ("save", "stage", "flush", "find", "lore", "status", "open", "sticker", "job", "jobs", "report-finish")
+            or len(body) > 1500 and request["op"] != "report-finish"
             or not isinstance(request["value"], str)):
         raise ValueError("invalid request")
     return request

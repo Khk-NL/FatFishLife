@@ -254,6 +254,9 @@ def main():
                                  ('persona/model.mjs', 'package/lib/persona/model.mjs'),
                                  ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
                                  ('wechat-capabilities.mjs', 'package/lib/fatfish-wechat-capabilities.mjs'),
+                                 ('wechat-bili-report.mjs', 'package/lib/fatfish-wechat-bili-report.mjs'),
+                                 ('control/video-evidence.mjs', 'package/lib/control/video-evidence.mjs'),
+                                 ('control/llm.mjs', 'package/lib/control/llm.mjs'),
                                  ('fatfish-wechat-media.mjs', 'package/lib/fatfish-wechat-media.mjs'),
                                  ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:
             module = (ROOT / 'dsh' / filename).read_bytes()

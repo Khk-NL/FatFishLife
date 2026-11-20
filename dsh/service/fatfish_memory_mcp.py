@@ -816,10 +816,18 @@ def wechat_capability_internal(body: str, mac: str) -> dict[str, Any]:
             return {"ok": True, "paths": gallery.wechat_images(tag, explicit=mode == "explicit")}
         except (OSError, RuntimeError):
             return {"ok": False, "paths": []}
-    if op in ("job", "jobs"):
+    if op in ("job", "jobs", "report-finish"):
         from fatfish_core import wechat_jobs
         if op == "jobs":
             return wechat_jobs.recent(store(), request["scope"])
+        if op == "report-finish":
+            try:
+                report = json.loads(value)
+            except ValueError:
+                raise ToolError("无效的视频报告。") from None
+            if not isinstance(report, dict):
+                raise ToolError("无效的视频报告。")
+            return wechat_jobs.finish_report(store(), request["scope"], request["turn"], report)
         category, separator, payload = value.partition("|")
         draft = None
         if separator:

@@ -15,12 +15,14 @@ def pack() -> Path:
     with tarfile.open(target, 'w:gz') as archive:
         for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'ops.mjs', 'settings.mjs',
                      'business.mjs', 'proactive.mjs', 'compose.mjs', 'llm.mjs', 'hub.mjs', 'qzone.mjs', 'bili.mjs', 'transport.mjs',
+                     'availability.mjs', 'video-evidence.mjs',
                      'moodsync.mjs',
                      'petmood.mjs',
                      'speakup.mjs',
                      'wallet.mjs',
                      'client.js', 'locale'):
             archive.add(source / name, arcname='package/' + name)
+        archive.add(source.parent / 'vendor' / 'chinese-days', arcname='package/vendor/chinese-days')
     digest = hashlib.sha256(target.read_bytes()).hexdigest()
     addressed = target.with_stem(target.stem + '-' + digest[:12])
     target.replace(addressed)
