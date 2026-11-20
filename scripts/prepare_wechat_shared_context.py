@@ -44,8 +44,13 @@ def adapt_bridge(source):
                           'this.#registerChannelPrompt(agentCtx, conversationKey)')
     source = replace_once(source, '#registerChannelPrompt(agentCtx) {',
                           '#registerChannelPrompt(agentCtx, conversationKey) {')
-    source = replace_once(source, '        text: CHANNEL_PROMPT,',
-                          '        text: createWechatPrompt({ owner: this.#isBoundOwner(conversationKey) }),')
+    source = replace_once(source, '        text: CHANNEL_PROMPT,', '''        interpolate: false,
+        text: createWechatPrompt({
+          owner: this.#isBoundOwner(conversationKey),
+          currentText: () => this.#pending.get(this.store.sessionFor(conversationKey))?.[0]?.fatfishQuery ?? '',
+        }),''')
+    source = replace_once(source, '      queue.push(pending)',
+                          "      pending.fatfishQuery = String(content.text ?? '').slice(0, 600)\n      queue.push(pending)")
     source = replace_once(source, '  /** Mark one bot', '''  #isBoundOwner(conversationKey) {
     const sender = userIdOf(conversationKey)
     const credential = this.store.credentialsFor(this.#botOf(conversationKey))
@@ -205,6 +210,7 @@ def main():
         if transforms:
             raise ValueError(f'Missing upstream WeChat files: {list(transforms)}')
         for filename, target in [('wechat-shared-context.mjs', CONTEXT),
+                                 ('persona/model.mjs', 'package/lib/persona/model.mjs'),
                                  ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
                                  ('fatfish-wechat-media.mjs', 'package/lib/fatfish-wechat-media.mjs'),
                                  ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:

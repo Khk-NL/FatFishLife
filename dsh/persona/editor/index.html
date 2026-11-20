@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>小鱼人设编辑器</title>
+  <link rel="stylesheet" href="/styles.css">
+  <script defer src="/vendor/jsoneditor.js"></script>
+  <script type="module" src="/app.mjs"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <a class="wordmark" href="/">小鱼人设编辑器</a>
+      <div class="actions">
+        <input id="file" type="file" accept=".json,application/json" hidden>
+        <button id="import" type="button">导入 JSON</button>
+        <button id="export" type="button" class="accent" disabled>导出人设</button>
+      </div>
+    </div>
+  </header>
+  <main>
+    <section class="title" aria-labelledby="persona-name">
+      <h1 id="persona-name">吞饭之鲸</h1>
+      <p>编辑说话方式和行为，预览发给模型的人设。</p>
+    </section>
+    <p id="status" role="status" aria-live="polite"></p>
+    <div class="workspace">
+      <section class="editing" aria-label="编辑人设">
+        <nav id="sections" aria-label="人设板块"></nav>
+        <div id="forms"></div>
+      </section>
+      <aside class="preview" aria-labelledby="preview-title">
+        <div class="preview-top">
+          <h2 id="preview-title">注入预览</h2>
+          <label for="channel">渠道</label>
+          <select id="channel"><option value="desktop">DSH 桌面</option><option value="wechat">微信</option><option value="qq">QQ</option><option value="bilibili">B 站</option></select>
+        </div>
+        <pre id="preview-body" tabindex="0"></pre>
+        <div class="preview-footer">
+          <output id="character-count"></output>
+          <button id="copy" type="button" disabled>复制预览</button>
+          <button id="markdown" type="button" disabled>下载 Markdown</button>
+        </div>
+      </aside>
+    </div>
+  </main>
+</body>
+</html>

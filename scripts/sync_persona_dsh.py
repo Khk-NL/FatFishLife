@@ -16,6 +16,7 @@ import argparse
 import re
 import os
 import shutil
+import subprocess
 import time
 import sys
 from datetime import datetime
@@ -43,6 +44,50 @@ def compose(with_examples: bool) -> str:
             text += "\n\n## 语气示例（不要复述原句，只学长短和味道）\n\n"
             text += "\n\n".join(f"<START>\n{b.strip()}" for b in blocks)
     return text
+
+
+def compose_card(path: Path, channel: str) -> str:
+    source = r"""
+import { readFileSync } from 'node:fs';
+import { personaPrefix } from './dsh/persona/model.mjs';
+const [file, channel] = process.argv.slice(1);
+const bytes = readFileSync(file);
+if (bytes.length > 32768) throw new Error('人设文件超过 32 KB');
+console.log(personaPrefix(JSON.parse(bytes.toString('utf8').replace(/^\uFEFF/, '')), channel));
+"""
+    result = subprocess.run(
+        ["node", "--input-type=module", "-e", source, str(path.resolve()), channel],
+        cwd=ROOT, encoding="utf-8", stdout=subprocess.PIPE, check=True, timeout=10,
+    )
+    return result.stdout.strip()
+
+
+def structured_prefix_line(text: str) -> int:
+    """Find the whale-social persona field without rewriting other profile YAML."""
+    import yaml
+
+    def mapping(node):
+        return {key.value: value for key, value in node.value} if isinstance(node, yaml.MappingNode) else {}
+
+    root = yaml.compose(text)
+    matches = []
+    for node in root.value if isinstance(root, yaml.SequenceNode) else []:
+        insert = mapping(node).get("insert")
+        for candidate in insert.value if isinstance(insert, yaml.SequenceNode) else []:
+            config = mapping(mapping(candidate).get("config"))
+            identity = config.get("id")
+            if getattr(identity, "value", "") != "whale-social":
+                continue
+            plugins = config.get("plugins")
+            for plugin in plugins.value if isinstance(plugins, yaml.SequenceNode) else []:
+                row = mapping(plugin)
+                if getattr(row.get("id"), "value", "") == "persona":
+                    prefix = mapping(row.get("config")).get("prefix")
+                    if isinstance(prefix, yaml.ScalarNode) and prefix.style == "|":
+                        matches.append(prefix.start_mark.line)
+    if len(matches) != 1:
+        raise ValueError("未找到唯一的 whale-social 人格 prefix。")
+    return matches[0]
 
 
 def atomic_write(path: Path, text: str, attempts: int = 3) -> None:
@@ -76,12 +121,16 @@ def atomic_write(path: Path, text: str, attempts: int = 3) -> None:
             time.sleep(0.4)
 
 
-def replace_prefix(path: Path, body: str, dry: bool) -> tuple[int, int]:
+def replace_prefix(path: Path, body: str, dry: bool, *, structured=False, candidate=None) -> tuple[int, int]:
     """把 persona 的 prefix 块整体换掉。返回 (旧字符数, 新字符数)。"""
-    lines = path.read_text(encoding="utf-8").splitlines()
+    text = path.read_text(encoding="utf-8-sig")
+    lines = text.splitlines()
+    expected = structured_prefix_line(text) if structured else None
     start = None
     indent = 0
     for index, line in enumerate(lines):
+        if expected is not None and index != expected:
+            continue
         match = re.match(r"^(\s*)prefix:\s*\|\s*$", line)
         if match:
             start, indent = index, len(match.group(1))
@@ -98,11 +147,14 @@ def replace_prefix(path: Path, body: str, dry: bool) -> tuple[int, int]:
     old_chars = len("\n".join(old_lines).strip())
     pad = " " * (indent + 2)
     new_lines = [pad + line if line.strip() else "" for line in body.splitlines()]
-    if not dry:
+    next_text = "\n".join(lines[: start + 1] + new_lines + lines[end:]) + "\n"
+    if candidate:
+        candidate.write_text(next_text, encoding="utf-8")
+    elif not dry:
         backup_dir = ROOT / "outputs/persona-backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(path, backup_dir / f"{path.name}.{datetime.now():%Y%m%d-%H%M%S}")
-        atomic_write(path, "\n".join(lines[: start + 1] + new_lines + lines[end:]) + "\n")
+        atomic_write(path, next_text)
     return old_chars, len(body)
 
 
@@ -151,12 +203,20 @@ def main() -> int:
     parser.add_argument("--with-examples", action="store_true", help="把示例对话一并写进 prefix（更占上下文）")
     parser.add_argument("--profile-only", action="store_true", help="只改 profile patch，不动 preset")
     parser.add_argument("--no-whale", action="store_true", help="不生成 B 站分身人设")
+    parser.add_argument("--card", type=Path, help="由编辑器导出的 v1 JSON；当前只生成预览或候选。")
+    parser.add_argument("--candidate-dir", type=Path, help="保存结构化候选到一个全新目录。")
     args = parser.parse_args()
 
-    if not SOURCE.is_file():
+    if args.card and (args.with_examples or not (args.dry_run or args.candidate_dir)):
+        parser.error("结构化人设请使用 --dry-run 或 --candidate-dir。")
+    if args.candidate_dir and (not args.card or args.dry_run):
+        parser.error("--candidate-dir 仅用于生成 JSON 人设的候选。")
+    if not args.card and not SOURCE.is_file():
         print(f"找不到人设源：{SOURCE}")
         return 1
-    body = compose(args.with_examples)
+    body = compose_card(args.card, "desktop") if args.card else compose(args.with_examples)
+    if args.candidate_dir:
+        args.candidate_dir.mkdir(parents=True, exist_ok=False)
     targets = [] if args.profile_only else [PRESET]
     targets.append(profile_patch(args.profile))
 
@@ -164,12 +224,15 @@ def main() -> int:
         if not target.is_file():
             print(f"跳过（不存在）：{target}")
             continue
-        before, after = replace_prefix(target, body, args.dry_run)
-        mark = "将改为" if args.dry_run else "已改为"
-        print(f"{target}\n  {mark} {after} 字符（原 {before}）；结构：{verify(target) if not args.dry_run else '（dry-run 未写入）'}")
+        candidate = args.candidate_dir / target.name if args.candidate_dir else None
+        before, after = replace_prefix(target, body, args.dry_run, structured=bool(args.card), candidate=candidate)
+        mark = "候选" if candidate else "将改为" if args.dry_run else "已改为"
+        print(f"{target}\n  {mark} {after} 字符（原 {before}）；结构：{verify(candidate or target) if not args.dry_run else '（dry-run 未写入）'}")
     if not args.no_whale:
-        whale = whale_body()
-        if args.dry_run:
+        whale = compose_card(args.card, "bilibili") + "\n" if args.card else whale_body()
+        if args.candidate_dir:
+            (args.candidate_dir / "bilibili-persona.md").write_text(whale, encoding="utf-8")
+        elif args.dry_run:
             print(str(BILI_PERSONA) + " 将改为 " + str(len(whale)) + " 字符（B 站分身，由常驻卡生成）")
         else:
             BILI_PERSONA.parent.mkdir(parents=True, exist_ok=True)
@@ -180,7 +243,7 @@ def main() -> int:
             atomic_write(BILI_PERSONA, whale)
             print(str(BILI_PERSONA) + " 已改为 " + str(len(whale)) + " 字符（B 站分身）")
     if args.dry_run:
-        print("\n这是预览，没有写入。去掉 --dry-run 才会真的改。")
+        print("\n预览未写入。" if args.card else "\n这是预览，没有写入。去掉 --dry-run 才会真的改。")
     return 0
 
 
