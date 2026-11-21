@@ -35,7 +35,7 @@ test('设置页导出的播放量和语气长度驱动实际消费，0 保持有
   assert.equal(behavior.model_routing.codex_min_remaining_percent, 67);
   writeFileSync(path, JSON.stringify(behavior));
   const options = readRuntimeOptions(path);
-  assert.deepEqual(options, { chatMaxChars: 32, commentMaxChars: 8, minimumViews: 0 });
+  assert.deepEqual(options, { chatMaxChars: 32, commentMaxChars: 8, minimumViews: 0, codexMinimum: 67 });
   assert.match(whaleVoice(options.chatMaxChars), /32 字/);
   assert.equal(whaleComment('看见两边都守住了', options.commentMaxChars), '看见两边都守住了');
   assert.equal(whaleComment('本鱼好喜欢这个转身', options.commentMaxChars), '');

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { visibleCapabilities } from './capabilities.mjs';
 import { personaPrefix, validateCard } from './model.mjs';
 import { readRuntimeOptions } from '../control/runtime-options.mjs';
+import { installCodexRouting } from './codex-routing.mjs';
 
 export const name = 'fatfish-persona';
 export const inject = ['systemPrompt', 'tools'];
@@ -20,6 +21,7 @@ export function apply(ctx, config = {}) {
   // List capabilities only for the local preset, and only from this step's admission.
   // Channel-specific guards can narrow tool access beyond the native registry.
   if (profile !== 'desktop') return;
+  if (config.autoCodex === true) installCodexRouting(ctx);
   const base = ctx.tools.selectExecutor();
   const describe = definitions => base.describe(definitions.filter(definition => !isHouseTool(definition.name)));
   ctx.tools.setExecutor({ describe, execute: input => base.execute(input) });

@@ -42,7 +42,7 @@ def voice_rules():
     return output.decode("utf-8").strip()
 
 
-def render(original: str, mcp: Path | None) -> tuple[str, str]:
+def render(original: str, mcp: Path | None, auto_codex: bool = False) -> tuple[str, str]:
     root = yaml.compose(original)
     lines = original.splitlines()
     at = structured_prefix_line(original)
@@ -73,7 +73,8 @@ def render(original: str, mcp: Path | None) -> tuple[str, str]:
         changes.append({"insert": [{"id": "whale-workbench-preset", "name": "@deepseek-ai/dsh-agent-preset",
             "config": {"id": "whale-workbench", "name": "鲸鲸工作台", "plugins": [
                 {"id": "whale-persona", "name": (ROOT / "dsh/persona/runtime.mjs").as_uri(),
-                    "config": {"cardFile": (ROOT / "dsh/persona/whale.json").as_posix(), "channel": "desktop"}},
+                    "config": {"cardFile": (ROOT / "dsh/persona/whale.json").as_posix(), "channel": "desktop",
+                               "autoCodex": auto_codex}},
                 windows_bridge,
             ]}}]})
     if BEGIN + "\n" in result:
@@ -91,9 +92,10 @@ def main():
     parser.add_argument("target", type=Path)
     parser.add_argument("--source", type=Path, default=PROFILE)
     parser.add_argument("--windows-mcp", type=Path)
+    parser.add_argument("--auto-codex", action="store_true")
     args = parser.parse_args()
     original = args.source.read_bytes()
-    result, persona = render(original.decode("utf-8-sig"), args.windows_mcp)
+    result, persona = render(original.decode("utf-8-sig"), args.windows_mcp, args.auto_codex)
     args.target.mkdir(parents=True, exist_ok=False)
     (args.target / "cordis.patch.yml").write_text(result, encoding="utf-8")
     (args.target / "bilibili-persona.md").write_text(persona + "\n", encoding="utf-8")
