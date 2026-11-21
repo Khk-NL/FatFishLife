@@ -25,7 +25,7 @@
 
 复用 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) 5.25.2 与 [dsh-codex-subscription](https://github.com/WSL043/dsh-codex-subscription) 3.2.27 本机认证和额度接口，适配归档保留 MIT 许可与署名。WorkBuddy 自动签到保存为国内单账号，2026-11-21 查到已领 100 积分，5,045.78 分为本次只读余额。
 
-Windows MCP 0.8.8 使用 D 盘的本机 stdio。直接握手列出 17 个工具，只读 `ControlStatus` 通过，四项排除仍生效。本轮将 12 秒启动上限写入载体及 desktop 覆盖配置，备份后重启。实际 DSH 仍注册 0 个工具。隔离 CLI 曾成功注册 17 个，但实际 Electron 宿主方式在隔离环境中使用长短两套配置都复现 `No active interactive desktop for physical input control`。随后本机 Win32 探测返回拒绝访问（5）。DSH 逐会话授权仍保留。
+Windows MCP 0.8.8 使用 D 盘的本机 stdio。直接握手列出 17 个工具，只读 `ControlStatus` 通过。隔离 Electron 宿主又验证了两步握手，`server/discover` 后是 `tools/list`，注册 17 个工具约耗时 11.7 秒。载体和 desktop 覆盖配置的启动上限已调到 25 秒。日常 DSH 重启后仍为 0 个，注册问题可在交互桌面探测通过时复现。生产启动跟踪因文件写入权限未生效，原配置已通过哈希核对。逐会话授权继续由 DSH 管理。
 
 ## QQ 视频核对
 
@@ -43,3 +43,7 @@ Windows MCP 0.8.8 使用 D 盘的本机 stdio。直接握手列出 17 个工具�
 - Windows MCP、Obsidian ACP、KNJ、基础 Obsidian 和 WorkBuddy 使用其各自的上游 MIT 包，保留许可证；未引入账号池或伪装客户端。优先使用 [Codex 官方 App Server](https://learn.chatgpt.com/docs/app-server) 的额度查询。
 - 桌宠和余额挂件分别负责桌面互动与余额展示，保留。原 Distill 不在当前 profile 包列表，旧回滚包不算运行中的插件。工具管理面板和逐轮工具过滤职责不同，保留现有用户配置。
 - B 站人设文件已备份并读回校验。Windows MCP 与 Obsidian ACP 使用本机协议测试，未触发付费推理、屏幕控制、实际评论或直播。桌面 profile 需要在正常退出窗口后通过官方包管理器升级，升级后再核验工作区、设置开关、权限范围以及 B 站与微信的实际回复。
+
+## 与 dsh-dafeiyu 对比
+
+[dsh-dafeiyu v0.1.23](https://github.com/QCYTSN/dsh-dafeiyu/releases/tag/v0.1.23) 随 DSH 启动独立桌宠窗口，读取会话事件来显示任务阶段、实际待办数量和多个会话的状态。它的 [Reducer](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/src/companion-reducer.js) 可用于现有桌宠的任务气泡，优先展示待确认与错误事件，缺少待办时只显示阶段。鲸鲸现有的 `dsh-pet` 管角色、互动、心情与碎碎念，FatFishLife 管人设、记忆、知识库、日记和跨渠道工作流。桌宠与余额查询已有重叠，本次保留现有桌宠。上游说明 Windows 原生助手首次解包约 100 MB，复用代码和素材须核对各自的 [授权与来源](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/ASSET_LICENSE.md)。

@@ -12,7 +12,7 @@ from prepare_dsh_codex_routing import replace_once
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "0.2.11"
-STARTUP_TIMEOUT_MS = 12_000
+STARTUP_TIMEOUT_MS = 25_000
 EXPECTED = {
     "cordis.patch.yml": "c457362a31403877d668da683199a15fb7f6bad3f9ce35de5cd4d549dd3f2216",
     "lib/dependency.js": "73d9640e54981a1ed4a2a4d7b44a68d12ff62555b6f162ab225a1f146148e673",
