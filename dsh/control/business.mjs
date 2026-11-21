@@ -64,6 +64,7 @@ export async function runBiliRecommend(deps) {
     minimumViews: settings()?.workflows?.biliMinViews ?? MIN_BILI_VIEWS,
     limit: Math.min(settings()?.workflows?.recommend?.maxVideos ?? 3, 3) })
   log(`[fatfish] B站推荐：候选 ${items.length} 条，选中 ${picked.length} 条，跳过 ${skipped.length} 条`)
+  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
   if (!picked.length) return { ok: true, sent: 0, reason: 'no-pick' }
   const videos = []
   for (const item of picked) {
@@ -75,7 +76,8 @@ export async function runBiliRecommend(deps) {
       log('[fatfish] B站推荐读取分镜失败，本次跳过该候选')
     }
   }
-  if (!videos.length || !allowed()) return { ok: true, sent: 0, skipped: 'no-storyboard-or-paused' }
+  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
+  if (!videos.length) return { ok: true, sent: 0, skipped: 'recommendation-storyboard-unavailable' }
   let response
   try {
     const raw = await deps.llm.chat(recommendReasonMessages(videos), {
@@ -108,7 +110,8 @@ export async function runBiliRecommend(deps) {
     batch.push(candidate)
     text = formatted
   }
-  if (!batch.length || !allowed()) return { ok: true, sent: 0, skipped: 'no-grounded-recommendation-or-paused' }
+  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
+  if (!batch.length) return { ok: true, sent: 0, skipped: 'recommendation-no-grounded-result' }
   const ids = batch.map(item => item.bvid)
   const receipt = { at: (deps.now ?? new Date()).toISOString(), dm: { status: 'sending' }, comments: {}, picked: ids }
   state.lastRecommendation = receipt

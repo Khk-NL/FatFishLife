@@ -46,4 +46,21 @@ Windows MCP 0.8.8 使用 D 盘的本机 stdio。直接握手列出 17 个工具�
 
 ## 与 dsh-dafeiyu 对比
 
-[dsh-dafeiyu v0.1.23](https://github.com/QCYTSN/dsh-dafeiyu/releases/tag/v0.1.23) 随 DSH 启动独立桌宠窗口，读取会话事件来显示任务阶段、实际待办数量和多个会话的状态。它的 [Reducer](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/src/companion-reducer.js) 可用于现有桌宠的任务气泡，优先展示待确认与错误事件，缺少待办时只显示阶段。鲸鲸现有的 `dsh-pet` 管角色、互动、心情与碎碎念，FatFishLife 管人设、记忆、知识库、日记和跨渠道工作流。桌宠与余额查询已有重叠，本次保留现有桌宠。上游说明 Windows 原生助手首次解包约 100 MB，复用代码和素材须核对各自的 [授权与来源](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/ASSET_LICENSE.md)。
+[dsh-dafeiyu v0.1.23](https://github.com/QCYTSN/dsh-dafeiyu/releases/tag/v0.1.23) 随 DSH 启动独立桌宠窗口，读取会话事件来显示任务阶段、实际待办数量和多个会话的状态。已核对本机 `dsh-pet` 0.4.3 源码，它已经优先处理等待确认和错误，并从真实待办取当前步骤。上游 [Reducer](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/src/companion-reducer.js) 更值得参考的是多会话摘要、已完成和总待办数量，以及缺数据时仅显示阶段。鲸鲸现有的 `dsh-pet` 管角色、互动、心情与碎碎念，FatFishLife 管人设、记忆、知识库、日记和跨渠道工作流。桌宠与余额查询已有重叠，本次保留现有桌宠。上游说明 Windows 原生助手首次解包约 100 MB，复用代码和素材须核对各自的 [授权与来源](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/ASSET_LICENSE.md)。
+
+## 按功能找对标项目
+
+GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项目关注度，复用选型还要看功能是否匹配、是否有可核对的实现、许可和同版宿主验证。
+
+| 鲸鲸能力 | 对标项目 | 借鉴点 |
+| --- | --- | --- |
+| 桌宠与任务提示 | [dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) | 现有 `dsh-pet` 已有状态优先级与真实待办当前项。借鉴多会话摘要、完成数／总数，以及缺数据时回退到阶段。通知从现有事件生成，无需额外模型。 |
+| B 站选片、日报与推荐 | [dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll) 约 1.5k、[dsh-bili-whale](https://github.com/Alterssss/dsh-bili-whale) 约 1.1k | 前者对标专题选片、去重、日报和推荐命中，后者是已用的养鱼上游，对标作息、后台活动、私信与日记。当前链路仍要求真实画面证据，另外用已有字幕理解讲解。 |
+| B 站互动、草稿和发布 | [dsh-bilibili-dafeiyu](https://github.com/XiaoZheBrother/dsh-bilibili-dafeiyu)、[bilibili-api](https://github.com/Nemo2011/bilibili-api) 约 4.2k | 工作台对标互动历史、草稿版本、审核与发布记录。`bilibili-api` 是接口层对照。沿用 `bili-cli` 的投递回执，制作仍走 Updream 和现有成片审批。 |
+| B 站预算与故障 | [dsh-bili-pond](https://github.com/YOYOLnFu/dsh-bili-pond) | 关注按阶段显示失败、日报回查、分开管理评论和私信开关。转写配额是它的实现，鲸鲸关注视觉与模型的实际开销。 |
+| 人设、记忆、知识库 | [dsh-agent-memory](https://github.com/Culeot/dsh-agent-memory)、[Hermes Agent](https://github.com/NousResearch/hermes-agent)、[现有人设对照](DSH_PERSONA.md) | 相关记忆按需注入，跨会话保持身份范围。可复用的工具经验保留来源与适用条件，和人设固定规则分开。SQLite 和 Obsidian 继续承担存储。 |
+| 模型、额度和费用 | [LiteLLM](https://github.com/BerriAI/litellm) | 借鉴每条路由的实际成本、预算、失败原因和有限回退验证。鲸鲸的默认模型与人工切换规则由现有控制层维护。 |
+| 渠道与媒体 | [渠道与核心](DSH_CHANNELS-20261111.md)、[微信主人私聊能力](WECHAT_OWNER_CAPABILITIES.md) | 以渠道实际规范和原生工具回执验收会话、文字、图片、语音、表情。权限在执行端校验，媒体的降级与重试按一次回复计。 |
+| Windows、浏览器和其他工具 | [Windows MCP](https://github.com/CursorTouch/Windows-MCP)、[Playwright MCP](https://github.com/microsoft/playwright-mcp) | 桌面和浏览器各用自己的工具范围。分别检查协议握手、工具注册、逐会话授权和只读调用。平台回执由对应适配器维护。 |
+
+本轮已把 B 站推荐回执细分为暂停、分镜不可用、分析没有产出可核对的画面依据。候选加载、分镜或模型分析期间收到暂停时，返回暂停原因。验证覆盖权限、去重、失败停发和单批模型次数，源码单元 7 项全部通过。日常宿主尚未换包。

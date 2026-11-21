@@ -208,11 +208,34 @@ test('推荐：拿不到画面时不生成，视觉请求失败时不重试或�
       recommendDm: async () => assert.fail('no recommendation') },
     llm: { chat: async () => { calls++; throw new Error('402') } },
   }
-  assert.equal((await runBiliRecommend(deps)).skipped, 'no-storyboard-or-paused')
+  assert.equal((await runBiliRecommend(deps)).skipped, 'recommendation-storyboard-unavailable')
   assert.equal(calls, 0)
   deps.bili.recommendationEvidence = videoEvidence
   assert.equal((await runBiliRecommend(deps)).reason, 'recommendation-analysis-failed')
   assert.equal(calls, 1)
+})
+
+test('推荐回执区分结果缺少画面依据与执行期间暂停', async () => {
+  let paused = false
+  const deps = { state: {}, saveState: async () => assert.fail('no write claim'), log: silentLog,
+    canPublish: () => !paused,
+    bili: { recommend: async () => [video('BVccc', '游戏杂谈')], recommendationEvidence: videoEvidence,
+      recommendDm: async () => assert.fail('no recommendation') },
+    llm: { chat: async () => JSON.stringify({ recommendations: [{ bvid: 'BVccc', cell: 20 }] }) },
+  }
+  assert.equal((await runBiliRecommend(deps)).skipped, 'recommendation-no-grounded-result')
+  deps.llm.chat = async () => {
+    paused = true
+    return JSON.stringify({ recommendations: [] })
+  }
+  assert.equal((await runBiliRecommend(deps)).skipped, 'recommendation-paused')
+  paused = false
+  deps.bili.recommendationEvidence = async () => { paused = true; return null }
+  deps.llm.chat = async () => assert.fail('no model call after pause')
+  assert.equal((await runBiliRecommend(deps)).skipped, 'recommendation-paused')
+  paused = false
+  deps.bili.recommend = async () => { paused = true; return [] }
+  assert.equal((await runBiliRecommend(deps)).skipped, 'recommendation-paused')
 })
 
 test('日记：写文件、写记忆库、给主人发摘要', async () => {
