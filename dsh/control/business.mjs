@@ -61,7 +61,7 @@ export async function runBiliRecommend(deps) {
   const items = await bili.recommend({ count: 14 })
   const seen = Array.isArray(state.seenBvid) ? state.seenBvid : []
   const { picked, skipped } = selectRecommendations(items, { seen,
-    minimumViews: MIN_BILI_VIEWS,
+    minimumViews: settings()?.workflows?.biliMinViews ?? MIN_BILI_VIEWS,
     limit: Math.min(settings()?.workflows?.recommend?.maxVideos ?? 3, 3) })
   log(`[fatfish] B站推荐：候选 ${items.length} 条，选中 ${picked.length} 条，跳过 ${skipped.length} 条`)
   if (!picked.length) return { ok: true, sent: 0, reason: 'no-pick' }
@@ -95,7 +95,7 @@ export async function runBiliRecommend(deps) {
       || typeof row.observation !== 'string' || !row.observation.trim() || typeof row.reason !== 'string') continue
     const reason = cleanReply(row.reason, 0).replace(/\s+/g, ' ')
     if (reasonIsAcceptable(reason) && Array.from(reason).length <= 45) reasons[row.bvid] = reason
-    const comment = whaleComment(row.comment)
+    const comment = whaleComment(row.comment, settings()?.style?.commentMaxChars)
     if (comment) comments[row.bvid] = comment
   }
   const batch = []

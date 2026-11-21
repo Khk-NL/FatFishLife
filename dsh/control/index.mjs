@@ -1,6 +1,8 @@
 import z from '@deepseek-ai/schemastery';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { DEFAULT_WINDOWS, persistSettings } from './settings.mjs';
+import { MIN_BILI_VIEWS } from './ops.mjs';
+import { DEFAULT_WHALE_LENGTH } from './whale-voice.mjs';
 import { TASKS, dueTasks, nextRun, readState, writeState, claimTask, recordSkillEvidence } from './schedule.mjs';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -61,6 +63,8 @@ export const Config = z.object({
     maxPercent: percent(90), manualTrigger: z.boolean().default(true), maxPerMessage: z.number().step(1).min(1).max(9).default(1) })
     .default({}).description('以实际发送回执重置概率，选中素材不算发送成功'),
   workflows: z.object({
+    biliMinViews: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(MIN_BILI_VIEWS)
+      .description('自动推荐、B 站视频精读及微信视频报告的最低播放量，填 0 取消播放量门槛'),
     recommend: z.object({ enabled: z.boolean().default(true), times: z.array(time()).default(['12:30','20:30']),
       commentEnabled: z.boolean().default(true), maxVideos: z.number().step(1).min(1).max(10).default(3) }).default({}),
     study: z.object({ enabled: z.boolean().default(true), time: time().default('21:00') }).default({}),
@@ -68,6 +72,13 @@ export const Config = z.object({
     daily: z.object({ enabled: z.boolean().default(true), publishEnabled: z.boolean().default(true), time: time().default('23:50'),
       basePercent: percent(20), stepPercent: percent(20), maxPercent: percent(100) }).default({}),
   }).default({}).description('运营计划：定时触发器在跑，发送与写回由 runner 决定'),
+  style: z.object({
+    chatMaxChars: z.number().step(1).min(1).max(1000).default(DEFAULT_WHALE_LENGTH).description('闲聊字数目标，报告和代码不截断'),
+    commentMaxChars: z.number().step(1).min(1).max(1000).default(DEFAULT_WHALE_LENGTH).description('自动公开评论字数上限'),
+  }).default({}),
+  modelRouting: z.object({
+    codexMinRemainingPercent: percent(80).description('Codex 五小时剩余比例严格超过此值时才符合优先资格'),
+  }).default({}),
   tasks: z.array(z.object({
     id: z.string().required(),
     kind: z.string().required().description('bili-recommend / bili-inbox / bili-study / diary'),
@@ -99,7 +110,7 @@ export const Config = z.object({
 
 // DSH Settings projects only volatile fields. A schema alone loads correctly
 // but produces no editable card. Keep identity and storage paths ordinary.
-const liveFields = ['reply', 'peakEnabled', 'busyWindows', 'voice', 'meme', 'workflows', 'tasks', 'runner', 'proactive'];
+const liveFields = ['reply', 'peakEnabled', 'busyWindows', 'voice', 'meme', 'workflows', 'style', 'modelRouting', 'tasks', 'runner', 'proactive'];
 for (const key of liveFields) Config.dict[key] = Config.dict[key].volatile();
 
 // 2026-10-30：宿主里插件偶发"整块不挂载"（persistSettings 写了文件，但工具不存在、

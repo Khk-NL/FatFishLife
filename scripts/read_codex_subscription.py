@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import queue
 import shutil
@@ -12,7 +13,7 @@ import threading
 import time
 
 
-def read_status(executable: str, state_dir: Path) -> dict:
+def read_status(executable: str, state_dir: Path, minimum_remaining: float = 80) -> dict:
     state_dir.mkdir(parents=True, exist_ok=True)
     command = [executable, "-c", "sqlite_home=" + json.dumps(state_dir.as_posix()),
                "-c", "log_dir=" + json.dumps((state_dir / "logs").as_posix()), "app-server"]
@@ -77,7 +78,8 @@ def read_status(executable: str, state_dir: Path) -> dict:
     available = "medium" in efforts
     return {"status": "read", "checkedAt": now, "remaining5h": remaining,
             "resetsAt": resets_at, "solMediumAvailable": available,
-            "eligible": available and remaining is not None and remaining > 80
+            "minimumRemaining5h": minimum_remaining,
+            "eligible": available and remaining is not None and remaining > minimum_remaining
             and type(resets_at) in (int, float) and resets_at > now}
 
 
@@ -86,7 +88,17 @@ def main() -> None:
     parser.add_argument("--state-dir", type=Path, required=True)
     parser.add_argument("--codex", default=shutil.which("codex"))
     options = parser.parse_args()
-    result = (read_status(options.codex, options.state_dir.resolve())
+    behavior = Path(os.environ.get("FATFISH_BEHAVIOR_FILE")
+                    or Path(__file__).resolve().parents[1] / "data/dsh/runtime-behavior.json")
+    minimum = 80
+    try:
+        routing = json.loads(behavior.read_text(encoding="utf-8-sig")).get("model_routing") or {}
+        value = routing.get("codex_min_remaining_percent")
+        if type(value) in (int, float) and 0 <= value <= 100:
+            minimum = value
+    except (OSError, ValueError, AttributeError):
+        pass
+    result = (read_status(options.codex, options.state_dir.resolve(), minimum)
               if options.codex else {"status": "codex-cli-unavailable"})
     print(json.dumps(result, ensure_ascii=False))
 

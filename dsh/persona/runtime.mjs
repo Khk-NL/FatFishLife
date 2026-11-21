@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { visibleCapabilities } from './capabilities.mjs';
 import { personaPrefix, validateCard } from './model.mjs';
+import { readRuntimeOptions } from '../control/runtime-options.mjs';
 
 export const name = 'fatfish-persona';
 export const inject = ['systemPrompt', 'tools'];
@@ -13,7 +14,8 @@ export function apply(ctx, config = {}) {
   const card = validateCard(JSON.parse(readFileSync(source, 'utf8').replace(/^\uFEFF/, '')));
   const profile = config.channel || 'desktop';
   ctx.systemPrompt.section({
-    name: 'fatfish-persona-core', order: 7800, interpolate: false, text: personaPrefix(card, profile),
+    name: 'fatfish-persona-core', order: 7800, interpolate: false,
+    text: () => personaPrefix(card, profile, readRuntimeOptions().chatMaxChars),
   });
   // List capabilities only for the local preset, and only from this step's admission.
   // Channel-specific guards can narrow tool access beyond the native registry.

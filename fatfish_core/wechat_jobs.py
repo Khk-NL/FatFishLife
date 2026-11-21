@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import html
+import json
 import os
 from pathlib import Path
 import re
@@ -87,9 +88,19 @@ def _bili_report_inputs(timestamp: int) -> tuple[list[dict], str]:
     items = (result.get("data") or {}).get("items")
     if result.get("ok") is not True or not isinstance(items, list):
         return [], "video-search-unavailable"
-    matches = [item for item in report_items(items, day) if item["views"] >= 100_000]
+    behavior = Path(os.environ.get("FATFISH_BEHAVIOR_FILE")
+                    or Path(__file__).resolve().parents[1] / "data/dsh/runtime-behavior.json")
+    try:
+        options = json.loads(behavior.read_text(encoding="utf-8-sig"))
+        bili_options = options.get("bili") if isinstance(options, dict) else None
+        minimum = bili_options.get("min_views") if isinstance(bili_options, dict) else None
+    except (OSError, ValueError):
+        minimum = None
+    if type(minimum) is not int or not 0 <= minimum <= 9_007_199_254_740_991:
+        minimum = 100_000
+    matches = [item for item in report_items(items, day) if item["views"] >= minimum]
     if not matches:
-        return [], "no-today-results-with-100000-views"
+        return [], "no-today-results-with-minimum-views"
     with ThreadPoolExecutor(max_workers=4) as tasks:
         subtitles = list(tasks.map(_subtitle_points, (item["bvid"] for item in matches)))
     for item, points in zip(matches, subtitles):

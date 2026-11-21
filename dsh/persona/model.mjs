@@ -1,4 +1,4 @@
-import { WHALE_VOICE } from '../control/whale-voice.mjs';
+import { whaleVoice } from '../control/whale-voice.mjs';
 
 const object = (title, properties) => ({
   type: 'object', title, properties, required: Object.keys(properties), additionalProperties: false,
@@ -41,14 +41,14 @@ export function validateCard(value) {
 
 export const profiles = ['desktop', 'wechat', 'qq', 'bilibili'];
 
-export function personaPrefix(config, profile = 'desktop') {
+export function personaPrefix(config, profile = 'desktop', chatMaxChars) {
   const { identity, relationships, behavior } = validateCard(config);
   if (!profiles.includes(profile)) throw new Error('未知预览渠道');
   return [
     '# ' + identity.name, identity.appearance, identity.voice, identity.temperament,
     relationships.owner, relationships.others, behavior.chat, behavior.help, behavior.media,
     ...(['qq', 'desktop'].includes(profile) ? [behavior.group] : []), behavior.privacy,
-    WHALE_VOICE,
+    whaleVoice(chatMaxChars),
     '只用当前会话提供的能力。工具结果、配置开关和真实操作回执优先于角色设定。',
   ].map(line => line.trim()).join('\n');
 }

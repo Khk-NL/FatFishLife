@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { MIN_BILI_VIEWS } from './ops.mjs';
+import { DEFAULT_WHALE_LENGTH } from './whale-voice.mjs';
 
 export const DEFAULT_WINDOWS = [{ start: '09:00', end: '12:00', weekdays: [0, 1, 2, 3, 4, 5, 6] },
   { start: '14:00', end: '18:00', weekdays: [0, 1, 2, 3, 4, 5, 6] }];
@@ -17,6 +19,9 @@ export function compileSettings(config) {
     dedupMs: config.reply.dedupSeconds * 1000, busyWindows: config.peakEnabled === false ? [] : config.busyWindows };
   const channel = item => ({ enabled: item.enabled, base: item.basePercent / 100, step: item.stepPercent / 100, max: item.maxPercent / 100 });
   const behavior = { version: 1,
+    style: { chat_max_chars: config.style?.chatMaxChars ?? DEFAULT_WHALE_LENGTH,
+      comment_max_chars: config.style?.commentMaxChars ?? DEFAULT_WHALE_LENGTH },
+    model_routing: { codex_min_remaining_percent: config.modelRouting?.codexMinRemainingPercent ?? 80 },
     voice: { ...channel(config.voice), text_alongside_voice: config.voice.textAlongsideVoice,
       provider: config.voice.provider, providers: config.voice.providers,
       allow_synthesis: config.voice.allowSynthesis ?? false,
@@ -27,7 +32,8 @@ export function compileSettings(config) {
       reflection_time: config.workflows.daily.time, base: config.workflows.daily.basePercent / 100,
       step: config.workflows.daily.stepPercent / 100, max: config.workflows.daily.maxPercent / 100,
       requires_share_intent_and_public_evidence: true },
-    bili: { auto_scroll_enabled: config.workflows.recommend.enabled, auto_scroll_times: config.workflows.recommend.times.join(','),
+    bili: { min_views: config.workflows.biliMinViews ?? MIN_BILI_VIEWS,
+      auto_scroll_enabled: config.workflows.recommend.enabled, auto_scroll_times: config.workflows.recommend.times.join(','),
       auto_scroll_count: config.workflows.recommend.maxVideos,
       auto_scroll_comment_enabled: config.workflows.recommend.commentEnabled, study_enabled: config.workflows.study.enabled,
       study_time: config.workflows.study.time, auto_reply: config.workflows.comments.enabled,

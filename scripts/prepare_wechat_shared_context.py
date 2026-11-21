@@ -257,6 +257,7 @@ def main():
                                  ('wechat-bili-report.mjs', 'package/lib/fatfish-wechat-bili-report.mjs'),
                                  ('control/video-evidence.mjs', 'package/lib/control/video-evidence.mjs'),
                                  ('control/whale-voice.mjs', 'package/lib/control/whale-voice.mjs'),
+                                 ('control/runtime-options.mjs', 'package/lib/control/runtime-options.mjs'),
                                  ('control/llm.mjs', 'package/lib/control/llm.mjs'),
                                  ('fatfish-wechat-media.mjs', 'package/lib/fatfish-wechat-media.mjs'),
                                  ('fatfish-bili-learning.mjs', 'package/lib/fatfish-bili-learning.mjs')]:
