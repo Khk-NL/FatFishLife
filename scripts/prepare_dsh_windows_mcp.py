@@ -12,6 +12,7 @@ from prepare_dsh_codex_routing import replace_once
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = "0.2.11"
+STARTUP_TIMEOUT_MS = 12_000
 EXPECTED = {
     "cordis.patch.yml": "c457362a31403877d668da683199a15fb7f6bad3f9ce35de5cd4d549dd3f2216",
     "lib/dependency.js": "73d9640e54981a1ed4a2a4d7b44a68d12ff62555b6f162ab225a1f146148e673",
@@ -41,7 +42,13 @@ def pack(installed: Path, executable: Path, destination: Path) -> Path:
     patch = replace_once(patch, "          - App,PowerShell,FileSystem\n",
                          "          - App,PowerShell,FileSystem,Registry\n")
 
+    patch = replace_once(patch, "        toolCallTimeoutMs: 120000\n",
+                         f"        startupTimeoutMs: {STARTUP_TIMEOUT_MS}\n        toolCallTimeoutMs: 120000\n")
+
     dependency = sources["lib/dependency.js"]
+    dependency = replace_once(dependency, '    "    transport: stdio",\n',
+                              '    "    transport: stdio",\n'
+                              f'    "    startupTimeoutMs: {STARTUP_TIMEOUT_MS}",\n')
     dependency = replace_once(dependency, "import { isAbsolute, basename, join, relative }",
                               "import { isAbsolute, basename, dirname, join, relative }")
     dependency = replace_once(dependency, '  const directory = windowsMcpToolDirectory();',

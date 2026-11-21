@@ -25,7 +25,7 @@
 
 复用 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) 5.25.2 与 [dsh-codex-subscription](https://github.com/WSL043/dsh-codex-subscription) 3.2.27 本机认证和额度接口，适配归档保留 MIT 许可与署名。WorkBuddy 自动签到保存为国内单账号，2026-11-21 查到已领 100 积分，5,045.78 分为本次只读余额。
 
-Windows MCP 使用 D 盘的 Windows-MCP 0.8.8。正常退出后已用插件写入并读回桌面 stdio 桥，保留四项排除和逐会话授权。此前隔离原生宿主验证了 17 个工具，未授权调用会被拒绝。此轮实际桌面识别到 0.8.8，工具数为 0。原生诊断复现 `No active interactive desktop for physical input control`，Windows 拒绝读取当前输入桌面。需从可用的 Windows 桌面打开 DSH 后检查工具数。
+Windows MCP 0.8.8 使用 D 盘的本机 stdio。直接握手列出 17 个工具，只读 `ControlStatus` 通过，四项排除仍生效。本轮将 12 秒启动上限写入载体及 desktop 覆盖配置，备份后重启。实际 DSH 仍注册 0 个工具。隔离 CLI 曾成功注册 17 个，但实际 Electron 宿主方式在隔离环境中使用长短两套配置都复现 `No active interactive desktop for physical input control`。随后本机 Win32 探测返回拒绝访问（5）。DSH 逐会话授权仍保留。
 
 ## QQ 视频核对
 
