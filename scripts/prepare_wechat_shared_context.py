@@ -84,8 +84,10 @@ def adapt_bridge(source):
     end = source.index('    const parsed = parseCommand(content.text)', start)
     source = source[:start] + source[end:]
     source = replace_once(source, '    if (parsed) {\n      const context', '''    if (parsed) {
-      if (!['status', 'stop'].includes(parsed.name)) {
-        await this.deliver(conversationKey, '微信只用来聊天。可以用 /status 查连接、用 /stop 停当前回复。其他操作请到 DSH。')
+      const startsNewSession = parsed.name === 'session' && /^new$/i.test(String(parsed.args ?? '').trim())
+      const help = '/status 查连接 · /stop 停当前回复 · /new 或 /session new 开新对话 · /help 查看指令'
+      if (parsed.name === 'help' || (!['status', 'stop', 'new'].includes(parsed.name) && !startsNewSession)) {
+        await this.deliver(conversationKey, help)
         await this.store.saveState()
         return
       }
@@ -94,9 +96,24 @@ def adapt_bridge(source):
     source = replace_once(source, '''      if (live) {
         this.#chatOf.set(boundSessionId, conversationKey)
         return { agent: live, sessionId: boundSessionId, created: false }
-      }''', '''      if (live) throw new Error('微信绑定的会话正在由 DSH 使用，请在 DSH 中继续。')''')
+      }
+      try {''', '''      // An agent opened by Desktop does not carry this channel's capability guards.
+      // Leave its session intact and bind a new scoped session only after creation succeeds.
+      if (!live) {
+      try {''')
+    source = replace_once(source, '''        this.logger.warn?.(`failed to resume session ${boundSessionId}, starting a new one: ${error?.message ?? error}`)
+        await this.store.setSession(conversationKey, null)''',
+                          "        this.logger.warn?.('WeChat session resume failed; creating a fresh scoped session')")
+    resume_start = source.index('      if (!live) {\n      try {') + len('      if (!live) {\n')
+    resume_end = source.index('\n    }\n\n    const sessionId = newSessionId()', resume_start)
+    resume = '\n'.join('  ' + line for line in source[resume_start:resume_end].split('\n'))
+    source = source[:resume_start] + resume + '\n      }' + source[resume_end:]
+    source = replace_once(source,
+                          '          `❌ 无法为这个微信会话打开 DSH 会话：${detail}\\n请检查工作区路径是否存在（/workspace），或发送 /new 重试。`,',
+                          "          '老大，本鱼没能打开新的微信会话，这条消息没交给模型。',")
     source = replace_once(source, '    this.#registerChannelPrompt(agentCtx, conversationKey)\n',
-                          '''    const current = () => this.#pending.get(this.store.sessionFor(conversationKey))?.[0]
+                          '''    if (this.#isBoundOwner(conversationKey)) installCodexRouting(agentCtx)
+    const current = () => this.#pending.get(this.store.sessionFor(conversationKey))?.[0]
     const capabilities = installWechatCapabilities(agentCtx, this.ctx, {
       conversation: conversationKey, owner: () => this.#isBoundOwner(conversationKey), current,
     })
@@ -108,6 +125,7 @@ def adapt_bridge(source):
     this.#registerChannelPrompt(agentCtx, conversationKey)
 ''')
     source = replace_once(source, 'export class WechatBridge {',
+                          "import { installCodexRouting, prepareCodexRouting } from './persona/codex-routing.mjs'\n"
                           "import { installWechatTextOnly } from './fatfish-wechat-turn-budget.mjs'\n"
                           "import { chooseWechatSticker, installWechatCapabilities, ownerDesktopApp, ownerMemory, ownerWorkflow, stageWechatNote } from './fatfish-wechat-capabilities.mjs'\n"
                           "export { installWechatTextOnly }\n\nexport class WechatBridge {")
@@ -147,6 +165,9 @@ def adapt_bridge(source):
     end = source.index('\n  }', start)
     source = source[:start] + "    return { text: parts.join('\\n\\n').trim(), image }" + source[end:]
     source = replace_once(source, 'import { describeFilesForPrompt, downloadInboundItem,', 'import { downloadInboundItem,')
+    source = replace_once(source, '      const { agent, sessionId } = opened\n',
+                          '      const { agent, sessionId } = opened\n'
+                          '      if (!content.image && this.#isBoundOwner(conversationKey)) await prepareCodexRouting(this.ctx)\n')
     source = replace_once(source, 'agent.followup(createTextUserMessage(content.text))',
                           'agent.followup(createTextUserMessage(content.text, content.image))')
     source = replace_once(source, "import { checkAccess } from './config.js'\n", '')
@@ -252,6 +273,7 @@ def main():
             raise ValueError(f'Missing upstream WeChat files: {list(transforms)}')
         for filename, target in [('wechat-shared-context.mjs', CONTEXT),
                                  ('persona/model.mjs', 'package/lib/persona/model.mjs'),
+                                 ('persona/codex-routing.mjs', 'package/lib/persona/codex-routing.mjs'),
                                  ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
                                  ('wechat-capabilities.mjs', 'package/lib/fatfish-wechat-capabilities.mjs'),
                                  ('wechat-bili-report.mjs', 'package/lib/fatfish-wechat-bili-report.mjs'),

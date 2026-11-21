@@ -14,7 +14,8 @@ window.__ModuleLoader__.load({ id: 'dsh-fatfish-life', factory: require => {
     textAlongsideVoice: '语音同时发送文字', maxPerMessage: '每条回复最多表情数',
     workflows: '运营计划', biliMinViews: 'B站最低播放量（0 为关闭门槛）', recommend: 'B站推荐', times: '每日时间',
     style: '鲸鲸说话习惯', chatMaxChars: '闲聊字数目标', commentMaxChars: '公开评论字数上限',
-    modelRouting: '模型资格', codexMinRemainingPercent: 'Codex 5 小时剩余比例须超过（%）',
+    modelRouting: '自动选模型', workBuddyMinCredits: 'WorkBuddy 最少赠送积分',
+    codexMinRemainingPercent: 'Codex 5 小时最低剩余额度（%）',
     commentEnabled: '推荐评论开关', maxVideos: '单次视频上限', study: '公开资料学习', time: '每日时间',
     comments: '评论回复', ownerOnly: '仅主人', daily: '每日总结与动态', publishEnabled: '动态发布开关',
   };

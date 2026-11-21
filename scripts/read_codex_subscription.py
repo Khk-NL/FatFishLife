@@ -79,7 +79,7 @@ def read_status(executable: str, state_dir: Path, minimum_remaining: float = 80)
     return {"status": "read", "checkedAt": now, "remaining5h": remaining,
             "resetsAt": resets_at, "solMediumAvailable": available,
             "minimumRemaining5h": minimum_remaining,
-            "eligible": available and remaining is not None and remaining > minimum_remaining
+            "eligible": available and remaining is not None and remaining >= minimum_remaining
             and type(resets_at) in (int, float) and resets_at > now}
 
 
