@@ -9,7 +9,7 @@ export function whalePresetRoster(roster) {
   return {
     ...roster,
     presets: roster.presets.filter(preset => preset.id !== social).map(preset => preset.id === desktop
-      ? { ...preset, name: '鲸鲸', description: '同一只鲸鲸的桌面入口，支持本机 LifePilot。' }
+      ? { ...preset, name: '鲸鲸', description: '与鲸鲸聊天，使用记忆、知识库和日常工具。' }
       : preset),
   };
 }
