@@ -17,6 +17,7 @@ import { createTaskModelBudget } from './llm.mjs';
 import * as bili from './bili.mjs';
 import * as hub from './hub.mjs';
 import { qzoneStatus } from './qzone.mjs';
+import { installWhalePresetPicker } from './whale-preset-picker.mjs';
 
 export const name = 'fatfish-control';
 export const inject = ['tools'];
@@ -130,6 +131,7 @@ function marker(ctx, config) {
 }
 
 export async function apply(ctx, config) {
+  installWhalePresetPicker(ctx);
   const mark = marker(ctx, config)
   mark('control-mount.json', { stage: 'enter', hasEffect: typeof ctx.effect })
   try {

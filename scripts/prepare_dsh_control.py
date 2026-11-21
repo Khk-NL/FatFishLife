@@ -16,6 +16,7 @@ def pack() -> Path:
         for name in ('package.json', 'cordis.patch.yml', 'index.mjs', 'schedule.mjs', 'ops.mjs', 'settings.mjs',
                      'business.mjs', 'proactive.mjs', 'compose.mjs', 'llm.mjs', 'hub.mjs', 'qzone.mjs', 'bili.mjs', 'transport.mjs',
                      'availability.mjs', 'video-evidence.mjs', 'whale-voice.mjs', 'runtime-options.mjs',
+                     'whale-preset-picker.mjs',
                      'moodsync.mjs',
                      'petmood.mjs',
                      'speakup.mjs',

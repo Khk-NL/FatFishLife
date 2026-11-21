@@ -4,6 +4,8 @@
 
 ## 人设、权限与运营
 
+新会话菜单只显示一个「鲸鲸」，提供桌面 LifePilot 能力。内部保留微信使用的 `whale-social` 和桌面使用的 `whale-lifepilot`，旧会话继续使用原绑定。通过原生注册表验证了两个 ID 的解析，并在日常桌面验证了菜单显示。
+
 - 桌面和微信从结构化人设读取共用说话规则，B 站使用同一份人设文本。闲聊尽量在 50 字以内，主要用逗号和换行，自称本鱼或人家，避开指定套话。分析、代码和来源链接按任务需要保留。
 - 自动推荐与学习筛选已知播放量至少 10 万的片源。推荐用 `dsh-video-storyboard` 提供的真实画面证据，失败时跳过。订阅与评论工具复用 `dsh-bili-whale`，公开评论只写感想，统计留在私信或报告。`dsh-see-now` 是实时屏幕输入，`dsh-video-storyboard` 是单个视频分析，两者用途分别保留。
 - 桌面工作台配置独有的 Windows MCP，保留界面快照、点击、输入、截图等 17 个工具。通用脚本、文件和系统权限走 DSH 自有入口，避免重复。已认证微信仍通过明确的工作流申请跨平台或桌面动作，公开评论和群聊各自按最小权限访问工具。投稿、直播、付费和发送私人文件需确认具体目标。
@@ -23,7 +25,7 @@
 
 复用 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) 5.25.2 与 [dsh-codex-subscription](https://github.com/WSL043/dsh-codex-subscription) 3.2.27 本机认证和额度接口，适配归档保留 MIT 许可与署名。WorkBuddy 自动签到保存为国内单账号，2026-11-21 查到已领 100 积分，5,045.78 分为本次只读余额。
 
-Windows MCP 使用 D 盘的 Windows-MCP 0.8.8，隔离宿主验证 17 个工具，当前会话没有授权时拒绝调用。实际桌面诊断已认出依赖，但工具数仍为 0，日常桥接配置要在「设置 → 桌面控制」通过已登录会话保存。真实微信发送由绑定主人验收。
+Windows MCP 使用 D 盘的 Windows-MCP 0.8.8。正常退出后已用插件写入并读回桌面 stdio 桥，保留四项排除和逐会话授权。此前隔离原生宿主验证了 17 个工具，未授权调用会被拒绝。此轮实际桌面识别到 0.8.8，工具数为 0。原生诊断复现 `No active interactive desktop for physical input control`，Windows 拒绝读取当前输入桌面。需从可用的 Windows 桌面打开 DSH 后检查工具数。
 
 ## QQ 视频核对
 
