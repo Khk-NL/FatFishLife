@@ -13,7 +13,7 @@ import threading
 import time
 
 
-def read_status(executable: str, state_dir: Path, minimum_remaining: float = 80) -> dict:
+def read_status(executable: str, state_dir: Path, minimum_remaining: float = 80, minimum_weekly: float = 50) -> dict:
     state_dir.mkdir(parents=True, exist_ok=True)
     command = [executable, "-c", "sqlite_home=" + json.dumps(state_dir.as_posix()),
                "-c", "log_dir=" + json.dumps((state_dir / "logs").as_posix()), "app-server"]
@@ -69,18 +69,26 @@ def read_status(executable: str, state_dir: Path, minimum_remaining: float = 80)
     target = next((model for model in catalog.get("data", []) if model.get("model") == "gpt-6.2-sol"), {})
     efforts = [entry.get("reasoningEffort") for entry in target.get("supportedReasoningEfforts", [])]
     pair = limits.get("rateLimits") or {}
-    window = next((entry for entry in (pair.get("primary"), pair.get("secondary"))
-                   if isinstance(entry, dict) and entry.get("windowDurationMins") == 300), {})
-    used = window.get("usedPercent")
-    remaining = 100 - used if type(used) in (int, float) and 0 <= used <= 100 else None
     now = int(time.time())
-    resets_at = window.get("resetsAt")
+
+    def read_window(minutes: int, minimum: float):
+        window = next((entry for entry in (pair.get("primary"), pair.get("secondary"))
+                       if isinstance(entry, dict) and entry.get("windowDurationMins") == minutes), {})
+        used = window.get("usedPercent")
+        remaining = 100 - used if type(used) in (int, float) and 0 <= used <= 100 else None
+        resets_at = window.get("resetsAt")
+        eligible = (remaining is not None and remaining >= minimum
+                    and type(resets_at) in (int, float) and resets_at > now)
+        return remaining, resets_at, eligible
+
+    remaining, resets_at, eligible5h = read_window(300, minimum_remaining)
+    weekly_remaining, weekly_resets_at, eligible_week = read_window(7 * 24 * 60, minimum_weekly)
     available = "medium" in efforts
     return {"status": "read", "checkedAt": now, "remaining5h": remaining,
             "resetsAt": resets_at, "solMediumAvailable": available,
-            "minimumRemaining5h": minimum_remaining,
-            "eligible": available and remaining is not None and remaining >= minimum_remaining
-            and type(resets_at) in (int, float) and resets_at > now}
+            "minimumRemaining5h": minimum_remaining, "remaining7d": weekly_remaining,
+            "weeklyResetsAt": weekly_resets_at, "minimumRemaining7d": minimum_weekly,
+            "eligible": available and eligible5h and eligible_week}
 
 
 def main() -> None:
@@ -91,14 +99,18 @@ def main() -> None:
     behavior = Path(os.environ.get("FATFISH_BEHAVIOR_FILE")
                     or Path(__file__).resolve().parents[1] / "data/dsh/runtime-behavior.json")
     minimum = 80
+    minimum_weekly = 50
     try:
         routing = json.loads(behavior.read_text(encoding="utf-8-sig")).get("model_routing") or {}
         value = routing.get("codex_min_remaining_percent")
         if type(value) in (int, float) and 0 <= value <= 100:
             minimum = value
+        value = routing.get("codex_min_weekly_remaining_percent")
+        if type(value) in (int, float) and 0 <= value <= 100:
+            minimum_weekly = value
     except (OSError, ValueError, AttributeError):
         pass
-    result = (read_status(options.codex, options.state_dir.resolve(), minimum)
+    result = (read_status(options.codex, options.state_dir.resolve(), minimum, minimum_weekly)
               if options.codex else {"status": "codex-cli-unavailable"})
     print(json.dumps(result, ensure_ascii=False))
 

@@ -8,10 +8,12 @@ const snapshots = new WeakMap();
 const fresh = (report, now) => Number.isFinite(report?.fetchedAt)
   && report.fetchedAt <= now && now - report.fetchedAt <= 120_000;
 
-export function quotaAllowsCodex(report, minimum, now = Date.now()) {
+export function quotaAllowsCodex(report, limits, now = Date.now()) {
+  const meets = (remaining, resetsAt, minimum) => Number.isFinite(remaining) && remaining >= minimum
+    && remaining <= 100 && Number.isFinite(resetsAt) && resetsAt > now / 1000;
   return fresh(report, now) && report.modelAvailable === true
-    && Number.isFinite(report.remaining) && report.remaining <= 100 && report.remaining >= minimum
-    && Number.isFinite(report.resetsAt) && report.resetsAt > now / 1000;
+    && meets(report.remaining, report.resetsAt, limits.codexMinimum)
+    && meets(report.weeklyRemaining, report.weeklyResetsAt, limits.codexWeeklyMinimum);
 }
 
 export function quotaAllowsWorkBuddy(report, minimum, now = Date.now()) {
@@ -43,21 +45,28 @@ function currentReport(quota) {
   return entry?.generation === quota?.generation() ? entry?.report : undefined;
 }
 
-export async function prepareCodexRouting(ctx) {
+export async function prepareCodexRouting(ctx, prefersCodex = false) {
   const quota = provider => ctx.get(provider);
   const workBuddyQuota = quota('fatfishWorkBuddyQuota');
-  const codexQuota = quota('fatfishCodexQuota');
+  const codexQuota = prefersCodex ? quota('fatfishCodexQuota') : undefined;
   // The WeChat adapter can wait before admitting its message. Both reads are quota-only.
   await Promise.all([warm(workBuddyQuota), warm(codexQuota)]);
 }
 
-export function installCodexRouting(ctx) {
+export async function readProviderQuota(ctx, provider) {
+  const quota = ctx.get(provider === 'codex' ? 'fatfishCodexQuota' : 'fatfishWorkBuddyQuota');
+  await warm(quota);
+  const report = currentReport(quota);
+  return fresh(report, Date.now()) ? report : undefined;
+}
+
+export function installCodexRouting(ctx, { prefersCodex = () => false, onCodexUnavailable = () => {} } = {}) {
   const services = {};
   for (const key of ['fatfishWorkBuddyQuota', 'fatfishCodexQuota']) {
     ctx.inject([key], (scope) => {
       const quota = scope[key];
       services[key] = quota;
-      warm(quota);
+      if (key === 'fatfishWorkBuddyQuota' || prefersCodex()) warm(quota);
       scope.effect(() => () => {
         if (services[key] === quota) delete services[key];
       });
@@ -68,12 +77,15 @@ export function installCodexRouting(ctx) {
   ctx.on('agent/inbox/inserted', () => {
     const quota = services.fatfishWorkBuddyQuota;
     warm(quota);
-    if (!quotaAllowsWorkBuddy(currentReport(quota), readRuntimeOptions().workBuddyMinimum)) {
+    if (prefersCodex()) {
       warm(services.fatfishCodexQuota);
     }
   });
   ctx.on('agent/inbox/claimed', ({ agent, message, turn }) => {
-    if (!agent || turns.get(agent)?.turn === turn) return;
+    if (!agent) return;
+    const previous = turns.get(agent);
+    if (previous?.turn === turn) return;
+    if (previous?.fallback && sameAs(agent.model.current(), previous.selected)) agent.model.select(previous.fallback);
     const current = agent.model.current();
     const state = { turn, fallback: null };
     turns.set(agent, state);
@@ -81,9 +93,11 @@ export function installCodexRouting(ctx) {
     if (current?.provider !== 'deepseek-official' || current.model !== 'deepseek-flash') return;
     if (Array.isArray(message?.content) && message.content.some(part => part.type !== 'text')) return;
     const limits = readRuntimeOptions();
-    const selected = quotaAllowsWorkBuddy(currentReport(services.fatfishWorkBuddyQuota), limits.workBuddyMinimum)
-      ? workBuddy
-      : quotaAllowsCodex(currentReport(services.fatfishCodexQuota), limits.codexMinimum) ? codex : null;
+    const manualCodex = prefersCodex();
+    const codexReady = manualCodex && quotaAllowsCodex(currentReport(services.fatfishCodexQuota), limits);
+    if (manualCodex && !codexReady) onCodexUnavailable();
+    const selected = codexReady ? codex
+      : quotaAllowsWorkBuddy(currentReport(services.fatfishWorkBuddyQuota), limits.workBuddyMinimum) ? workBuddy : null;
     if (!selected) return;
     agent.model.select(selected);
     state.fallback = current;

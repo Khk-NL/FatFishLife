@@ -79,7 +79,8 @@ export const Config = z.object({
   modelRouting: z.object({
     workBuddyMinCredits: z.number().step(1).min(0).max(Number.MAX_SAFE_INTEGER).default(50)
       .description('WorkBuddy 赠送积分达到此值时优先使用'),
-    codexMinRemainingPercent: percent(80).description('WorkBuddy 不符合条件时，Codex 五小时剩余比例达到此值才使用'),
+    codexMinRemainingPercent: percent(80).description('Codex 五小时剩余额度门槛，两项都达到才使用'),
+    codexMinWeeklyRemainingPercent: percent(50).description('Codex 七天剩余额度门槛，两项都达到才使用'),
   }).default({}),
   tasks: z.array(z.object({
     id: z.string().required(),

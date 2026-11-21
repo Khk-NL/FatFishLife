@@ -12,6 +12,8 @@ OUTPUT = ROOT / 'outputs/clawbot-20261114'
 UPSTREAM = OUTPUT / 'dsh-wechat-0.3.7.tgz'
 EXPECTED = '30c51947b071923dcd12673e600d399896b69068d673e8cb07a81d3a2e6dfaf7'
 BRIDGE = 'package/lib/bridge.js'
+STORE = 'package/lib/store.js'
+COMMANDS = 'package/lib/commands.js'
 CONTEXT = 'package/lib/fatfish-shared-context.mjs'
 ENTRY = 'package/lib/index.js'
 API = 'package/lib/ilink/api.js'
@@ -27,7 +29,7 @@ def replace_once(source, old, new):
 def adapt_bridge(source):
     source = replace_once(source, "import { renderChoices, welcomeText } from './onboarding.js'",
                           "import { renderChoices } from './onboarding.js'\n"
-                          "import { createWechatPrompt } from './fatfish-shared-context.mjs'")
+                          "import { createWechatPrompt, queryDiaryStatus } from './fatfish-shared-context.mjs'")
     source, count = re.subn(r"const CHANNEL_PROMPT = \[.*?\]\.join\('\\n'\)\n", '', source, flags=re.S)
     if count != 1:
         raise ValueError('Unexpected upstream WeChat prompt')
@@ -85,7 +87,7 @@ def adapt_bridge(source):
     source = source[:start] + source[end:]
     source = replace_once(source, '    if (parsed) {\n      const context', '''    if (parsed) {
       const startsNewSession = parsed.name === 'session' && /^new$/i.test(String(parsed.args ?? '').trim())
-      const help = '/status 查连接 · /stop 停当前回复 · /new 或 /session new 开新对话 · /help 查看指令'
+      const help = '/status 查连接 · /model 查模型 · /model codex 或 /model deepseek 切换 · /quota 查额度 · /stop 停当前回复 · /new 或 /session new 开新对话 · /help 查看指令'
       if (parsed.name === 'help' || (!['status', 'stop', 'new'].includes(parsed.name) && !startsNewSession)) {
         await this.deliver(conversationKey, help)
         await this.store.saveState()
@@ -111,8 +113,65 @@ def adapt_bridge(source):
     source = replace_once(source,
                           '          `❌ 无法为这个微信会话打开 DSH 会话：${detail}\\n请检查工作区路径是否存在（/workspace），或发送 /new 重试。`,',
                           "          '老大，本鱼没能打开新的微信会话，这条消息没交给模型。',")
+    source = replace_once(source, '    const parsed = parseCommand(content.text)', """    const rawItem = message.item_list[0]
+    const query = message.item_list.length === 1 && itemType(rawItem) === ITEM_TYPE.TEXT && !rawItem.ref_msg
+      ? parseWechatServiceQuery(String(itemPayload(rawItem).text ?? '')) : undefined
+    if (query) {
+      let answer
+      if (query === 'model') {
+        answer = this.#lastReplyModel(conversationKey)
+      } else if (query === 'use-deepseek') {
+        delete this.store.state.modelPreferences[conversationKey]
+        await this.store.saveState()
+        answer = '本鱼切回 DeepSeek 了'
+      } else if (query === 'use-codex') {
+        const report = await readProviderQuota(this.ctx, 'codex')
+        if (quotaAllowsCodex(report, readRuntimeOptions())) {
+          this.store.state.modelPreferences[conversationKey] = 'codex'
+          await this.store.saveState()
+          answer = '本鱼切到 GPT-6.2 Sol 中档了'
+        } else {
+          delete this.store.state.modelPreferences[conversationKey]
+          await this.store.saveState()
+          answer = 'Codex 插件或额度暂时不可用，本鱼会先用 DeepSeek'
+        }
+      } else {
+        answer = await formatWechatQuota(this.ctx, query)
+      }
+      await this.deliver(conversationKey, answer)
+      return
+    }
+    const diary = message.item_list.length === 1 && itemType(rawItem) === ITEM_TYPE.TEXT && !rawItem.ref_msg
+      ? queryDiaryStatus(String(itemPayload(rawItem).text ?? '')) : undefined
+    if (diary) {
+      await this.deliver(conversationKey, diary)
+      return
+    }
+    const parsed = parseCommand(content.text)""")
+    source = replace_once(source, '  /** Mark one bot', '''  #lastReplyModel(conversationKey) {
+    const source = this.store.state.lastReplyModels[conversationKey]
+    const isModelId = value => typeof value === 'string' && /^[a-z0-9._:/-]{1,120}$/i.test(value)
+    if (!isModelId(source?.provider) || !isModelId(source?.model)) {
+      return '本鱼还没记到这个会话的模型回复'
+    }
+    const names = new Map([['workbuddy', 'WorkBuddy'], ['workbuddy-global', 'WorkBuddy 国际版'],
+      ['openai-codex', 'Codex 订阅'], ['deepseek-official', 'DeepSeek 官方 API']])
+    return `最近一次回复：${names.get(source.provider) ?? source.provider} · ${source.model}`
+  }
+
+  /** Mark one bot''')
+    source = replace_once(source, 'if (text.length > 0) pending.durableText = text', '''if (text.length > 0) {
+          pending.durableText = text
+          const source = event.data?.message?.source
+          pending.fatfishReplyModel = pending.turn !== null && event.data?.turn === pending.turn
+            && source?.kind === 'model' && typeof source.provider === 'string' && typeof source.model === 'string'
+            ? { provider: source.provider, model: source.model } : undefined
+        }''')
     source = replace_once(source, '    this.#registerChannelPrompt(agentCtx, conversationKey)\n',
-                          '''    if (this.#isBoundOwner(conversationKey)) installCodexRouting(agentCtx)
+                          '''    if (this.#isBoundOwner(conversationKey)) installCodexRouting(agentCtx, {
+      prefersCodex: () => this.store.state.modelPreferences[conversationKey] === 'codex',
+      onCodexUnavailable: () => { delete this.store.state.modelPreferences[conversationKey] },
+    })
     const current = () => this.#pending.get(this.store.sessionFor(conversationKey))?.[0]
     const capabilities = installWechatCapabilities(agentCtx, this.ctx, {
       conversation: conversationKey, owner: () => this.#isBoundOwner(conversationKey), current,
@@ -125,7 +184,9 @@ def adapt_bridge(source):
     this.#registerChannelPrompt(agentCtx, conversationKey)
 ''')
     source = replace_once(source, 'export class WechatBridge {',
-                          "import { installCodexRouting, prepareCodexRouting } from './persona/codex-routing.mjs'\n"
+                          "import { parseWechatServiceQuery, formatWechatQuota } from './fatfish-wechat-service-status.mjs'\n"
+                          "import { installCodexRouting, prepareCodexRouting, quotaAllowsCodex, readProviderQuota } from './persona/codex-routing.mjs'\n"
+                          "import { readRuntimeOptions } from './control/runtime-options.mjs'\n"
                           "import { installWechatTextOnly } from './fatfish-wechat-turn-budget.mjs'\n"
                           "import { chooseWechatSticker, installWechatCapabilities, ownerDesktopApp, ownerMemory, ownerWorkflow, stageWechatNote } from './fatfish-wechat-capabilities.mjs'\n"
                           "export { installWechatTextOnly }\n\nexport class WechatBridge {")
@@ -167,15 +228,19 @@ def adapt_bridge(source):
     source = replace_once(source, 'import { describeFilesForPrompt, downloadInboundItem,', 'import { downloadInboundItem,')
     source = replace_once(source, '      const { agent, sessionId } = opened\n',
                           '      const { agent, sessionId } = opened\n'
-                          '      if (!content.image && this.#isBoundOwner(conversationKey)) await prepareCodexRouting(this.ctx)\n')
+                          '      if (!content.image && this.#isBoundOwner(conversationKey)) {\n'
+                          "        await prepareCodexRouting(this.ctx, this.store.state.modelPreferences[conversationKey] === 'codex')\n"
+                          '      }\n')
     source = replace_once(source, 'agent.followup(createTextUserMessage(content.text))',
                           'agent.followup(createTextUserMessage(content.text, content.image))')
     source = replace_once(source, "import { checkAccess } from './config.js'\n", '')
     source = replace_once(source, '    if (!userId) throw new Error(`dsh-wechat: cannot address conversation ${conversationKey}`)\n    return this.#enqueueSend',
                           '    if (!userId || !this.#isBoundOwner(conversationKey)) return 0\n    return this.#enqueueSend')
     source = replace_once(source, "    await this.deliver(pending.conversationKey, parts.join('\\n\\n'), { pending })",
-                          "    await this.deliver(pending.conversationKey, parts.join('\\n\\n'), { pending,\n"
-                          "      fatfishSticker: kind === 'completed' && !pending.fatfishStop ? text : '' })")
+                          """    await this.deliver(pending.conversationKey, parts.join('\\n\\n'), { pending,
+      fatfishReplyModel: (kind === 'completed' || kind === 'max-tokens') && !pending.fatfishStop && text
+        ? pending.fatfishReplyModel : undefined,
+      fatfishSticker: kind === 'completed' && !pending.fatfishStop ? text : '' })""")
     start = source.index('    if (!contextToken) {', source.index('  async #deliverNow('))
     end = source.index('\n  /**', source.index('  async #sendWithRetry(', start))
     return source[:start] + '''    if (!contextToken) return 0
@@ -196,6 +261,9 @@ def adapt_bridge(source):
       }
     }
     if (options.pending) this.#stopTyping(options.pending)
+    if (sent > 0 && sent === chunks.length && options.fatfishReplyModel && this.#isBoundOwner(conversationKey)) {
+      this.store.state.lastReplyModels[conversationKey] = options.fatfishReplyModel
+    }
     await this.store.saveState()
     if (sent > 0 && sent === chunks.length && options.pending && options.fatfishSticker) {
       try {
@@ -254,11 +322,22 @@ def adapt_api(source):
 /** `ret`/`errcode` meaning''')
 
 
+def adapt_store(source):
+    source = replace_once(source, '    sessions: {},', '    sessions: {},\n    lastReplyModels: {},\n    modelPreferences: {},')
+    return replace_once(source, "['sessions', 'follow', 'contextTokens', 'welcomed', 'pendingSwitch']",
+                        "['sessions', 'follow', 'contextTokens', 'welcomed', 'pendingSwitch', 'lastReplyModels', 'modelPreferences']")
+
+
+def adapt_commands(source):
+    return replace_once(source, "          ['模型', info.model ?? '（跟随 DSH 默认）'],\n", "")
+
+
 def main():
     if hashlib.sha256(UPSTREAM.read_bytes()).hexdigest() != EXPECTED:
         raise ValueError('Unexpected upstream archive SHA256')
     output = io.BytesIO()
-    transforms = {BRIDGE: adapt_bridge, ENTRY: adapt_entry, API: adapt_api, HARNESS: adapt_harness}
+    transforms = {BRIDGE: adapt_bridge, STORE: adapt_store, COMMANDS: adapt_commands,
+                  ENTRY: adapt_entry, API: adapt_api, HARNESS: adapt_harness}
     with (tarfile.open(UPSTREAM, 'r:gz') as source,
           gzip.GzipFile(fileobj=output, mode='wb', mtime=0) as compressed,
           tarfile.open(fileobj=compressed, mode='w') as result):
@@ -274,6 +353,7 @@ def main():
         for filename, target in [('wechat-shared-context.mjs', CONTEXT),
                                  ('persona/model.mjs', 'package/lib/persona/model.mjs'),
                                  ('persona/codex-routing.mjs', 'package/lib/persona/codex-routing.mjs'),
+                                 ('wechat-service-status.mjs', 'package/lib/fatfish-wechat-service-status.mjs'),
                                  ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
                                  ('wechat-capabilities.mjs', 'package/lib/fatfish-wechat-capabilities.mjs'),
                                  ('wechat-bili-report.mjs', 'package/lib/fatfish-wechat-bili-report.mjs'),

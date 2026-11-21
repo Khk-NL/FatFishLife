@@ -38,9 +38,10 @@ SERVICE = '''
 				const selection = bounds();
 				const { store, catalog } = stacks.cn;
 				const model = catalog.current().find(row => row.id === "deepseek-v4.1-flash");
-				if (selection === false || !catalog.hasLiveRoster() || model?.supportsToolCall !== true
-					|| model.contextWindow < 1_000_000 || model.maxTokens < 128_000
-					|| !Number.isFinite(model.creditMultiplier) || model.creditMultiplier <= 0) return undefined;
+				if (selection === false) return undefined;
+				const modelAvailable = catalog.hasLiveRoster() && model?.supportsToolCall === true
+					&& model.contextWindow >= 1_000_000 && model.maxTokens >= 128_000
+					&& Number.isFinite(model.creditMultiplier) && model.creditMultiplier > 0;
 				const accounts = await store.accounts();
 				const account = selection
 					? accounts.find(row => row.id === selection)
@@ -52,11 +53,11 @@ SERVICE = '''
 				const balance = await client.fetchCredits(credential);
 				if (signal.aborted || bounds() !== selection) return undefined;
 				const packages = balance.packages.filter(row => row.remain > 0);
-				if (!packages.length || packages.some(row => !knownGifts.has(row.packageName))) return undefined;
 				return {
-					modelAvailable: true,
+					modelAvailable,
 					fetchedAt: startedAt,
-					giftCredits: balance.total,
+					totalCredits: balance.total,
+					giftCredits: packages.every(row => knownGifts.has(row.packageName)) ? balance.total : undefined,
 					expiresAt: balance.nearestExpiryMs,
 				};
 			},

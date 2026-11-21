@@ -16,6 +16,7 @@ window.__ModuleLoader__.load({ id: 'dsh-fatfish-life', factory: require => {
     style: '鲸鲸说话习惯', chatMaxChars: '闲聊字数目标', commentMaxChars: '公开评论字数上限',
     modelRouting: '自动选模型', workBuddyMinCredits: 'WorkBuddy 最少赠送积分',
     codexMinRemainingPercent: 'Codex 5 小时最低剩余额度（%）',
+    codexMinWeeklyRemainingPercent: 'Codex 7 天最低剩余额度（%）',
     commentEnabled: '推荐评论开关', maxVideos: '单次视频上限', study: '公开资料学习', time: '每日时间',
     comments: '评论回复', ownerOnly: '仅主人', daily: '每日总结与动态', publishEnabled: '动态发布开关',
   };

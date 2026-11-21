@@ -13,19 +13,17 @@
 ## 模型和额度
 
 
-已绑定主人的微信文字消息使用以下自动顺序，额度可在 `设置 → FatFish 控制 → 自动选模型` 调整。
+已绑定主人的微信文字默认使用 DeepSeek。赠送或试用积分至少 50 且模型可用时，走 WorkBuddy 的 DeepSeek-V4.1 Flash，其余情况走官方 DeepSeek API。
 
-| 优先级 | 默认条件 | 模型 |
-| --- | --- | --- |
-| 1 | 国内明确选择的个人账号或当前唯一的个人账号，已识别赠送或试用积分至少 50，实际模型目录与能力通过检查 | `workbuddy/deepseek-v4.1-flash` |
-| 2 | Codex 订阅当前五小时窗口至少剩余 80%，且账号可以用 Sol 中档 | `openai-codex/gpt-6.2-sol` 中档 |
-| 3 | 前两档额度低、未知、过期或不可用 | `deepseek-official/deepseek-flash` |
+- `/model` 或「你现在用的是什么模型」查询本会话最近一次确认送达的模型。配置里的默认模型、失败的发信或其他会话都不产生这条记录。
+- `/quota` 或「Codex 额度、WorkBuddy 积分还有多少」读取两家额度。Codex 分别显示五小时与七天窗口，额度不可用时如实说明。查询不调用推理。
+- `/model codex` 或「切换到 GPT」才会主动切到 GPT-6.2 Sol 中档。默认要求五小时余量至少 80%、七天至少 50%。关闭插件、额度不足或数据到期时退回 DeepSeek，重新启用 GPT 仍需明确指令。
+- `/model deepseek` 或「切回 DeepSeek」恢复默认。门槛可在「设置 → FatFish 控制 → 自动选模型」调整。
+- `/diary` 能查询日记写入状态，有日期时用北京时间核对。日记正文和调度回执分开读取。
 
-只做限时只读额度检查，短时共享各账号结果，一轮内固定模型。WorkBuddy 一轮结束后重新读取有变化的余额。图片保留该会话原先的模型选择。一次请求执行失败仍遵循微信现有止损，避免重发同一个请求和重复扣款。
+复用 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) 5.25.2 与 [dsh-codex-subscription](https://github.com/WSL043/dsh-codex-subscription) 3.2.27 本机认证和额度接口，适配归档保留 MIT 许可与署名。WorkBuddy 自动签到保存为国内单账号，2026-11-21 查到已领 100 积分，5,045.78 分为本次只读余额。
 
-复用 [dsh-connect-workbuddy](https://github.com/dingminhua/dsh-connect-workbuddy) 5.25.2 与 [dsh-codex-subscription](https://github.com/WSL043/dsh-codex-subscription) 3.2.27 的本机认证和用量能力，适配归档保留原许可及署名。本机 WorkBuddy 实读 5,046.37 积分，查询时目录中的同名候选有百万上下文和工具调用，内部积分倍率 ×0.11。这里验证了目录和能力声明，同名服务的实际输出质量仍要对照短样本。
-
-桌面已重启并读回上述适配。若微信绑定的是桌面打开的旧会话，收到下一条消息时会自行新建微信会话，原会话不迁移、不清空。现场启动后读回一个已绑定微信机器人，实际发一条短消息可核验端到端。工作台预设候选可复用同一套路由，日常切换范围当前为微信主人文字回合。
+Windows MCP 使用 D 盘的 Windows-MCP 0.8.8，隔离宿主验证 17 个工具，当前会话没有授权时拒绝调用。实际桌面诊断已认出依赖，但工具数仍为 0，日常桥接配置要在「设置 → 桌面控制」通过已登录会话保存。真实微信发送由绑定主人验收。
 
 ## QQ 视频核对
 

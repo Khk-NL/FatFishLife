@@ -16,13 +16,17 @@ SERVICE = '''\tlet fatfishQuotaGeneration = 0;
 \t\tgeneration: () => fatfishQuotaGeneration,
 \t\tasync read(signal) {
 \t\t\tconst report = await usageReader.read({ signal });
-\t\t\tconst window = report.rateLimits.find(item => item.id === "codex")?.windows.find(item => item.windowSeconds === 18000);
+\t\t\tconst windows = report.rateLimits.find(item => item.id === "codex")?.windows;
+\t\t\tconst window = windows?.find(item => item.windowSeconds === 18000);
+\t\t\tconst weekly = windows?.find(item => item.windowSeconds === 604800);
 \t\t\treturn {
 \t\t\t\tmodelAvailable: !report.rateLimitReachedType && !report.spendControlReached && provider.getModels()
 \t\t\t\t\t.some(model => model.id === "gpt-6.2-sol" && model.thinkingLevelMap?.medium != null),
 \t\t\t\tfetchedAt: report.fetchedAt,
 \t\t\t\tremaining: window?.remainingPercent,
 \t\t\t\tresetsAt: window?.resetsAt,
+\t\t\t\tweeklyRemaining: weekly?.remainingPercent,
+\t\t\t\tweeklyResetsAt: weekly?.resetsAt,
 \t\t\t};
 \t\t},
 \t});

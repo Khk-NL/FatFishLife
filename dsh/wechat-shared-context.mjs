@@ -57,11 +57,63 @@ export function biliActivity(diary, log, today) {
     diaryAvailable: diary !== null }
 }
 
-function recentDiary(diary) {
-  const section = diary?.split(/^##[ \t]+日记[ \t]*\r?$/m)[1]?.split(/^##[ \t]+/m)[0] ?? ''
-  const entries = [...section.matchAll(/^###[ \t]+(\d{4}-\d{2}-\d{2})[^\n]*\n([\s\S]*?)(?=^###[ \t]+|(?![\s\S]))/gm)]
-  const latest = entries.sort((a, b) => b[1].localeCompare(a[1]))[0]
-  return latest ? { day: latest[1], text: latest[2].trim().slice(0, 280) } : null
+function diaryDay(query, now) {
+  const exact = query.match(/\b\d{4}-\d{2}-\d{2}\b/u)?.[0]
+  if (exact) return exact
+  if (/昨天|昨晚/u.test(query)) return localDay.format(new Date(now.getTime() - 86_400_000))
+  if (/今天|今晚/u.test(query)) return localDay.format(now)
+}
+
+function recentDiary(diary, requestedDay) {
+  if (!diary) return null
+  let legacy = false
+  let entry
+  const entries = new Map()
+  for (const line of diary.split(/\r?\n/u)) {
+    const heading = /^(##|###)[ \t]+(.+)$/u.exec(line)
+    if (!heading) {
+      if (entry && entry.text.length < 280) entry.text += (line.trim() + '\n').slice(0, 280 - entry.text.length)
+      continue
+    }
+    const [, level, label] = heading
+    const day = /^(\d{4}-\d{2}-\d{2})(?=$|[\s｜|—：:])/u.exec(label)?.[1]
+    if (day && (level === '##' || legacy)) {
+      entry = { day, text: '' }
+      entries.set(day, entry)
+    } else if (level === '##') {
+      legacy = label.trim() === '日记'
+      entry = undefined
+    } else if (entry && entry.text.length < 280) {
+      entry.text += (label + '\n').slice(0, 280 - entry.text.length)
+    }
+  }
+  const value = requestedDay ? entries.get(requestedDay) : entries.get([...entries.keys()].sort().at(-1))
+  return value?.text.trim() ? { ...value, text: value.text.trim() } : null
+}
+
+export function queryDiaryStatus(query, {
+  root = diaryRoot,
+  schedule = process.env.FATFISH_SCHEDULE_STATE || 'D:/Code/Projects/FatFishLife/data/dsh/schedule-state.json',
+  now = new Date(),
+} = {}) {
+  const normalized = query.trim().replace(/[\s，。！？!?]/gu, '')
+  if (!/^\/日记$|^\/diary$|^(?:(?:昨天|昨晚|今天|今晚|\d{4}-\d{2}-\d{2}))?(?:(?:本鱼|你)?(?:写|记)(?:了)?日记(?:了)?(?:吗|嘛|没|没有)|日记(?:写了没|写了吗|写了没有|日志))$/iu.test(normalized)) return
+  const requestedDay = diaryDay(query, now)
+  const entry = recentDiary(readLocal(join(root, 'whale-diary.md'), 2 * 1024 * 1024), requestedDay)
+  const day = requestedDay || entry?.day || localDay.format(now)
+  let receipt
+  try {
+    receipt = JSON.parse(readLocal(schedule, 64 * 1024) ?? 'null')?.results?.diary
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error
+  }
+  const at = new Date(receipt?.at)
+  const current = Number.isFinite(at.getTime()) && localDay.format(at) === day
+  const time = current ? new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit' }).format(at) : ''
+  const result = current && receipt.ok === true ? `日记任务 ${time} 完成`
+    : current && receipt.ok === false ? `日记任务 ${time} 执行失败` : ''
+  if (entry) return [`写啦，本鱼留着 ${day} 的日记`, result].filter(Boolean).join('\n')
+  return [result, `本鱼暂时读不到 ${day} 的 B 站日记正文`].filter(Boolean).join('\n')
 }
 
 export function createWechatPrompt({ owner, root = diaryRoot, growthFile = growthPath, currentText = () => '' }) {
@@ -87,8 +139,9 @@ export function createWechatPrompt({ owner, root = diaryRoot, growthFile = growt
       },
       memory: () => {
         const growth = readLocal(growthFile, 8 * 1024)?.trim().slice(0, 260)
-        const recent = /日记/u.test(query) ? recentDiary(readDiary()) : null
-        return [growth && '成长资料 ' + JSON.stringify(growth), recent && 'B 站日记资料 ' + JSON.stringify(recent)]
+        const recent = /日记/u.test(query) ? recentDiary(readDiary(), diaryDay(query, new Date())) : null
+        return [growth && '成长资料 ' + JSON.stringify(growth), (/日记/u.test(query) && (recent ? 'B 站日记资料 ' + JSON.stringify(recent)
+          : '目标日期的日记正文未读到，只能说暂时查不到。不要推测任务失败或权限问题。'))]
       },
       knowledge: () => biliLearningPrompt(biliLearning(readDiary()).filter(row => query.includes(row.phrase)).slice(0, 2)),
       state: () => {

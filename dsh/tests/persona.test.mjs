@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { assembleContext, personaPrefix, validateCard } from '../persona/model.mjs';
 import { visibleCapabilities } from '../persona/capabilities.mjs';
-import { createWechatPrompt } from '../wechat-shared-context.mjs';
+import { createWechatPrompt, queryDiaryStatus } from '../wechat-shared-context.mjs';
 
 const card = JSON.parse(readFileSync(new URL('../persona/whale.json', import.meta.url), 'utf8'));
 
@@ -46,4 +46,19 @@ test('WeChat binds activity and mood snippets to authenticated owner requests on
     assert.doesNotMatch(createWechatPrompt({ ...options, owner: false })(), /方舟活动/);
     assert.doesNotMatch(createWechatPrompt({ ...options, owner: true, currentText: () => '嗨' })(), /方舟活动|私人练习/);
   } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+
+test('diary lookup uses the requested Shanghai date, including newly appended top-level dated entries', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'fish-diary-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const diary = join(root, 'whale-diary.md');
+  const schedule = join(root, 'schedule-state.json');
+  writeFileSync(diary, '## 日记\n### 2026-11-11\n旧记录\n## 给他的信\n旧信\n## 2026-11-20｜回家\n昨晚的新记录\n## 2026-11-21\n今早');
+  writeFileSync(schedule, JSON.stringify({ results: { diary: { at: '2026-11-20T15:50:11Z', ok: true } } }));
+  const now = new Date('2026-11-21T12:30:00Z');
+  assert.equal(queryDiaryStatus('昨天写日记了嘛', { root, schedule, now }),
+    '写啦，本鱼留着 2026-11-20 的日记\n日记任务 23:50 完成');
+  assert.match(queryDiaryStatus('2026-11-19日记写了没', { root, schedule, now }), /暂时读不到 2026-11-19/);
+  assert.equal(queryDiaryStatus('给我写一篇新日记', { root, schedule, now }), undefined);
 });
