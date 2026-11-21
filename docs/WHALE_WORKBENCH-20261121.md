@@ -17,7 +17,7 @@
 
 | 优先级 | 默认条件 | 模型 |
 | --- | --- | --- |
-| 1 | 国内手动选定的 WorkBuddy 账号中，已识别赠送或试用积分至少 50，实际模型目录与能力通过检查 | `workbuddy/deepseek-v4.1-flash` |
+| 1 | 国内明确选择的个人账号或当前唯一的个人账号，已识别赠送或试用积分至少 50，实际模型目录与能力通过检查 | `workbuddy/deepseek-v4.1-flash` |
 | 2 | Codex 订阅当前五小时窗口至少剩余 80%，且账号可以用 Sol 中档 | `openai-codex/gpt-6.2-sol` 中档 |
 | 3 | 前两档额度低、未知、过期或不可用 | `deepseek-official/deepseek-flash` |
 

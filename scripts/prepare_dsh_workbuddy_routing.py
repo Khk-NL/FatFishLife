@@ -19,7 +19,7 @@ SERVICE = '''
 		const bounds = () => {
 			const config = current();
 			const account = effectiveAccountFor("cn", config);
-			if (!regionEnabled(config, "cn") || poolPreferencesOf(config, "cn").enabled) return false;
+			if (!regionEnabled(config, "cn") || regionCleared(config, "cn") || poolPreferencesOf(config, "cn").enabled) return false;
 			return account || null;
 		};
 		const generation = () => {
@@ -38,11 +38,17 @@ SERVICE = '''
 				const selection = bounds();
 				const { store, catalog } = stacks.cn;
 				const model = catalog.current().find(row => row.id === "deepseek-v4.1-flash");
-				if (!selection || !catalog.hasLiveRoster() || model?.supportsToolCall !== true
+				if (selection === false || !catalog.hasLiveRoster() || model?.supportsToolCall !== true
 					|| model.contextWindow < 1_000_000 || model.maxTokens < 128_000
 					|| !Number.isFinite(model.creditMultiplier) || model.creditMultiplier <= 0) return undefined;
-				const credential = await store.credentialFor(selection);
-				if (signal.aborted || !credential || credential.enterpriseId) return undefined;
+				const accounts = await store.accounts();
+				const account = selection
+					? accounts.find(row => row.id === selection)
+					: accounts.length === 1 ? accounts[0] : undefined;
+				if (signal.aborted || !account || account.enterprise || bounds() !== selection) return undefined;
+				const credential = selection ? await store.credentialFor(account.id) : await store.resolve();
+				if (signal.aborted || !credential || credential.enterpriseId
+					|| workbuddyAccountId(credential) !== account.id) return undefined;
 				const balance = await client.fetchCredits(credential);
 				if (signal.aborted || bounds() !== selection) return undefined;
 				const packages = balance.packages.filter(row => row.remain > 0);
