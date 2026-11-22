@@ -84,6 +84,12 @@ def build_context(
         ranked.append((score, row))
     ranked.sort(key=lambda item: (item[0], item[1]["created_at"], item[1]["id"]), reverse=True)
 
+    # Keep related alternatives when scores are close, and keep the existing
+    # recent-memory behavior when the caller did not supply a query.
+    if query and ranked:
+        best_score = ranked[0][0]
+        ranked = [item for item in ranked if item[0] * 2 >= best_score]
+
     blocks = []
     persona = _compact(store.get_persona()) if include_persona else ""
     if persona:

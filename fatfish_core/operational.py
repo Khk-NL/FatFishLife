@@ -13,7 +13,9 @@ TASKS = {
 FAILURES = {
     "started-result-unknown", "runner-disabled", "recommendation-paused",
     "recommendation-analysis-failed", "recommendation-analysis-invalid",
-    "no-storyboard-or-paused", "no-pick", "qq-account-paused", "quota",
+    "no-storyboard-or-paused", "no-grounded-recommendation-or-paused",
+    "recommendation-storyboard-unavailable", "recommendation-no-grounded-result",
+    "no-pick", "qq-account-paused", "quota",
     "background-model-budget-exhausted",
 }
 
@@ -57,6 +59,31 @@ def health(folder: Path, *, qq_paused: bool, now: datetime | None = None) -> dic
             "wechat": "not_probed", "bilibili": "not_probed"}
 
 
+def _nonnegative_fields(value, names: tuple[str, ...]) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    return {name: value[name] for name in names
+            if type(value.get(name)) is int and 0 <= value[name] <= 1_000_000_000}
+
+
+def _model_receipt(value) -> dict:
+    if not isinstance(value, dict) or value.get("status") not in ("started", "completed", "failed"):
+        return {}
+    receipt = {"status": value["status"]}
+    for key in ("requestedModel", "actualModel"):
+        model = value.get(key)
+        if isinstance(model, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,95}", model):
+            receipt[key] = model
+    code = value.get("httpStatus")
+    if type(code) is int and 100 <= code <= 599:
+        receipt["httpStatus"] = code
+    tokens = _nonnegative_fields(value.get("tokens"),
+                                ("inputTokens", "outputTokens", "totalTokens", "cacheHitTokens", "cacheMissTokens"))
+    if tokens:
+        receipt["tokens"] = tokens
+    return receipt
+
+
 def receipts(folder: Path) -> dict:
     state = _json(folder / "schedule-state.json")
     results = state.get("results")
@@ -72,10 +99,18 @@ def receipts(folder: Path) -> dict:
                       "ok" if item.get("ok") is True else "failed")
             sent = item.get("sent")
             model_calls = item.get("modelCalls")
-            rows.append({"task": name, "at": dt.isoformat() if dt else None, "status": status,
-                         "sent_count": sent if type(sent) is int and sent >= 0 else None,
-                         "model_calls": model_calls if type(model_calls) is int and model_calls >= 0 else None,
-                         "reason": reason if isinstance(reason, str) and reason in FAILURES else None})
+            row = {"task": name, "at": dt.isoformat() if dt else None, "status": status,
+                   "sent_count": sent if type(sent) is int and sent >= 0 else None,
+                   "model_calls": model_calls if type(model_calls) is int and model_calls >= 0 else None,
+                   "reason": reason if isinstance(reason, str) and reason in FAILURES else None}
+            if model := _model_receipt(item.get("modelReceipt")):
+                row["model_receipt"] = model
+            if name.startswith("bili-recommend-"):
+                selection = _nonnegative_fields(item.get("selection"),
+                                                ("candidates", "shortlisted", "withStoryboard", "grounded"))
+                if selection:
+                    row["selection"] = selection
+            rows.append(row)
     return {"state": "available" if isinstance(results, dict) else "unavailable",
             "tasks": sorted(rows, key=lambda item: item["at"] or "", reverse=True)}
 

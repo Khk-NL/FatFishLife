@@ -194,7 +194,7 @@ async function applyInner(ctx, config) {
     const state = readJson(join(scheduleDir, 'task-state.json'))
     const canPublish = () => !inBusyWindow(peakWindows(snapshot()), new Date())
     const budget = createTaskModelBudget(runner.model)
-    const llm = { calls: budget.calls, chat(messages, options) {
+    const llm = { calls: budget.calls, receipt: budget.receipt, chat(messages, options) {
       if (!canPublish()) throw new Error('outside-valley-window')
       return budget.chat(messages, options)
     } }
@@ -271,10 +271,11 @@ async function applyInner(ctx, config) {
         }
         skillEvidence = recordSkillEvidence(skillEvidence, item.kind, outcome, item.scheduledFor)
         results[item.id] = { at: now.toISOString(), ok: outcome?.ok === true, sent: outcome?.sent ?? 0,
-          modelCalls: deps.llm.calls(), skipped: Boolean(outcome?.skipped),
+          modelCalls: deps.llm.calls(), modelReceipt: deps.llm.receipt(), skipped: Boolean(outcome?.skipped),
           reason: outcome?.reason ?? outcome?.skipped
             ?? (Array.isArray(outcome?.results) ? JSON.stringify(outcome.results).slice(0, 300) : undefined),
           detail: outcome?.picked ?? outcome?.learned ?? outcome?.day ?? outcome?.count,
+          selection: outcome?.selection,
           // 2026-11-05：问候发出去的那句话也留一份，事后能核对"她当时到底说了什么"。
           greeting: outcome?.greeting, tid: outcome?.tid }
         if (outcome?.ok !== true) failures[item.id] = results[item.id]

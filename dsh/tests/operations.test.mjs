@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { createTaskModelBudget } from '../control/llm.mjs'
+import { chat, createTaskModelBudget } from '../control/llm.mjs'
 import { recordSkillEvidence } from '../control/schedule.mjs'
 
 test('a failed model attempt exhausts only its own scheduled task budget', async () => {
   const attempts = []
   const request = async (_messages, options) => {
-    attempts.push(options)
+    const { onUsage, ...requestOptions } = options
+    assert.equal(typeof onUsage, 'function')
+    attempts.push(requestOptions)
     throw new Error('provider unavailable')
   }
   const first = createTaskModelBudget('configured', request)
@@ -14,6 +16,7 @@ test('a failed model attempt exhausts only its own scheduled task budget', async
   await assert.rejects(first.chat([], { thinking: true, maxTokens: 200 }), /provider unavailable/)
   await assert.rejects(first.chat([], { model: 'different' }), /background-model-budget-exhausted/)
   assert.equal(first.calls(), 1)
+  assert.deepEqual(first.receipt(), { requestedModel: 'configured', status: 'failed' })
   assert.deepEqual(attempts, [{ model: 'configured', thinking: false, maxTokens: 200 }])
   const next = createTaskModelBudget('configured', async () => 'ok')
   assert.equal(await next.chat([]), 'ok')
@@ -31,4 +34,19 @@ test('only verified task outcomes produce bounded, distinct skill evidence', () 
     evidence = recordSkillEvidence(evidence, 'bili-recommend', { ok: true, sent: 1 }, slot)
   }
   assert.deepEqual(evidence, { bili_lookup: slots.slice(1) })
+})
+
+test('task receipts carry only provider model and observed usage, preserving HTTP errors and single attempts', async () => {
+  const response = { model: 'deepseek-served', choices: [], usage: { prompt_tokens: 100,
+    completion_tokens: 20, total_tokens: 120, prompt_cache_hit_tokens: 58, prompt_cache_miss_tokens: 42,
+    unknown: 'private source text' } }
+  const budget = createTaskModelBudget('configured')
+  assert.equal(budget.receipt(), undefined)
+  await assert.rejects(budget.chat([], { key: 'fixture', fetchImpl: async () => new Response(JSON.stringify(response)) }), /返回空内容/)
+  assert.deepEqual(budget.receipt(), { requestedModel: 'configured', actualModel: 'deepseek-served', status: 'failed',
+    tokens: { inputTokens: 100, outputTokens: 20, totalTokens: 120, cacheHitTokens: 58, cacheMissTokens: 42 } })
+  const next = createTaskModelBudget('configured', chat)
+  await assert.rejects(next.chat([], { model: 'override', key: 'fixture', fetchImpl: async () => new Response(null, { status: 402 }) }), /402/)
+  assert.deepEqual(next.receipt(), { requestedModel: 'override', status: 'failed', httpStatus: 402 })
+  assert.equal(next.calls(), 1)
 })

@@ -44,6 +44,13 @@ class OperationalMcpTest(unittest.TestCase):
             path.write_text(json.dumps({"results": {
                 "bili-recommend-noon": {"at": "2026-11-20T04:30:00Z", "ok": False,
                                        "reason": "started-result-unknown", "greeting": "PRIVATE_DATA"},
+                "bili-recommend-evening": {"ok": False, "skipped": True,
+                    "reason": "recommendation-no-grounded-result",
+                    "selection": {"candidates": 8, "shortlisted": 2, "withStoryboard": 2, "grounded": 0,
+                                  "titles": "PRIVATE_DATA"},
+                    "modelReceipt": {"requestedModel": "deepseek-flash", "actualModel": "C:/PRIVATE_DATA",
+                                     "status": "completed", "tokens": {"inputTokens": 100, "outputTokens": 12,
+                                                                       "cacheHitTokens": 0, "extra": "PRIVATE_DATA"}}},
                 "bili-study": {"at": "2026-11-20T13:00:00Z", "ok": True, "modelCalls": 0,
                                "skipped": True, "reason": "PRIVATE_DATA"},
                 "bili-dynamic": {"ok": True, "sent": 1, "modelCalls": 1, "dynamicId": "PRIVATE_DATA"},
@@ -75,9 +82,15 @@ class OperationalMcpTest(unittest.TestCase):
                         receipts = await session.call_tool(tool.name, {"view": "receipts"})
                         self.assertFalse(receipts.is_error)
                         tasks = {item["task"]: item for item in receipts.structured_content["tasks"]}
-                        self.assertEqual(len(tasks), 3)
+                        self.assertEqual(len(tasks), 4)
                         self.assertEqual(tasks["bili-recommend-noon"]["status"], "unconfirmed")
                         self.assertEqual(tasks["bili-study"]["status"], "skipped")
+                        recommend = tasks["bili-recommend-evening"]
+                        self.assertEqual(recommend["reason"], "recommendation-no-grounded-result")
+                        self.assertEqual(recommend["selection"]["grounded"], 0)
+                        self.assertEqual(recommend["model_receipt"], {"requestedModel": "deepseek-flash",
+                            "status": "completed", "tokens": {"inputTokens": 100, "outputTokens": 12, "cacheHitTokens": 0}})
+                        self.assertNotIn("model_receipt", tasks["bili-study"])
                         self.assertEqual(tasks["bili-dynamic"]["model_calls"], 1)
                         self.assertNotIn("PRIVATE_DATA", receipts.model_dump_json())
                         skills = await session.call_tool(tool.name, {"view": "skills"})

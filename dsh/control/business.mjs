@@ -63,21 +63,26 @@ export async function runBiliRecommend(deps) {
   const { picked, skipped } = selectRecommendations(items, { seen,
     minimumViews: settings()?.workflows?.biliMinViews ?? MIN_BILI_VIEWS,
     limit: Math.min(settings()?.workflows?.recommend?.maxVideos ?? 3, 3) })
+  const selection = { candidates: items.length, shortlisted: picked.length, withStoryboard: 0, grounded: 0 }
+  const finish = outcome => ({ ...outcome, selection })
   log(`[fatfish] B站推荐：候选 ${items.length} 条，选中 ${picked.length} 条，跳过 ${skipped.length} 条`)
-  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
-  if (!picked.length) return { ok: true, sent: 0, reason: 'no-pick' }
+  if (!allowed()) return finish({ ok: true, sent: 0, skipped: 'recommendation-paused' })
+  if (!picked.length) return finish({ ok: true, sent: 0, reason: 'no-pick' })
   const videos = []
   for (const item of picked) {
-    if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
+    if (!allowed()) return finish({ ok: true, sent: 0, skipped: 'recommendation-paused' })
     try {
       const evidence = await bili.recommendationEvidence(item.bvid)
-      if (evidence) videos.push({ item: { ...item, title: evidence.title || item.title }, evidence })
+      if (evidence) {
+        videos.push({ item: { ...item, title: evidence.title || item.title }, evidence })
+        selection.withStoryboard++
+      }
     } catch {
       log('[fatfish] B站推荐读取分镜失败，本次跳过该候选')
     }
   }
-  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
-  if (!videos.length) return { ok: true, sent: 0, skipped: 'recommendation-storyboard-unavailable' }
+  if (!allowed()) return finish({ ok: true, sent: 0, skipped: 'recommendation-paused' })
+  if (!videos.length) return finish({ ok: true, sent: 0, skipped: 'recommendation-storyboard-unavailable' })
   let response
   try {
     const raw = await deps.llm.chat(recommendReasonMessages(videos), {
@@ -85,9 +90,9 @@ export async function runBiliRecommend(deps) {
     })
     response = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''))
   } catch {
-    return { ok: false, sent: 0, reason: 'recommendation-analysis-failed' }
+    return finish({ ok: false, sent: 0, reason: 'recommendation-analysis-failed' })
   }
-  if (!Array.isArray(response?.recommendations)) return { ok: false, sent: 0, reason: 'recommendation-analysis-invalid' }
+  if (!Array.isArray(response?.recommendations)) return finish({ ok: false, sent: 0, reason: 'recommendation-analysis-invalid' })
   const reasons = Object.create(null)
   const comments = Object.create(null)
   for (const row of response.recommendations) {
@@ -108,10 +113,11 @@ export async function runBiliRecommend(deps) {
     const formatted = '老大，本鱼挑了这几条：\n' + buildRecommendMessage([...batch, candidate], reasons)
     if (Array.from(formatted).length > 500) break
     batch.push(candidate)
+    selection.grounded++
     text = formatted
   }
-  if (!allowed()) return { ok: true, sent: 0, skipped: 'recommendation-paused' }
-  if (!batch.length) return { ok: true, sent: 0, skipped: 'recommendation-no-grounded-result' }
+  if (!allowed()) return finish({ ok: true, sent: 0, skipped: 'recommendation-paused' })
+  if (!batch.length) return finish({ ok: true, sent: 0, skipped: 'recommendation-no-grounded-result' })
   const ids = batch.map(item => item.bvid)
   const receipt = { at: (deps.now ?? new Date()).toISOString(), dm: { status: 'sending' }, comments: {}, picked: ids }
   state.lastRecommendation = receipt
@@ -124,7 +130,7 @@ export async function runBiliRecommend(deps) {
     receipt.dm = { status: 'uncertain' }
   }
   await saveState(state)
-  if (receipt.dm.status !== 'sent') return { ok: false, sent: 0, picked: ids, dm: receipt.dm.status }
+  if (receipt.dm.status !== 'sent') return finish({ ok: false, sent: 0, picked: ids, dm: receipt.dm.status })
   for (const bvid of ids) {
     if (!allowed() || settings()?.workflows?.recommend?.commentEnabled !== true) break
     if (!comments[bvid]) continue
@@ -138,10 +144,10 @@ export async function runBiliRecommend(deps) {
     }
     await saveState(state)
     if (receipt.comments[bvid].status !== 'sent') {
-      return { ok: false, sent: 1, picked: ids, comment: receipt.comments[bvid].status }
+      return finish({ ok: false, sent: 1, picked: ids, comment: receipt.comments[bvid].status })
     }
   }
-  return { ok: true, sent: 1, picked: ids, commentsSent: Object.values(receipt.comments).filter(row => row.status === 'sent').length }
+  return finish({ ok: true, sent: 1, picked: ids, commentsSent: Object.values(receipt.comments).filter(row => row.status === 'sent').length })
 }
 
 /** 收件箱摘要：有未读就发，没有就静默。 */

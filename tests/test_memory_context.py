@@ -96,6 +96,17 @@ class MemoryContextTests(unittest.TestCase):
         self.assertIn("银狼的战技可以植入弱点", context)
         self.assertNotIn("整理表情包", context)
 
+    def test_precise_query_omits_weak_matches_without_affecting_recent_context(self):
+        self.remember("银狼战技会植入弱点", kind="note")
+        self.remember("单独聊过银狼立绘", kind="note")
+        self.remember("银狼的战技说明", kind="note", session="elsewhere")
+        context = build_context(self.store, "银狼战技", conversation=("qq", "group-a"))
+        self.assertIn("银狼战技会植入弱点", context)
+        self.assertNotIn("单独聊过银狼立绘", context)
+        self.assertNotIn("银狼的战技说明", context)
+        recent = build_context(self.store, conversation=("qq", "group-a"))
+        self.assertIn("单独聊过银狼立绘", recent)
+
     def test_private_journals_never_enter_public_context(self):
         self.store.add_journal("私人札记：主人更喜欢苹果派。")
         self.assertEqual(build_context(self.store), "")

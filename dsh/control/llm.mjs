@@ -48,15 +48,46 @@ export function cleanReply(text, maxChars = 120) {
   return body
 }
 
+const USAGE_FIELDS = {
+  prompt_tokens: 'inputTokens',
+  completion_tokens: 'outputTokens',
+  total_tokens: 'totalTokens',
+  prompt_cache_hit_tokens: 'cacheHitTokens',
+  prompt_cache_miss_tokens: 'cacheMissTokens',
+}
+const modelName = value => typeof value === 'string' && /^[a-z0-9][a-z0-9._:/-]{0,95}$/i.test(value) ? value : undefined
+
+function responseUsage(payload) {
+  const tokens = {}
+  for (const [field, name] of Object.entries(USAGE_FIELDS)) {
+    const value = payload?.usage?.[field]
+    if (Number.isSafeInteger(value) && value >= 0) tokens[name] = value
+  }
+  return { actualModel: modelName(payload?.model), tokens: Object.keys(tokens).length ? tokens : undefined }
+}
+
 /** One provider attempt per control task, including failures. */
 export function createTaskModelBudget(model, request = chat) {
   let calls = 0
+  let receipt
   return {
     calls: () => calls,
+    receipt: () => receipt,
     async chat(messages, options = {}) {
       if (calls >= 1) throw new Error('background-model-budget-exhausted')
       calls++
-      return request(messages, { model, ...options, thinking: false })
+      const requestedModel = options.model ?? model ?? 'deepseek-chat'
+      receipt = { requestedModel: modelName(requestedModel), status: 'started' }
+      try {
+        const result = await request(messages, { model: requestedModel, ...options, thinking: false,
+          onUsage: (usage) => Object.assign(receipt, usage) })
+        receipt.status = 'completed'
+        return result
+      } catch (error) {
+        receipt.status = 'failed'
+        if (Number.isInteger(error?.status) && error.status >= 100 && error.status <= 599) receipt.httpStatus = error.status
+        throw error
+      }
     },
   }
 }
@@ -90,6 +121,7 @@ export async function chat(messages, options = {}) {
     })
     if (!response.ok) throw new Error('DeepSeek HTTP ' + response.status)
     const payload = await response.json()
+    options.onUsage?.(responseUsage(payload))
     const text = payload?.choices?.[0]?.message?.content
     if (typeof text !== 'string' || !text.trim()) throw new Error('DeepSeek 返回空内容')
     return text

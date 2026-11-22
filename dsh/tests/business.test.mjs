@@ -196,6 +196,7 @@ test('推荐：去重后仅合批分析一次，按管理界面上限选片', as
     },
   })
   assert.deepEqual(outcome.picked, ['BVa', 'BVb'])
+  assert.deepEqual(outcome.selection, { candidates: 4, shortlisted: 2, withStoryboard: 2, grounded: 2 })
   assert.equal(sent.length, 1)
   assert.match(sent[0], /两路同时布防/)
   assert.equal(modelCalls, 1)

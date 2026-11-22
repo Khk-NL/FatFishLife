@@ -64,3 +64,9 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 | Windows、浏览器和其他工具 | [Windows MCP](https://github.com/CursorTouch/Windows-MCP)、[Playwright MCP](https://github.com/microsoft/playwright-mcp) | 桌面和浏览器各用自己的工具范围。分别检查协议握手、工具注册、逐会话授权和只读调用。平台回执由对应适配器维护。 |
 
 本轮已把 B 站推荐回执细分为暂停、分镜不可用、分析没有产出可核对的画面依据。候选加载、分镜或模型分析期间收到暂停时，返回暂停原因。验证覆盖权限、去重、失败停发和单批模型次数，源码单元 7 项全部通过。日常宿主尚未换包。
+
+### 11 月 22 日实施
+
+- `operations_overview` 的回执视图展示 B 站候选、入围、取到分镜和生成有效推荐四个计数。届时实际私信与评论仍以平台回执判定。
+- 同一视图读取每项后台任务的实际模型、输入输出和缓存 Token。HTTP 失败只记录状态码，服务端没返回 Token 时字段缺省。后台模型仍按现有单次预算执行。参考 [DeepSeek 响应规范](https://api-docs.deepseek.com/api/create-chat-completion/) 与 [LiteLLM 用量记录](https://docs.litellm.ai/docs/proxy/cost_tracking)。
+- 查询型共享记忆使用已存在的词项计分，保留得分至少为最高分一半的条目。无查询的最近记录、平台和完整会话边界沿用原规则。参考 [dsh-agent-memory 相对得分阈值](https://github.com/Culeot/dsh-agent-memory)。
