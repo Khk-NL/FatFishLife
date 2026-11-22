@@ -70,3 +70,5 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 - `operations_overview` 的回执视图展示 B 站候选、入围、取到分镜和生成有效推荐四个计数。届时实际私信与评论仍以平台回执判定。
 - 同一视图读取每项后台任务的实际模型、输入输出和缓存 Token。HTTP 失败只记录状态码，服务端没返回 Token 时字段缺省。后台模型仍按现有单次预算执行。参考 [DeepSeek 响应规范](https://api-docs.deepseek.com/api/create-chat-completion/) 与 [LiteLLM 用量记录](https://docs.litellm.ai/docs/proxy/cost_tracking)。
 - 查询型共享记忆使用已存在的词项计分，保留得分至少为最高分一半的条目。无查询的最近记录、平台和完整会话边界沿用原规则。参考 [dsh-agent-memory 相对得分阈值](https://github.com/Culeot/dsh-agent-memory)。
+- 桌宠复用 dsh-pet 的 `todo/write`、状态优先级和界面气泡，在现有步骤前加真实完成数和总数。原生待办已完成、缺少清单或包含未知状态时回退到原有呈现。保持现有上游代码和素材许可声明。隔离 DSH 从状态接口读回 `1/3 获取分镜`。参考 [dsh-dafeiyu 的会话事件实现](https://github.com/QCYTSN/dsh-dafeiyu/blob/v0.1.23/src/companion-reducer.js)。
+- 技能候选在已有人工审核入口展示三个不同的任务时段，供用户查找当时的运营回执。参考 [Hermes Agent 的学习闭环](https://github.com/NousResearch/hermes-agent)。

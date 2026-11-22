@@ -97,6 +97,10 @@ class OperationalMcpTest(unittest.TestCase):
                         self.assertEqual(skills.structured_content["status"], "review_required")
                         self.assertEqual([row["capability"] for row in skills.structured_content["candidates"]],
                                          ["bili_lookup"])
+                        self.assertEqual(skills.structured_content["candidates"][0]["verified_slots"], [
+                            "2026-11-20T04:30:00+00:00", "2026-11-20T12:30:00+00:00",
+                            "2026-11-21T04:30:00+00:00",
+                        ])
                         self.assertTrue((await session.call_tool(tool.name, {"view": "unexpected"})).is_error)
                         growth = await session.call_tool("growth_record", {"capability": "bili_lookup"})
                         self.assertTrue(growth.is_error)

@@ -127,5 +127,6 @@ def skill_candidates(folder: Path) -> dict:
                 continue
             valid = {dt for value in entries[-3:] if (dt := _utc(value)) is not None}
             if len(valid) == 3:
-                rows.append({"capability": capability, "name": name, "count": len(valid)})
+                rows.append({"capability": capability, "name": name, "count": len(valid),
+                             "verified_slots": [slot.isoformat() for slot in sorted(valid)]})
     return {"status": "review_required", "candidates": rows}
