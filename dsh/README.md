@@ -51,14 +51,14 @@ node --test dsh/tests/*.test.mjs
 
 ## 已安装的社区补充插件
 
-- [moxingovo/dsh-bilibili](https://github.com/moxingovo/dsh-bilibili) 0.2.4：只保留`bilibili_search`、`bilibili_video`、`bilibili_subtitles`；不会注册抽帧/直链工具，不打包相关视频技能。
-- [awesome-dsh-plugin/dsh-find-plugin](https://github.com/awesome-dsh-plugin/dsh-find-plugin) 0.4.0：联网发现插件，限流时明确降级；安装提示指向desktop。搜索结果不会自动执行。
+- [moxingovo/dsh-bilibili](https://github.com/moxingovo/dsh-bilibili) 0.2.4：桌面 rc.5 bundle 提供 `bilibili_search`、`bilibili_video`、`bilibili_subtitles`。分镜仍由现有视频分镜插件负责。
+- 插件发现由现有市场负责。旧 `dsh-find-plugin` 未注册为 desktop bundle，已从日常依赖和安装清单移除。
 - 原知识库0.1.5、Obsidian0.2.6保留。bili-cli0.6.0已在本机，继续服务已有账号业务，不重复安装或重置登录。
 
 固定提交与MIT许可见`upstream-lock.json`；`prepare_dsh_community.py`使用上游提交的构建产物，不执行安装/构建脚本，保留LICENSE。需复装时先完全退出DSH，再运行：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts/dsh_install_plugins.ps1 -IncludeCommunity
+.\scripts\dsh_install_plugins.ps1 -IncludeCommunity
 ```
 
 只验证插件原生加载与公开读取（无收费模型/TTS、无平台写入）：
