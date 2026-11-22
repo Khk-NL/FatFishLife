@@ -3,6 +3,7 @@
 No install/build scripts run. Use the official profile manager on the returned archives.
 """
 from pathlib import Path
+import argparse
 import hashlib
 import json
 import subprocess
@@ -17,7 +18,7 @@ SOURCES = {
 }
 
 
-def prepare(kind):
+def prepare(kind, *, sdk_version='0.2.2-rc.1'):
     repository, revision = SOURCES[kind]
     source = ROOT / '.tools/dsh-vendor' / ('review-' + kind)
     if not source.exists():
@@ -30,14 +31,17 @@ def prepare(kind):
     manifest = json.loads((source / 'package.json').read_text(encoding='utf-8'))
     if manifest['license'] != 'MIT':
         raise RuntimeError('License differs from reviewed source')
-    # Build artifacts are committed upstream. Runtime uses Desktop's matching peers.
+    # Build artifacts are committed upstream. Match the Desktop SDK verified by
+    # dsh_native_smoke.py --community, including its native tool execution guard.
     manifest.pop('devDependencies', None)
     manifest.pop('scripts', None)
     if kind == 'bilibili':
         manifest['description'] = 'B站文本工具（FatFish适配）：搜索、视频资料、已有字幕；不注册抽帧、媒体直链或自动转写。'
+        for peer in ('@deepseek-ai/dsh-attachment', '@deepseek-ai/dsh-llm'):
+            del manifest['peerDependencies'][peer]
     for peer in manifest.get('peerDependencies', {}):
         if peer.startswith('@deepseek-ai/dsh-'):
-            manifest['peerDependencies'][peer] = '0.2.1-rc.3'
+            manifest['peerDependencies'][peer] = sdk_version
     members = ['lib', 'cordis.patch.yml', 'LICENSE', 'README.md']
     if kind == 'find-plugin':
         members.append('data')
@@ -48,19 +52,18 @@ def prepare(kind):
                 for file in sorted((source / member).rglob('*')) if (source / member).is_dir() else [source / member]:
                     if not file.is_file() or file.suffix == '.map':
                         continue
+                    if kind == 'bilibili' and file.name.startswith('frames.'):
+                        continue
                     data = file.read_bytes()
-                    if kind == 'bilibili' and file.relative_to(source).as_posix() == 'lib/index.js':
+                    if kind == 'bilibili' and file.relative_to(source).as_posix() in ('lib/index.js', 'lib/index.d.ts'):
                         content = data.decode('utf-8')
-                        for call in ('applyBilibiliPlayUrlTool(ctx, provider, resolved.timeoutMs);',
-                                     'applyBilibiliFramesTool(ctx, provider, resolved.timeoutMs);'):
-                            if content.count(call) != 1:
-                                raise RuntimeError('Upstream registration changed')
-                            content = content.replace(call, '// FatFish: text-only policy; tool not registered.')
-                        start = content.index('const GUIDANCE = ')
-                        end = content.index('\n', start)
-                        content = content[:start] + 'const GUIDANCE = ' + json.dumps(
-                            'Use bilibili_search, bilibili_video and bilibili_subtitles for public text only. '
-                            'Cite the source video URL. Missing subtitles are not permission to download or transcribe media.') + ';' + content[end:]
+                        lines = content.splitlines(keepends=True)
+                        filtered = [line for line in lines if 'from "./frames.js"' not in line and "from './frames.ts'" not in line]
+                        if len(filtered) == len(lines):
+                            raise RuntimeError('Upstream frame import or export changed')
+                        content = ''.join(filtered)
+                        if file.suffix == '.js':
+                            content = text_only_entry(content)
                         data = content.encode('utf-8')
                     if kind == 'find-plugin' and file.suffix == '.js':
                         data = data.replace(b'--profile web add', b'--profile desktop add')
@@ -90,7 +93,26 @@ def prepare(kind):
     return {'archive': str(output), 'sha256': digest, 'name': manifest['name'], 'version': manifest['version'], 'revision': revision}
 
 
+def text_only_entry(content):
+    for call in ('applyBilibiliPlayUrlTool(ctx, provider, resolved.timeoutMs);',
+                 'applyBilibiliFramesTool(ctx, provider, resolved.timeoutMs);'):
+        if content.count(call) != 1:
+            raise RuntimeError('Upstream registration changed')
+        content = content.replace(call, '// FatFish: text-only policy; tool not registered.')
+    start = content.index('const GUIDANCE = ')
+    end = content.index('\n', start)
+    return content[:start] + 'const GUIDANCE = ' + json.dumps(
+        'Use bilibili_search, bilibili_video and bilibili_subtitles for public text only. '
+        'Cite the source video URL. Missing subtitles are not permission to download or transcribe media.') + ';' + content[end:]
+
+
 if __name__ == '__main__':
-    results = [prepare(kind) for kind in SOURCES]
-    (ROOT / '.tools/dsh-vendor/adapted/community-current.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--bilibili-sdk', help='Build only the Bilibili bundle for this DSH SDK version')
+    args = parser.parse_args()
+    if args.bilibili_sdk:
+        results = [prepare('bilibili', sdk_version=args.bilibili_sdk)]
+    else:
+        results = [prepare(kind) for kind in SOURCES]
+        (ROOT / '.tools/dsh-vendor/adapted/community-current.json').write_text(json.dumps(results, indent=2), encoding='utf-8')
     print(json.dumps(results))

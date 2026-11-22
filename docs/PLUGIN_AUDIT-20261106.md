@@ -1,5 +1,7 @@
 # DSH 插件清点（2026-11-06，只读）
 
+**11/22 清理核对**。旧 `dsh-find-plugin` 在依赖中却未注册为 bundle，无现用桌面插件依赖；Distill 的实际覆盖为 disabled。两者已由官方管理器移除，安装来源留作可回滚记录。B 站文本包旧 SDK 约束会使 rc.5 整批回滚，复用上游 MIT 源码重打包，原生安装、三项工具注册和一条公开资料读取通过，已装日常 desktop。DrawAI 0.4.1 采用默认配置，WorkBuddy 配置文件、B 站养鱼独立配置和 Obsidian 工作区在位。Windows MCP 在位且配置完整，交互能力仍需真实桌面可用后复验。
+
 本次只读 profile 的依赖、bundle/patch 拓扑，以及实际安装包公开 metadata。未输出配置正文、环境变量、凭据或日志，未安装、卸载、更新或改写 profile。
 
 ## 当前基线
