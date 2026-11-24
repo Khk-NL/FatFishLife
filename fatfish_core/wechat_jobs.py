@@ -28,6 +28,21 @@ def _desktop() -> Path:
     return path
 
 
+def create_desktop_text_file(source: str) -> dict:
+    name = f"鲸鲸-{source[:12]}.txt"
+    try:
+        target = _desktop() / name
+        with target.open("x", encoding="utf-8"):
+            pass
+        if target.is_file():
+            return {"ok": True, "file": name}
+    except FileExistsError:
+        return {"ok": False, "reason": "file-already-exists"}
+    except OSError:
+        return {"ok": False, "reason": "desktop-write-unconfirmed"}
+    return {"ok": False, "reason": "desktop-write-unconfirmed"}
+
+
 def _clean(value, limit: int) -> str:
     text = re.sub(r"<[^>]+>", "", html.unescape(str(value or "")))
     return " ".join(text.split())[:limit].translate(str.maketrans("[]<>", "［］＜＞"))

@@ -801,6 +801,11 @@ def wechat_capability_internal(body: str, mac: str) -> dict[str, Any]:
         if value not in ("outlook", "automas", "xuexitong", "all"):
             raise ToolError("应用不在微信工具清单。")
         return desktop_status(value)
+    if op == "desktop-txt":
+        from fatfish_core.wechat_jobs import create_desktop_text_file
+        if request["scope"] == "0" * 64 or value:
+            raise ToolError("无效的桌面文件请求。")
+        return create_desktop_text_file(request["turn"])
     if op == "open":
         from dsh.service.desktop_apps import open_desktop_app
         if value not in ("outlook", "outlook-classic", "automas", "xuexitong"):

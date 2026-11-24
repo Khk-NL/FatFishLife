@@ -36,7 +36,7 @@ def verified_request(key_path: Path, body: str, mac: str) -> dict:
     if (not isinstance(scope, str) or not REQUEST_SCOPE.fullmatch(scope)
             or not isinstance(turn, str) or not REQUEST_SCOPE.fullmatch(turn)
             or type(at) is not int or abs(time.time() - at) > 15
-            or request["op"] not in ("save", "stage", "flush", "find", "lore", "status", "open", "sticker", "job", "jobs", "report-finish")
+            or request["op"] not in ("save", "stage", "flush", "find", "lore", "status", "open", "sticker", "job", "jobs", "report-finish", "desktop-txt")
             or len(body) > 1500 and request["op"] != "report-finish"
             or not isinstance(request["value"], str)):
         raise ValueError("invalid request")

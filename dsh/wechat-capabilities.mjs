@@ -32,6 +32,17 @@ export function ownerDesktopApp(text) {
   return result ? apps[result[1].toLowerCase().replace(/\s+/gu, '')] : ''
 }
 
+export function ownerDesktopTextFile(text) {
+  return /^(?:鲸鲸[，,：:\s]*)?(?:请|帮我)?在(?:电脑)?桌面上?\s*(?:新建|创建)\s*(?:一个|个|一份)?\s*(?:\.?(?:txt)|文本)\s*(?:文件|文档)[。！!]?$/iu.test(String(text ?? '').trim())
+}
+
+export async function createOwnerDesktopText(hostCtx, conversation, source, folder = defaultFolder()) {
+  const result = await callHost(hostCtx, folder, { conversation, pending: { fatfishSource: source },
+    op: 'desktop-txt', value: '' })
+  return result?.ok === true && typeof result.file === 'string' ? '建好啦，桌面上的 ' + result.file
+    : '老大，本鱼没能确认桌面文件创建成功，这轮先停'
+}
+
 export function ownerWorkflow(text) {
   const input = String(text ?? '').trim().replace(/^(?:鲸鲸|小鱼)[，,：:\s]*/u, '').replace(/^(?:帮我|请|替我)\s*/u, '')
   if (input.length > 600 || !/^(去|在|总结|查|找|整理|发|把|生成)/u.test(input)) return ''

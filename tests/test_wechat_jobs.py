@@ -10,6 +10,17 @@ from fatfish_core import wechat_jobs
 
 
 class WechatJobsTest(unittest.TestCase):
+    def test_desktop_txt_is_exclusive(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            with patch.object(wechat_jobs, "_desktop", return_value=folder):
+                result = wechat_jobs.create_desktop_text_file("a" * 64)
+                self.assertTrue(result["ok"])
+                path = folder / result["file"]
+                self.assertEqual(path.read_bytes(), b"")
+                path.write_text("existing", encoding="utf-8")
+                self.assertFalse(wechat_jobs.create_desktop_text_file("a" * 64)["ok"])
+                self.assertEqual(path.read_text(encoding="utf-8"), "existing")
     def test_report_filters_dates_and_sorts_by_confirmed_views(self):
         base = {"title": "样例", "pubdate": "2026-11-20T08:30:00+08:00"}
         rows = wechat_jobs.report_items([
