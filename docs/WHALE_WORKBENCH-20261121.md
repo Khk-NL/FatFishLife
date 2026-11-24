@@ -102,22 +102,29 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 
 
 
-## 常用软件授权检查
+## 常用国内软件接入
 
-2026-11-24 核对 Windows 已登记入口、日常 DSH 依赖和本机可访问目录。按需要使用的能力开通权限。
+2026-11-24 从 Windows 应用入口和日常 DSH 配置核对。以下按现有的文档、学习和视频工作流排序。
 
-| 软件 | 已核对能力 | 账号或运行条件 |
+| 软件 | 优先用途 | 接入状态与授权 |
 | --- | --- | --- |
-| 飞书 | 官方 CLI 已装入本机，微信主人直发链接的只读入口已部署 | 运行授权脚本，完成文档与知识库只读同意。 |
-| Outlook | 原微信邮件工具复用经典 Outlook 的默认收件箱。已启动经典版，当前诊断进程未取得 MAPI 对象。 | 登录经典 Outlook 并在同一个 Windows 用户会话复验。若使用新版 Outlook，云端邮件可走 Microsoft Graph 的委派权限。 |
-| Microsoft To Do、Outlook 日历 | Windows 已登记入口。日常 DSH 无已配置的 Microsoft Graph 授权。 | 有查任务或日历需求时，可用同一 Microsoft 账号按需授权 `Tasks.Read`、`Calendars.Read`。需要读邮件正文时再加入 `Mail.Read`。 |
-| OneDrive、WPS Office | OneDrive 的本机同步目录可访问。已同步的文件可走 DSH 文件工具，文档可用本机 Office 或 WPS 打开。 | 云端独有文件需同步到本机或单独授权访问。 |
-| OneNote | Windows 已登记入口。现有笔记工具使用 Obsidian 工作台。 | 如需读取 OneNote 云笔记，按指定账号单独核对委派权限。 |
-| Obsidian、DeskBox | 工作台有 Obsidian Vault 和配套插件。DeskBox 复用本机 MCP，已有预览回执。 | 两者的现有本机能力可直接复用。 |
-| WorkBuddy | 日常已挂现有国内连接插件。 | 沿用该插件的账号绑定。 |
-| AUTO-MAS、学习通 | 两个应用的 Windows 快捷入口均存在。检查时 AUTO-MAS 本机端口不可达，学习通目前只有打开及状态入口。 | 先由应用完成正常启动或登录。课程内容和账号动作需要另有受支持的接口。 |
+| 微信、B 站、WorkBuddy | 微信派活、B 站查视频和运营、WorkBuddy 查询额度与路由 | 已有各自接入。QQ 官方路线单列，当前暂停标记仍在。 |
+| 飞书 | 在主人私聊发链接，读指定私有文档 | 官方 CLI 和微信入口已部署。剩余本人只读授权，见上节。 |
+| WPS Office | 写、改本地文档、表格、演示稿，再用 WPS 打开 | 本机已核实 WPS 程序及三类 Office COM 注册。鲸鲸可用现有文件工具处理本地文件。读取 WPS 云文档是独立的账户授权场景。 |
+| 夸克网盘 | 找已有资料，下载指定文件供鲸鲸整理 | 本机有夸克云桥版。官方网盘 Skill 支持搜索、下载等能力，需授权。接入鲸鲸时优先验证文件搜索与指定下载。当前未安装此 Skill 到 DSH。 |
+| 百度网盘 | 处理已经下载的学习资料和视频素材 | 本机有客户端。官方 MCP 的正式调用有开发者资格要求，且分享链接下载有平台范围限制。现阶段本地文件可用。 |
+| 腾讯会议 | 查自己有权限的会议与已有纪要 | 本机有客户端。官方 MCP 支持个人版，令牌同时有会议预约、修改、取消等权限。接入时只注册实际需要的查询能力，令牌由本人生成并保存在本机。当前未授权。 |
+| 腾讯文档 | 读取本人可访问的网页云文档 | 官方远程 MCP 已核对，取决于是否常用腾讯文档账号。跟飞书的账号和权限独立。 |
+| 学习通 | 打开课程，整理导出的课件、通知和截止日期 | 现有 Windows 入口可打开和查运行状态。超星开放平台存在，个人课程清单和通知的授权范围还需按学校渠道验证。 |
+| 剪映专业版 | 按素材整理命名、产字幕和可检查的剪辑草稿 | Windows 已登记应用。文件准备可在本机完成，当前没有已经接通的剪映账号授权或云草稿接口。 |
 
-Microsoft 365 云端授权按实际使用的功能集中处理。组织账号的同意受租户策略约束。[Microsoft Graph 委派权限](https://learn.microsoft.com/en-us/graph/permissions-reference)
+新增云端授权按具体用途处理。WPS 和剪映这类本机文件工作流优先继续用已有的文件工具。腾讯会议和两个网盘各自使用官方账号授权，安装客户端只证明入口存在。
+
+- [WPS 用户授权](https://open.wps.cn/documents/app-integration-dev/wps365/server/certification-authorization/user-authorization/flow)
+- [夸克网盘官方 Skill](https://www.quark.cn/documents/help/quark-drive-skill)
+- [百度网盘官方 MCP](https://github.com/baidu-netdisk/mcp)
+- [腾讯会议官方 MCP](https://meeting.tencent.com/support/topic/2233/index.html)
+- [超星开放平台](https://auth.open.chaoxing.com/open/doc/list/yluywps0/zpsakobd/u58aqj3r?custom=null)
 
 ## Linux 试运行容量
 
