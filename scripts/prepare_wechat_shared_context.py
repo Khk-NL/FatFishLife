@@ -214,6 +214,8 @@ def adapt_bridge(source):
     const capabilities = installWechatCapabilities(agentCtx, this.ctx, {
       conversation: conversationKey, owner: () => this.#isBoundOwner(conversationKey), current,
     })
+    const isOwnerAgent = () => this.#isOwnerAgent(conversationKey)
+    const canReadFeishu = isOwnerAgent() ? installWechatFeishu(agentCtx, { owner: isOwnerAgent, current }) : () => false
     const onStop = stop => {
       const pending = current()
       if (pending && pending.fatfishStop?.reason === stop.reason) return
@@ -221,7 +223,8 @@ def adapt_bridge(source):
       this.logger.warn?.(JSON.stringify({ event: 'wechat-turn-stop', at: new Date().toISOString(), ...stop }))
     }
     if (this.#isOwnerAgent(conversationKey)) installWechatOwnerAgent(agentCtx, {
-      owner: () => this.#isOwnerAgent(conversationKey), current, onStop, available: capabilities.available,
+      owner: isOwnerAgent, current, onStop,
+      available: name => name === 'wechat_feishu_read' ? canReadFeishu() : capabilities.available(name),
     })
     else installWechatTextOnly(agentCtx, onStop, capabilities)
     this.#registerChannelPrompt(agentCtx, conversationKey)
@@ -234,7 +237,7 @@ def adapt_bridge(source):
                           "import * as mcpClient from '@deepseek-ai/dsh-mcp-client'\n"
                           "import { explainWechatStop, installWechatOwnerAgent, mountWechatDeskbox, pinnedWechatOwner, protectedWechatContent, wantsDeskbox } from './fatfish-wechat-owner-agent.mjs'\n"
                           "import { installWechatTextOnly } from './fatfish-wechat-turn-budget.mjs'\n"
-                          "import { chooseWechatSticker, createOwnerDesktopText, installWechatCapabilities, ownerDesktopApp, ownerDesktopTextFile, ownerMemory, ownerWorkflow, stageWechatNote } from './fatfish-wechat-capabilities.mjs'\n"
+                          "import { chooseWechatSticker, createOwnerDesktopText, installWechatCapabilities, installWechatFeishu, ownerDesktopApp, ownerDesktopTextFile, ownerMemory, ownerWorkflow, stageWechatNote } from './fatfish-wechat-capabilities.mjs'\n"
                           "export { installWechatTextOnly }\n\nexport class WechatBridge {")
     source = replace_once(source, '    if (kind === \'completed\') {\n      if (text.length === 0)',
                           '''    if (pending.fatfishStop) {
@@ -427,6 +430,7 @@ def main():
                                  ('wechat-turn-budget.mjs', 'package/lib/fatfish-wechat-turn-budget.mjs'),
                                  ('wechat-capabilities.mjs', 'package/lib/fatfish-wechat-capabilities.mjs'),
                                  ('wechat-owner-agent.mjs', 'package/lib/fatfish-wechat-owner-agent.mjs'),
+                                 ('feishu-docs.mjs', 'package/lib/fatfish-feishu-docs.mjs'),
                                  ('wechat-bili-report.mjs', 'package/lib/fatfish-wechat-bili-report.mjs'),
                                  ('control/video-evidence.mjs', 'package/lib/control/video-evidence.mjs'),
                                  ('control/whale-voice.mjs', 'package/lib/control/whale-voice.mjs'),

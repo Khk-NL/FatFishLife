@@ -4,7 +4,10 @@ const deskboxTools = new Set(['get_widget_spec', 'get_capability_spec', 'validat
 const directOutput = /(?:发|传|交|给).{0,10}(?:我|微信)|发回|传回/u
 const credential = /(?:^|[\\/\s"'=])(?:\.env(?:[.\w-]*)?|\.credentials\.ya?ml|credentials\.json|owner-agent\.json|wechat-capability\.key|id_(?:rsa|ed25519)|\.npmrc|\.netrc)(?=[\\/\s"'=]|$)|\b(?:sk-[a-z0-9_-]{16,}|ghp_[a-z0-9]{20,}|bearer\s+[a-z0-9._-]{12,})\b|(?:\b(?:api[_ -]?key|password|client[_ -]?secret)|密码|密钥)\s*[:=：]\s*["']?[a-z0-9._+\/-]{6,}/iu
 
-export const protectedWechatContent = value => credential.test(String(value ?? ''))
+export const protectedWechatContent = value => {
+  const text = String(value ?? '')
+  return credential.test(text) || /(?:^|[\\/])(?:\.lark-cli|private[\\/]+feishu-cli)(?:[\\/]|$)|\b(?:LARKSUITE_CLI_CONFIG_DIR|app-secret-stdin)\b/iu.test(text)
+}
 export const wantsDeskbox = text => /desk\s*box|桌面.{0,8}小组件|桌面格子/iu.test(String(text ?? ''))
 
 export async function mountWechatDeskbox(ctx, client, command) {
