@@ -101,6 +101,24 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 日常微信包已重启读回。真实隔离 DSH 模拟飞书读取时，只有本条直发链接可调用。真实授权尝试完成远端申请环节后，CLI 无法写入 Windows 凭据库，故真实文档访问状态仍待验证。
 
 
+
+## 常用软件授权检查
+
+2026-11-24 核对 Windows 已登记入口、日常 DSH 依赖和本机可访问目录。按需要使用的能力开通权限。
+
+| 软件 | 已核对能力 | 账号或运行条件 |
+| --- | --- | --- |
+| 飞书 | 官方 CLI 已装入本机，微信主人直发链接的只读入口已部署 | 运行授权脚本，完成文档与知识库只读同意。 |
+| Outlook | 原微信邮件工具复用经典 Outlook 的默认收件箱。已启动经典版，当前诊断进程未取得 MAPI 对象。 | 登录经典 Outlook 并在同一个 Windows 用户会话复验。若使用新版 Outlook，云端邮件可走 Microsoft Graph 的委派权限。 |
+| Microsoft To Do、Outlook 日历 | Windows 已登记入口。日常 DSH 无已配置的 Microsoft Graph 授权。 | 有查任务或日历需求时，可用同一 Microsoft 账号按需授权 `Tasks.Read`、`Calendars.Read`。需要读邮件正文时再加入 `Mail.Read`。 |
+| OneDrive、WPS Office | OneDrive 的本机同步目录可访问。已同步的文件可走 DSH 文件工具，文档可用本机 Office 或 WPS 打开。 | 云端独有文件需同步到本机或单独授权访问。 |
+| OneNote | Windows 已登记入口。现有笔记工具使用 Obsidian 工作台。 | 如需读取 OneNote 云笔记，按指定账号单独核对委派权限。 |
+| Obsidian、DeskBox | 工作台有 Obsidian Vault 和配套插件。DeskBox 复用本机 MCP，已有预览回执。 | 两者的现有本机能力可直接复用。 |
+| WorkBuddy | 日常已挂现有国内连接插件。 | 沿用该插件的账号绑定。 |
+| AUTO-MAS、学习通 | 两个应用的 Windows 快捷入口均存在。检查时 AUTO-MAS 本机端口不可达，学习通目前只有打开及状态入口。 | 先由应用完成正常启动或登录。课程内容和账号动作需要另有受支持的接口。 |
+
+Microsoft 365 云端授权按实际使用的功能集中处理。组织账号的同意受租户策略约束。[Microsoft Graph 委派权限](https://learn.microsoft.com/en-us/graph/permissions-reference)
+
 ## Linux 试运行容量
 
 以下是 API 推理场景的规划值。轻量单实例最低按 2 vCPU、4 GiB 内存和 40 GB SSD 规划，适用于 Headless DSH、FatFish 核心、SQLite 和少量低并发接入。要同机运行多个接入、常驻任务和现有容器，建议 4 vCPU、8 GiB 内存和 80 GB SSD。跑本地模型或持续处理视频时，按模型和任务单独测峰值。
