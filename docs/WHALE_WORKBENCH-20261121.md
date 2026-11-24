@@ -74,3 +74,19 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 - 技能候选在已有人工审核入口展示三个不同的任务时段，供用户查找当时的运营回执。参考 [Hermes Agent 的学习闭环](https://github.com/NousResearch/hermes-agent)。
 
 控制层候选已通过官方管理器隔离安装和宿主加载。归档内直接运行推荐替身验证了 10 万播放门槛、无分镜跳过和服务端用量读回。桌宠候选通过隔离原生事件验收。日常 DSH 使用工作区中的 MCP 源码，当前还有并发的未提交改动，两个候选的生产换包与重启等待这些改动进入同一次验收。
+
+## DeskBox 小组件
+
+使用 [DeskBox 官方 MCP](https://github.com/Tianyu199509/deskbox-agent)，通过 Windows 当前用户下的 `DeskBox.exe --mcp` 接入 DSH 原生 stdio 客户端。配置只挂在本机「鲸鲸」桌面 preset，注册八个工具。仓库的指南、示例和配套 Skill 采用 MIT 许可，本次直接使用 DeskBox 自带的 MCP 服务。
+
+先用 `deskbox_get_widget_spec` 的 `compact` 模式读当前规范，再用 `deskbox_validate_manifest` 验证。需要看效果时，用 `deskbox_upsert_widget` 暂存并凭 `stageId` 请求预览。组件提交沿用 DeskBox 的原生审批，覆盖现有组件、清除数据或添加脚本时由宿主本地确认。
+
+2026-11-24 本机 DeskBox 1.6.0 的 MCP 握手、八个工具列表、只读规范和工坊状态均通过。隔离 DSH 使用模拟模型调用了真实 DeskBox 的规范工具，并验证其他会话无工具且不能直接执行。日常 desktop 配置已写入并读回，只新增本机 preset 中的一条 MCP 配置。微信、B 站和 QQ 的真实账号会话未参与验收。
+
+可在鲸鲸的 DSH 工作台测试「用 DeskBox 设计一个鲸鲸待办小组件，先验证格式并生成预览，等我确认后再提交」。
+
+## Linux 试运行容量
+
+以下是 API 推理场景的规划值。轻量单实例最低按 2 vCPU、4 GiB 内存和 40 GB SSD 规划，适用于 Headless DSH、FatFish 核心、SQLite 和少量低并发接入。要同机运行多个接入、常驻任务和现有容器，建议 4 vCPU、8 GiB 内存和 80 GB SSD。跑本地模型或持续处理视频时，按模型和任务单独测峰值。
+
+RackNerd 实测 2 vCPU、2,468 MiB 内存，采样只有 40 MiB 可用内存并持续换页。DeepSeek 网关未鉴权探测耗时约 323–368 毫秒，适合先做小规模直连验证。以上数据不能估算模型首字延迟。DeskBox 桌面宿主继续在 Windows 运行，Linux 负责无界面工作。现阶段无需国内中转。
