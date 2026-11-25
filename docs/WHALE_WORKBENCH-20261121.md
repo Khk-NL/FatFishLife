@@ -104,7 +104,19 @@ DSH 桌面和当前 Windows 用户的 Codex 通过 [飞书读取技能](../dsh/s
 
 同一技能支持读取指定群的公告、历史和消息附件。用已打开网页的公告地址取得数字群号，再从授权历史接口的消息返回中确认 `oc_` 群 ID。新版公告块接口通过真实验证，并从两条群消息下载了 DOCX 和 PDF。群名查找仍缺 `im:chat:read`。网页「文件」页签列表已查看，CLI 通过历史消息枚举附件。
 
-已核实的多维表格与群关系保存在 `D:/DSHData/private/feishu-chat-links.json`。同一 Base 的不同表和视图可以找到已验证的对应群。具体链接与群 ID 保存在本机。需要读取群资料时，沿用群公告和消息的用户授权。
+已核实的多维表格与群关系保存在 Windows 的 `D:/DSHData/private/feishu-chat-links.json` 或 Linux 的 CLI 配置目录。同一 Base 的不同表和视图可以找到已验证的对应群。关联记录随私有配置保管，群内容读取使用飞书的用户授权。
+
+### Linux 服务器
+
+MyVps 已安装经 SHA-256 校验的官方 `lark-cli` 1.0.100。SSH 登录用户下的 `~/.agents/skills/feishu-base-read/SKILL.md` 和 `~/.lark-cli/feishu-chat-links.json` 已部署。以实际运行 Agent 的系统用户配置并授权 CLI。如果换用其他系统用户，将技能安装到该用户可发现的技能目录，关联文件放在其 CLI 配置目录。
+
+在服务器 SSH 终端运行 `lark-cli config init`，按提示绑定现有飞书应用。然后发起设备授权，用电脑或手机打开提示的飞书页面确认。每个设备的用户授权分别保存在相应环境。
+
+```sh
+lark-cli auth login --scope 'docx:document:readonly wiki:wiki:readonly base:record:read im:message:readonly im:message.group_msg:get_as_user im:resource im:chat.announcement:read'
+```
+
+飞书应用后台开通「查看群信息」的用户身份权限后，可在授权范围加入 `im:chat:read`，用于按群名定位。服务器上的真实飞书读取等账号授权后验收。
 
 微信入口继续只读主人本条直发的 Wiki 和云文档。日常微信包此前已重启读回，隔离宿主验过本轮读取和旧链接拒绝。微信账号的真实飞书文档读取尚未实测。
 
