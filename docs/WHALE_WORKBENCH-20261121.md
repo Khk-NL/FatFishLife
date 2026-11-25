@@ -100,7 +100,7 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 
 当前 Windows 用户的终端可以通过 `%USERPROFILE%\.local\bin\lark-cli.cmd` 共用原有配置。本机共享入口和授权脚本优先使用 `%LOCALAPPDATA%\Programs\LarkCli\1.0.100\lark-cli.exe`。本机从项目 `.tools` 路径运行时，CLI 的注册表凭据写入返回访问拒绝。同一二进制在用户安装目录通过了模拟凭据写入及清理。Agent 读取用户给出的多维表格视图时可运行 `lark-cli base +record-list --as user --base-token <base> --table-id <table> --view-id <view> --limit 1 --format json` 检查访问。飞书仍按登录用户权限校验表格访问。
 
-本机桌面通过 [feishu-base-read 技能](../dsh/skills/feishu-base-read/SKILL.md) 调用共享 CLI。技能已安装到 `D:/DSHData/skills/feishu-base-read`。DSH 0.2.2-rc.5 的原生文件技能加载器已发现并加载该技能，隔离 Electron 进程通过共享 CLI 从用户指定视图真实读取 1 条记录。桌面模型自行调用尚未实测。
+DSH 桌面和当前 Windows 用户的 Codex 通过 [飞书读取技能](../dsh/skills/feishu-base-read/SKILL.md) 调用共享 CLI。贴多维表格、Wiki 或云文档链接，说「看一下这个飞书视图」或「这篇也可以读吗」即可匹配，无需说技能名。DSH 从 `D:/DSHData/skills/feishu-base-read` 加载，Codex 从用户的 `.codex/skills` 加载。共享 CLI 已实读多维表格记录、Wiki 文档目录和正文。DSH 桌面模型自动选用的完整回合尚未实测。
 
 微信入口继续只读主人本条直发的 Wiki 和云文档。日常微信包此前已重启读回，隔离宿主验过本轮读取和旧链接拒绝。微信账号的真实飞书文档读取尚未实测。
 
