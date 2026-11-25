@@ -98,7 +98,7 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 
 在本人登录的 Windows 桌面双击 [authorize-feishu.cmd](../scripts/authorize-feishu.cmd)。配置缺失时，按提示绑定已有飞书应用。应用需要开通 `wiki:wiki:readonly`、`docx:document:readonly` 和 `base:record:read` 的用户身份权限。应用配置保存后，在飞书官方页面完成用户授权，脚本会检查这三项权限。配置与凭据留在本机。
 
-当前 Windows 用户的终端可以通过 `%USERPROFILE%\.local\bin\lark-cli.cmd` 共用原有配置。Agent 读取用户给出的多维表格视图时可运行 `lark-cli base +record-list --as user --base-token <base> --table-id <table> --view-id <view> --limit 1 --format json` 检查访问。飞书仍按登录用户权限校验表格访问。
+当前 Windows 用户的终端可以通过 `%USERPROFILE%\.local\bin\lark-cli.cmd` 共用原有配置。本机共享入口和授权脚本优先使用 `%LOCALAPPDATA%\Programs\LarkCli\1.0.100\lark-cli.exe`。本机从项目 `.tools` 路径运行时，CLI 的注册表凭据写入返回访问拒绝。同一二进制在用户安装目录通过了模拟凭据写入及清理。Agent 读取用户给出的多维表格视图时可运行 `lark-cli base +record-list --as user --base-token <base> --table-id <table> --view-id <view> --limit 1 --format json` 检查访问。飞书仍按登录用户权限校验表格访问。
 
 日常微信包已重启读回。真实隔离 DSH 模拟飞书读取时，只有本条直发链接可调用。真实授权尝试完成远端申请环节后，CLI 无法写入 Windows 凭据库，故真实文档访问状态仍待验证。
 

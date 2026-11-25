@@ -1,11 +1,12 @@
 @echo off
 setlocal DisableDelayedExpansion
 set "LARKSUITE_CLI_CONFIG_DIR=D:\DSHData\private\feishu-cli"
-set "FATFISH_FEISHU_CLI=%~dp0..\.tools\feishu-1.0.100\lark-cli.exe"
+set "FATFISH_FEISHU_CLI=%LOCALAPPDATA%\Programs\LarkCli\1.0.100\lark-cli.exe"
+if not exist "%FATFISH_FEISHU_CLI%" set "FATFISH_FEISHU_CLI=%~dp0..\.tools\feishu-1.0.100\lark-cli.exe"
 set "FATFISH_FEISHU_SCOPES=docx:document:readonly wiki:wiki:readonly base:record:read"
 
 if not exist "%FATFISH_FEISHU_CLI%" (
-    echo Feishu CLI 1.0.100 is missing from the FatFishLife .tools directory.
+    echo Feishu CLI 1.0.100 was not found in the user install or the FatFishLife .tools directory.
     goto failed
 )
 
