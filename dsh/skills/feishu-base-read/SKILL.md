@@ -1,6 +1,6 @@
 ---
 name: feishu-base-read
-description: 用已授权的本机飞书 CLI 只读查看飞书多维表格、Wiki、云文档、群消息、群公告和消息附件。用户贴链接说「看一下」，或请查看已指定或已打开的飞书群公告、群文件时自动使用。
+description: 用已授权的本机飞书 CLI 只读查看飞书多维表格、Wiki、云文档、群消息、群公告和消息附件。用户贴链接说「看一下」，或请获取指定群的 ID、查看已指定或已打开的飞书群公告和群文件时自动使用。
 ---
 
 # 读取飞书内容
@@ -25,17 +25,28 @@ lark-cli base +record-list --as user --base-token <base> --table-id <table> --vi
 
 没有指定视图时去掉 `--view-id`。预览用小批量。需要完整分析时，按返回的 `has_more` 和 `next_offset` 分页读取，或者按任务指定列。
 
-## 群公告、群消息和附件
+## 获取群 ID
 
-使用用户指定的 `oc_…` 群 ID。群名查找需要 `im:chat:read`。如果用户已打开目标群的飞书网页版并允许查看，可从「群公告」页内嵌文档的 URL 取数字 `chat_id` 或实际公告文档路径。核对页面群名。邀请链接和仅含 `token` 的消息分享链接无法直接提供群 ID。
+已有 `oc_…` 群 ID 时直接使用。只有群名时，按群名查找需要 `im:chat:read`。邀请链接和仅含 `token` 的消息分享链接无法直接提供群 ID。
 
-用数字群号或 `oc_…` 调官方群历史接口。数字群号仅在已验证的网页会话路径下使用。从 `data.items[].chat_id` 取得可继续调用的 `oc_…`，检查返回值属于同一群。优先从最近一页找目标消息，空页且 `has_more=true` 时可按 `page_token` 继续。
+1. 在飞书网页版打开目标群，核对群名后点击顶部「群公告」。用户允许查看已打开的网页时，可以直接检查可见公告的内嵌页面地址。手动操作时按 **F12**，在 **元素（Elements）** 面板按 **Ctrl+F** 搜索 `iframe-announcement`，查看该 `iframe` 的 `src`，复制查询参数 `chat_id` 的数字值。
+2. 将下方 `<数字群号>` 换成刚查到的数字，在 PowerShell 中运行。输出的 `oc_…` 就是开放平台群 ID。
 
 ```powershell
-@{container_id_type='chat';container_id='<chat_id>';page_size=25;sort_type='ByCreateTimeDesc'} |
+@{container_id_type='chat';container_id='<数字群号>';page_size=25;sort_type='ByCreateTimeDesc'} |
   ConvertTo-Json -Compress |
-  lark-cli api GET /open-apis/im/v1/messages --as user --params - --format json
+  lark-cli api GET /open-apis/im/v1/messages --as user --params - --format json |
+  ConvertFrom-Json |
+  ForEach-Object { $_.data.items.chat_id } |
+  Where-Object { $_ -match '^oc_[a-zA-Z0-9]+$' } |
+  Sort-Object -Unique
 ```
+
+没有输出时，保留完整 JSON 检查 `ok`。如果这一页没有可见消息但 `has_more=true`，将返回的 `page_token` 加入参数后再取下一页。
+
+## 群公告、群消息和附件
+
+用正式群 ID 查询群历史时，沿用上面的请求，将参数 `container_id` 改为 `oc_…` 并保留完整 JSON。优先从最近一页找目标消息。
 
 群公告走新版块接口。也可以用网页「群公告」打开的实际 `/docx/…` 路径按前面的云文档方法读取正文。文件从群消息中筛选 `msg_type=file`，解析 `body.content` 中的 `file_key`，用对应 `message_id` 下载用户指定的附件。
 
