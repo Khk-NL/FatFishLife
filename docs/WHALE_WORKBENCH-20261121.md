@@ -92,11 +92,13 @@ GitHub Star 为 2026-11-21 仓库页面显示值，取近似数。用它看项�
 
 ## 飞书按需读取
 
-鲸鲸从已认证主人的微信直发消息获取飞书 Wiki 或新版云文档链接。复用 [飞书官方 CLI 1.0.100](https://github.com/larksuite/cli/releases/tag/v1.0.100)，以用户身份调用飞书的 Wiki 节点与文档正文读取 API。文档保留私有，飞书校验登录用户和页面权限。授权仅请求 `wiki:wiki:readonly` 和 `docx:document:readonly`。正文超过 16,000 字符时返回截断标记。同一条消息只请求每个链接一次。
+鲸鲸从已认证主人的微信直发消息获取飞书 Wiki 或新版云文档链接。复用 [飞书官方 CLI 1.0.100](https://github.com/larksuite/cli/releases/tag/v1.0.100)，以用户身份调用飞书的 Wiki 节点与文档正文读取 API。文档保留私有，飞书校验登录用户和页面权限。正文超过 16,000 字符时返回截断标记。同一条消息只请求每个链接一次。
 
 旧的个人远程 MCP 方案正在逐步下线，本机使用官方推荐的 CLI。二进制已按官方 npm 包内 SHA-256 校验，MIT 上游许可随本机工具保留。CLI 的专用配置位于 `D:/DSHData/private/feishu-cli`，凭据使用 Windows 系统凭据库。[飞书关于个人 MCP 的说明](https://open.larkenterprise.com/document/mcp_open_tools/end-user-call-remote-mcp-server)
 
-首次运行 [authorize-feishu.cmd](../scripts/authorize-feishu.cmd)。在正常 Windows 桌面双击，已有应用可在交互界面选绑定已有应用。应用配置保存后，在飞书官方页同意指定的两项只读权限。命令会检查授权范围。配置与凭据留在本机。
+在本人登录的 Windows 桌面双击 [authorize-feishu.cmd](../scripts/authorize-feishu.cmd)。配置缺失时，按提示绑定已有飞书应用。应用需要开通 `wiki:wiki:readonly`、`docx:document:readonly` 和 `base:record:read` 的用户身份权限。应用配置保存后，在飞书官方页面完成用户授权，脚本会检查这三项权限。配置与凭据留在本机。
+
+当前 Windows 用户的终端可以通过 `%USERPROFILE%\.local\bin\lark-cli.cmd` 共用原有配置。Agent 读取用户给出的多维表格视图时可运行 `lark-cli base +record-list --as user --base-token <base> --table-id <table> --view-id <view> --limit 1 --format json` 检查访问。飞书仍按登录用户权限校验表格访问。
 
 日常微信包已重启读回。真实隔离 DSH 模拟飞书读取时，只有本条直发链接可调用。真实授权尝试完成远端申请环节后，CLI 无法写入 Windows 凭据库，故真实文档访问状态仍待验证。
 

@@ -2,7 +2,7 @@
 setlocal DisableDelayedExpansion
 set "LARKSUITE_CLI_CONFIG_DIR=D:\DSHData\private\feishu-cli"
 set "FATFISH_FEISHU_CLI=%~dp0..\.tools\feishu-1.0.100\lark-cli.exe"
-set "FATFISH_FEISHU_SCOPES=docx:document:readonly wiki:wiki:readonly"
+set "FATFISH_FEISHU_SCOPES=docx:document:readonly wiki:wiki:readonly base:record:read"
 
 if not exist "%FATFISH_FEISHU_CLI%" (
     echo Feishu CLI 1.0.100 is missing from the FatFishLife .tools directory.
@@ -23,7 +23,7 @@ if errorlevel 1 goto failed
 if errorlevel 1 goto failed
 
 :ready
-echo Feishu document and wiki read-only scopes verified.
+echo Feishu document, wiki and Base record read-only scopes verified.
 pause
 exit /b 0
 
