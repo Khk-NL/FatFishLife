@@ -4,7 +4,8 @@ import { promisify } from 'node:util';
 
 const execute = promisify(execFile);
 const documentLink = /https:\/\/(?:[a-z0-9-]+\.)*feishu\.cn\/(wiki|docx)\/([a-z0-9]{8,80})(?![a-z0-9/_-])/giu;
-const cliPath = 'D:/Code/Projects/FatFishLife/.tools/feishu-1.0.100/lark-cli.exe';
+const windows = process.platform === 'win32';
+const cliPath = windows ? 'D:/Code/Projects/FatFishLife/.tools/feishu-1.0.100/lark-cli.exe' : 'lark-cli';
 const configPath = 'D:/DSHData/private/feishu-cli';
 
 export function feishuLinks(text) {
@@ -16,7 +17,7 @@ async function readApi(path, params, signal) {
     const { stdout } = await execute(cliPath, ['api', 'GET', path, '--as', 'user', '--format', 'json',
       ...(params ? ['--params', JSON.stringify(params)] : [])], {
       encoding: 'utf-8', windowsHide: true, maxBuffer: 2 * 1024 * 1024, timeout: 12_000, signal,
-      env: { ...process.env, LARKSUITE_CLI_CONFIG_DIR: configPath },
+      env: windows ? { ...process.env, LARKSUITE_CLI_CONFIG_DIR: configPath } : process.env,
     });
     const result = JSON.parse(stdout);
     if (!result || typeof result.data !== 'object' || !result.data || result.ok === false || result.code && result.code !== 0) {
@@ -25,6 +26,7 @@ async function readApi(path, params, signal) {
     return { ok: true, data: result.data };
   } catch (error) {
     const diagnostic = String(error.stderr || error.stdout || '').slice(0, 4096);
+    if (error.code === 'ENOENT') return { ok: false, reason: '本机飞书官方命令行组件还未就绪' };
     if (error.killed || error.code === 'ABORT_ERR') return { ok: false, reason: '飞书读取超时或已经取消' };
     if (/not authenticated|auth login|not logged|unauthenticated|token expired|state expired|cli is not configured|config init/iu.test(diagnostic)) {
       return { ok: false, reason: '本机飞书只读授权还未完成或已失效，请重新授权后再试' };
@@ -36,10 +38,10 @@ async function readApi(path, params, signal) {
   }
 }
 
-export async function readFeishuDocument(link, { signal, request = readApi, ready = () => access(cliPath) } = {}) {
+export async function readFeishuDocument(link, { signal, request = readApi, ready = windows ? () => access(cliPath) : undefined } = {}) {
   const [candidate] = feishuLinks(link);
   if (candidate !== link || !candidate) return { ok: false, reason: '请提供飞书 Wiki 或云文档链接' };
-  try { await ready(); }
+  try { await ready?.(); }
   catch { return { ok: false, reason: '本机飞书官方命令行组件还未就绪' }; }
   const [type, token] = new URL(link).pathname.slice(1).split('/');
   let document = token;

@@ -108,6 +108,10 @@ DSH 桌面和当前 Windows 用户的 Codex 通过 [飞书读取技能](../dsh/s
 
 ### Linux 服务器
 
+新 VPS `racknerd-20a687d` 已安装经校验的官方 `lark-cli` 1.0.100。FatFishLife 的 DSH 服务账号 `fatfishlife` 和 Codex 系统账号 `codex` 各有一份读取技能，各自在自己的用户目录保管授权。DSH 正常重启并验证了运行路径和鉴权响应。微信链路的 Wiki/云文档适配已支持 Linux PATH 与当前 CLI 配置，真实账号调用等待本人授权并启用对应渠道。
+
+先登录新机。给 DSH 配置飞书时，使用 `sudo -H -u fatfishlife -- /usr/local/bin/lark-cli config init`。发起下方 `auth login` 时也在命令前加 `sudo -H -u fatfishlife --`。给 Codex 授权时，先运行 `sudo -iu codex`，然后在该账号下运行 `lark-cli config init` 和 `lark-cli auth login`。
+
 MyVps 已安装经 SHA-256 校验的官方 `lark-cli` 1.0.100。SSH 登录用户下的 `~/.agents/skills/feishu-base-read/SKILL.md` 和 `~/.lark-cli/feishu-chat-links.json` 已部署。以实际运行 Agent 的系统用户配置并授权 CLI。如果换用其他系统用户，将技能安装到该用户可发现的技能目录，关联文件放在其 CLI 配置目录。
 
 在服务器 SSH 终端运行 `lark-cli config init`，按提示绑定现有飞书应用。然后发起设备授权，用电脑或手机打开提示的飞书页面确认。每个设备的用户授权分别保存在相应环境。
